@@ -44,57 +44,26 @@ func ExtractRepoBasePath(fullPath string) string {
 }
 
 func RemovePackageSource(name, registry string) (bool, bool, error) {
-	return removePackageSource(name, registry, nil)
+	result, err := NewSourceCache(WithRemoveAll(removeAllSafeFunc)).Remove(RemoveSelector{
+		Kind: PackageSource,
+		Package: PackageSelector{
+			Name:     name,
+			Registry: registry,
+		},
+	})
+	return result.Matched > 0, result.FilesDeleted > 0, err
 }
 
 func RemovePackageSourceVersion(name, registry, version string) (bool, bool, error) {
-	return removePackageSource(name, registry, &version)
-}
-
-func removePackageSource(name, registry string, version *string) (bool, bool, error) {
-	packages, repos, err := ListSources()
-	if err != nil {
-		return false, false, err
-	}
-	var pkg *PackageEntry
-	for i := range packages {
-		if packageMatches(packages[i], name, registry, version) {
-			pkg = &packages[i]
-			break
-		}
-	}
-	if pkg == nil {
-		return false, false, nil
-	}
-	target := packageRemovalTarget(pkg.Path, version)
-	filtered := make([]PackageEntry, 0, len(packages))
-	for _, other := range packages {
-		if packageMatches(other, name, registry, version) {
-			continue
-		}
-		filtered = append(filtered, other)
-	}
-	stillReferenced := packageRemovalTargetReferenced(target, version, filtered, repos)
-	if stillReferenced {
-		if err := WriteSources(filtered, repos); err != nil {
-			return true, false, err
-		}
-		return true, false, nil
-	}
-	if err := preflightRemoveSafe(target); err != nil {
-		return false, false, err
-	}
-	if err := WriteSources(filtered, repos); err != nil {
-		return true, false, err
-	}
-	if err := removeAllSafeFunc(target); err != nil {
-		if restoreErr := WriteSources(packages, repos); restoreErr != nil {
-			return true, true, fmt.Errorf("delete failed: %w; restore failed: %v", err, restoreErr)
-		}
-		return true, true, err
-	}
-	cleanupEmptyParents(target)
-	return true, true, nil
+	result, err := NewSourceCache(WithRemoveAll(removeAllSafeFunc)).Remove(RemoveSelector{
+		Kind: PackageSource,
+		Package: PackageSelector{
+			Name:     name,
+			Registry: registry,
+			Version:  version,
+		},
+	})
+	return result.Matched > 0, result.FilesDeleted > 0, err
 }
 
 func packageRemovalTarget(path string, version *string) string {
@@ -144,97 +113,15 @@ func pathsRelated(a, b string) bool {
 }
 
 func RemoveRepoSource(displayName string, version *string) (bool, error) {
+	selector := RepoSelector{DisplayName: displayName}
 	if version != nil {
-		if _, err := RepoPath(displayName, *version); err != nil {
-			return false, err
-		}
-	} else {
-		if _, err := repoRootPath(displayName); err != nil {
-			return false, err
-		}
+		selector.Version = *version
 	}
-	packages, repos, err := ListSources()
-	if err != nil {
-		return false, err
-	}
-	filteredRepos := make([]RepoEntry, 0, len(repos))
-	removedRepos := make([]RepoEntry, 0)
-	for _, repo := range repos {
-		matchesName := repo.Name == displayName
-		matchesVersion := version == nil || repo.Version == *version
-		if matchesName && matchesVersion {
-			removedRepos = append(removedRepos, repo)
-			continue
-		}
-		filteredRepos = append(filteredRepos, repo)
-	}
-	if len(removedRepos) == 0 {
-		return false, nil
-	}
-	deleted := map[string]bool{}
-	toDelete := make([]string, 0, len(removedRepos))
-	for _, repo := range removedRepos {
-		if deleted[repo.Path] || repoPathReferenced(repo.Path, packages, filteredRepos) {
-			continue
-		}
-		toDelete = append(toDelete, repo.Path)
-		deleted[repo.Path] = true
-	}
-	for _, path := range toDelete {
-		if err := preflightRemoveSafe(path); err != nil {
-			return true, err
-		}
-	}
-	if err := WriteSources(packages, filteredRepos); err != nil {
-		return true, err
-	}
-	for _, path := range toDelete {
-		if err := removeAllSafeFunc(path); err != nil {
-			restoreRepos, restoreBuildErr := restoreExistingRepoEntries(filteredRepos, removedRepos)
-			if restoreBuildErr != nil {
-				return true, fmt.Errorf("delete failed: %w; restore failed: %v", err, restoreBuildErr)
-			}
-			if restoreErr := WriteSources(packages, restoreRepos); restoreErr != nil {
-				return true, fmt.Errorf("delete failed: %w; restore failed: %v", err, restoreErr)
-			}
-			return true, err
-		}
-		cleanupEmptyParents(path)
-	}
-	return true, nil
-}
-
-func restoreExistingRepoEntries(filteredRepos, removedRepos []RepoEntry) ([]RepoEntry, error) {
-	restored := append([]RepoEntry{}, filteredRepos...)
-	for _, repo := range removedRepos {
-		exists, err := cachePathExists(repo.Path)
-		if err != nil {
-			return nil, err
-		}
-		if exists {
-			restored = append(restored, repo)
-		}
-	}
-	return restored, nil
-}
-
-func cleanupEmptyParents(relativePath string) {
-	parts := strings.Split(filepath.ToSlash(relativePath), "/")
-	for i := len(parts) - 1; i >= 1; i-- {
-		dir, err := AbsolutePath(strings.Join(parts[:i], "/"))
-		if err != nil {
-			return
-		}
-		info, err := os.Lstat(dir)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 {
-			return
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil || len(entries) > 0 {
-			return
-		}
-		_ = os.Remove(dir)
-	}
+	result, err := NewSourceCache(WithRemoveAll(removeAllSafeFunc)).Remove(RemoveSelector{
+		Kind: RepoSource,
+		Repo: selector,
+	})
+	return result.Matched > 0, err
 }
 
 func repoRootReferenced(base string, repos []RepoEntry) bool {
@@ -258,25 +145,6 @@ func repoPathReferenced(path string, packages []PackageEntry, repos []RepoEntry)
 		}
 	}
 	return false
-}
-
-func cachePathExists(relativePath string) (bool, error) {
-	path, err := AbsolutePath(relativePath)
-	if err != nil {
-		return false, err
-	}
-	_, err = os.Stat(path)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return err == nil, err
-}
-
-func preflightRemoveSafe(relativePath string) error {
-	if _, err := AbsolutePath(relativePath); err != nil {
-		return err
-	}
-	return rejectSymlinkComponents(relativePath)
 }
 
 var removeAllSafeFunc = removeAllSafe

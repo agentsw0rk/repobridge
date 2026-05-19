@@ -1,12 +1,10 @@
 package cache
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"repobridge/internal/repobridge"
 )
@@ -81,67 +79,15 @@ func RepoPath(displayName, version string) (string, error) {
 }
 
 func ReadSources() (SourcesIndex, error) {
-	home, err := Home()
-	if err != nil {
-		return SourcesIndex{}, err
-	}
-	path := filepath.Join(home, sourcesFile)
-	content, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return SourcesIndex{}, nil
-	}
-	if err != nil {
-		return SourcesIndex{}, err
-	}
-	var index SourcesIndex
-	if err := json.Unmarshal(content, &index); err != nil {
-		bak := filepath.Join(home, "sources.json.bak")
-		fmt.Fprintf(os.Stderr, "Warning: %s is corrupt (%v), backing up to %s\n", path, err, bak)
-		if err := os.WriteFile(bak, content, 0o644); err != nil {
-			return SourcesIndex{}, err
-		}
-		return SourcesIndex{}, nil
-	}
-	return index, nil
+	return NewSourceCache().readSources()
 }
 
 func ListSources() ([]PackageEntry, []RepoEntry, error) {
-	index, err := ReadSources()
-	if err != nil {
-		return nil, nil, err
-	}
-	return index.Packages, index.Repos, nil
+	return NewSourceCache().listSources()
 }
 
 func WriteSources(packages []PackageEntry, repos []RepoEntry) error {
-	home, err := Home()
-	if err != nil {
-		return err
-	}
-	path := filepath.Join(home, sourcesFile)
-	if len(packages) == 0 && len(repos) == 0 {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return nil
-	}
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		return err
-	}
-	index := SourcesIndex{
-		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
-		Packages:  packages,
-		Repos:     repos,
-	}
-	content, err := json.MarshalIndent(index, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := filepath.Join(home, ".sources.json.tmp")
-	if err := os.WriteFile(tmp, content, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return NewSourceCache().writeSources(packages, repos)
 }
 
 func repoRootPath(displayName string) (string, error) {

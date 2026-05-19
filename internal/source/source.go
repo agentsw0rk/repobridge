@@ -3,10 +3,7 @@ package source
 import (
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"repobridge/internal/cache"
 	"repobridge/internal/lockfile"
@@ -61,6 +58,7 @@ func EnsureCached(spec string, opts Options) (Outcome, error) {
 }
 
 func ensurePackageCached(input string, opts Options) (Outcome, error) {
+	store := cache.NewSourceStore()
 	spec := registry.ParsePackageSpec(input)
 	if spec.Name == "" {
 		return Outcome{}, fmt.Errorf("package name must not be empty")
@@ -69,15 +67,12 @@ func ensurePackageCached(input string, opts Options) (Outcome, error) {
 		spec.Version = lockfile.DetectInstalledVersion(spec.Name, opts.CWD)
 	}
 	if spec.Version != "" {
-		if entry, err := cachedPackage(spec.Name, string(spec.Registry), spec.Version); err != nil {
+		key := cache.PackageKey{Name: spec.Name, Registry: string(spec.Registry), Version: spec.Version}
+		if entry, ok, err := store.GetPackage(key); err != nil {
 			return Outcome{}, err
-		} else if entry != nil {
-			abs, err := cache.AbsolutePath(entry.Path)
-			if err != nil {
-				return Outcome{}, err
-			}
+		} else if ok {
 			return Outcome{
-				Path:        abs,
+				Path:        entry.Path,
 				Name:        entry.Name,
 				Version:     entry.Version,
 				SourceLabel: registry.Registry(entry.Registry).Label(),
@@ -90,15 +85,12 @@ func ensurePackageCached(input string, opts Options) (Outcome, error) {
 	if err != nil {
 		return Outcome{}, err
 	}
-	if entry, err := cachedPackage(resolved.Name, string(resolved.Registry), resolved.Version); err != nil {
+	key := cache.PackageKey{Name: resolved.Name, Registry: string(resolved.Registry), Version: resolved.Version}
+	if entry, ok, err := store.GetPackage(key); err != nil {
 		return Outcome{}, err
-	} else if entry != nil {
-		abs, err := cache.AbsolutePath(entry.Path)
-		if err != nil {
-			return Outcome{}, err
-		}
+	} else if ok {
 		return Outcome{
-			Path:        abs,
+			Path:        entry.Path,
 			Name:        entry.Name,
 			Version:     entry.Version,
 			SourceLabel: registry.Registry(entry.Registry).Label(),
@@ -123,27 +115,26 @@ func ensurePackageCached(input string, opts Options) (Outcome, error) {
 	if result.Registry == "" {
 		result.Registry = resolved.Registry
 	}
-	relativePath, err := relativeCachePath(result.Path)
-	if err != nil {
-		return Outcome{}, err
-	}
-	if err := upsertPackage(result.Package, string(result.Registry), result.Version, relativePath); err != nil {
-		return Outcome{}, err
-	}
-	abs, err := cache.AbsolutePath(relativePath)
+	entry, err := store.RecordPackage(key, cache.FetchedPackage{
+		Name:     result.Package,
+		Registry: string(result.Registry),
+		Version:  result.Version,
+		Path:     result.Path,
+	})
 	if err != nil {
 		return Outcome{}, err
 	}
 	return Outcome{
-		Path:        abs,
-		Name:        result.Package,
-		Version:     result.Version,
-		SourceLabel: result.Registry.Label(),
+		Path:        entry.Path,
+		Name:        entry.Name,
+		Version:     entry.Version,
+		SourceLabel: registry.Registry(entry.Registry).Label(),
 		Warning:     result.Warning,
 	}, nil
 }
 
 func ensureRepoCached(input string, opts Options) (Outcome, error) {
+	store := cache.NewSourceStore()
 	spec, ok := repo.ParseSpec(input)
 	if !ok {
 		return Outcome{}, repobridge.InvalidRepoSpecError{Spec: input}
@@ -160,15 +151,12 @@ func ensureRepoCached(input string, opts Options) (Outcome, error) {
 			return Outcome{}, err
 		}
 	}
-	if entry, err := cachedRepo(resolved.DisplayName, resolved.GitRef); err != nil {
+	key := cache.RepoKey{DisplayName: resolved.DisplayName, Version: resolved.GitRef}
+	if entry, ok, err := store.GetRepo(key); err != nil {
 		return Outcome{}, err
-	} else if entry != nil {
-		abs, err := cache.AbsolutePath(entry.Path)
-		if err != nil {
-			return Outcome{}, err
-		}
+	} else if ok {
 		return Outcome{
-			Path:        abs,
+			Path:        entry.Path,
 			Name:        entry.Name,
 			Version:     entry.Version,
 			SourceLabel: entry.Name,
@@ -190,22 +178,19 @@ func ensureRepoCached(input string, opts Options) (Outcome, error) {
 	if result.Version == "" {
 		result.Version = resolved.GitRef
 	}
-	relativePath, err := relativeCachePath(result.Path)
-	if err != nil {
-		return Outcome{}, err
-	}
-	if err := upsertRepo(result.Package, result.Version, relativePath); err != nil {
-		return Outcome{}, err
-	}
-	abs, err := cache.AbsolutePath(relativePath)
+	entry, err := store.RecordRepo(key, cache.FetchedRepo{
+		Name:    result.Package,
+		Version: result.Version,
+		Path:    result.Path,
+	})
 	if err != nil {
 		return Outcome{}, err
 	}
 	return Outcome{
-		Path:        abs,
-		Name:        result.Package,
-		Version:     result.Version,
-		SourceLabel: result.Package,
+		Path:        entry.Path,
+		Name:        entry.Name,
+		Version:     entry.Version,
+		SourceLabel: entry.Name,
 		Warning:     result.Warning,
 	}, nil
 }
@@ -232,122 +217,6 @@ func defaultResolvePackage(spec registry.PackageSpec, client *http.Client) (regi
 	}
 }
 
-func cachedPackage(name, registryName, version string) (*cache.PackageEntry, error) {
-	packages, _, err := cache.ListSources()
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range packages {
-		if entry.Name == name && entry.Registry == registryName && entry.Version == version {
-			ok, err := cacheEntryPathExists(entry.Path)
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				continue
-			}
-			copy := entry
-			return &copy, nil
-		}
-	}
-	return nil, nil
-}
-
-func cachedRepo(displayName, version string) (*cache.RepoEntry, error) {
-	_, repos, err := cache.ListSources()
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range repos {
-		if entry.Name == displayName && entry.Version == version {
-			ok, err := cacheEntryPathExists(entry.Path)
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				continue
-			}
-			copy := entry
-			return &copy, nil
-		}
-	}
-	return nil, nil
-}
-
-func cacheEntryPathExists(relativePath string) (bool, error) {
-	abs, err := cache.AbsolutePath(relativePath)
-	if err != nil {
-		return false, err
-	}
-	info, err := os.Stat(abs)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if !info.IsDir() {
-		return false, nil
-	}
-	entries, err := os.ReadDir(abs)
-	if err != nil {
-		return false, err
-	}
-	for _, entry := range entries {
-		if entry.Name() != ".git" {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func upsertPackage(name, registryName, version, relativePath string) error {
-	packages, repos, err := cache.ListSources()
-	if err != nil {
-		return err
-	}
-	entry := cache.PackageEntry{
-		Name:      name,
-		Version:   version,
-		Registry:  registryName,
-		Path:      relativePath,
-		FetchedAt: cacheNow(),
-	}
-	for i := range packages {
-		if packages[i].Name == name && packages[i].Registry == registryName && packages[i].Version == version {
-			packages[i] = entry
-			return cache.WriteSources(packages, repos)
-		}
-	}
-	packages = append(packages, entry)
-	return cache.WriteSources(packages, repos)
-}
-
-func upsertRepo(displayName, version, relativePath string) error {
-	packages, repos, err := cache.ListSources()
-	if err != nil {
-		return err
-	}
-	entry := cache.RepoEntry{
-		Name:      displayName,
-		Version:   version,
-		Path:      relativePath,
-		FetchedAt: cacheNow(),
-	}
-	for i := range repos {
-		if repos[i].Name == displayName && repos[i].Version == version {
-			repos[i] = entry
-			return cache.WriteSources(packages, repos)
-		}
-	}
-	repos = append(repos, entry)
-	return cache.WriteSources(packages, repos)
-}
-
-func cacheNow() string {
-	return time.Now().UTC().Format(time.RFC3339)
-}
-
 func fetchError(result FetchResult) error {
 	if result.Error != nil {
 		return result.Error
@@ -359,30 +228,4 @@ func fetchError(result FetchResult) error {
 		return fmt.Errorf("fetch result missing path")
 	}
 	return nil
-}
-
-func relativeCachePath(path string) (string, error) {
-	if !filepath.IsAbs(filepath.FromSlash(path)) {
-		relative := filepath.ToSlash(path)
-		if _, err := cache.AbsolutePath(relative); err != nil {
-			return "", err
-		}
-		return relative, nil
-	}
-	home, err := cache.Home()
-	if err != nil {
-		return "", err
-	}
-	rel, err := filepath.Rel(home, path)
-	if err != nil {
-		return "", err
-	}
-	if rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
-		return "", fmt.Errorf("cache path is outside REPOBRIDGE_HOME: %s", path)
-	}
-	relative := filepath.ToSlash(rel)
-	if _, err := cache.AbsolutePath(relative); err != nil {
-		return "", err
-	}
-	return relative, nil
 }

@@ -91,41 +91,54 @@ func newListCommand(opts Options) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			index, err := cache.ReadSources()
+			store := cache.NewSourceCache()
+			result, err := store.List(cache.ListOptions{})
 			if err != nil {
 				return err
 			}
 			if jsonOutput {
-				content, err := json.MarshalIndent(index, "", "  ")
+				content, err := json.MarshalIndent(result.Index, "", "  ")
 				if err != nil {
 					return err
 				}
 				fmt.Fprintln(out, string(content))
 				return nil
 			}
-			total := len(index.Packages) + len(index.Repos)
+			total := len(result.Sources)
 			if total == 0 {
 				fmt.Fprintln(out, "No sources cached yet.")
 				return nil
 			}
-			if len(index.Packages) > 0 {
-				fmt.Fprintln(out, "Packages:")
-				for _, pkg := range index.Packages {
-					path, err := cache.AbsolutePath(pkg.Path)
-					if err != nil {
-						return err
-					}
-					fmt.Fprintf(out, "  %s@%s (%s) %s\n", pkg.Name, pkg.Version, registry.Registry(pkg.Registry).Label(), path)
+			hasPackages := false
+			for _, source := range result.Sources {
+				if source.Kind == cache.PackageSource {
+					hasPackages = true
+					break
 				}
 			}
-			if len(index.Repos) > 0 {
-				fmt.Fprintln(out, "Repositories:")
-				for _, repo := range index.Repos {
-					path, err := cache.AbsolutePath(repo.Path)
-					if err != nil {
-						return err
+			if hasPackages {
+				fmt.Fprintln(out, "Packages:")
+				for _, source := range result.Sources {
+					if source.Kind != cache.PackageSource {
+						continue
 					}
-					fmt.Fprintf(out, "  %s@%s %s\n", repo.Name, repo.Version, path)
+					fmt.Fprintf(out, "  %s@%s (%s) %s\n", source.Name, source.Version, registry.Registry(source.Registry).Label(), source.Path)
+				}
+			}
+			hasRepos := false
+			for _, source := range result.Sources {
+				if source.Kind == cache.RepoSource {
+					hasRepos = true
+					break
+				}
+			}
+			if hasRepos {
+				fmt.Fprintln(out, "Repositories:")
+				for _, source := range result.Sources {
+					if source.Kind != cache.RepoSource {
+						continue
+					}
+					fmt.Fprintf(out, "  %s@%s %s\n", source.Name, source.Version, source.Path)
 				}
 			}
 			fmt.Fprintf(out, "Total: %d source(s)\n", total)
@@ -229,17 +242,21 @@ func formatOutcome(outcome source.Outcome, fallback string) string {
 }
 
 func removeSource(spec string, out io.Writer) (bool, error) {
+	store := cache.NewSourceCache()
 	if registry.DetectInputType(spec) == registry.RepoInput {
 		parsed, ok := repo.ParseSpec(spec)
 		if !ok {
 			return false, fmt.Errorf("invalid repository spec: %s", spec)
 		}
 		displayName := fmt.Sprintf("%s/%s/%s", parsed.Host, parsed.Owner, parsed.Repo)
-		var version *string
-		if parsed.Ref != "" {
-			version = &parsed.Ref
-		}
-		removed, err := cache.RemoveRepoSource(displayName, version)
+		result, err := store.Remove(cache.RemoveSelector{
+			Kind: cache.RepoSource,
+			Repo: cache.RepoSelector{
+				DisplayName: displayName,
+				Version:     parsed.Ref,
+			},
+		})
+		removed := result.Matched > 0
 		if removed && err == nil {
 			fmt.Fprintf(out, "Removed %s\n", displayName)
 		}
@@ -250,13 +267,15 @@ func removeSource(spec string, out io.Writer) (bool, error) {
 	if parsed.Name == "" {
 		return false, fmt.Errorf("package name must not be empty")
 	}
-	var removed bool
-	var err error
-	if parsed.Version != "" {
-		removed, _, err = cache.RemovePackageSourceVersion(parsed.Name, string(parsed.Registry), parsed.Version)
-	} else {
-		removed, _, err = cache.RemovePackageSource(parsed.Name, string(parsed.Registry))
-	}
+	result, err := store.Remove(cache.RemoveSelector{
+		Kind: cache.PackageSource,
+		Package: cache.PackageSelector{
+			Name:     parsed.Name,
+			Registry: string(parsed.Registry),
+			Version:  parsed.Version,
+		},
+	})
+	removed := result.Matched > 0
 	if removed && err == nil {
 		display := parsed.Name
 		if parsed.Version != "" {
@@ -297,77 +316,19 @@ func cleanSources(opts cleanOptions) (int, error) {
 	if opts.reposOnly && len(opts.registries) > 0 {
 		return 0, fmt.Errorf("--repos cannot be combined with registry filters")
 	}
-
-	packages, repos, err := cache.ListSources()
-	if err != nil {
-		return 0, err
-	}
-	if len(packages) == 0 && len(repos) == 0 {
-		return 0, nil
-	}
-
-	cleanPackages := !opts.reposOnly
-	cleanRepos := !opts.packagesOnly && len(opts.registries) == 0
+	kinds := map[cache.SourceKind]bool{}
 	if opts.packagesOnly {
-		cleanPackages = true
-		cleanRepos = false
+		kinds[cache.PackageSource] = true
 	}
 	if opts.reposOnly {
-		cleanPackages = false
-		cleanRepos = true
+		kinds[cache.RepoSource] = true
 	}
 	if len(opts.registries) > 0 {
-		cleanPackages = true
-		cleanRepos = false
+		kinds[cache.PackageSource] = true
 	}
-
-	cleaned := 0
-	if cleanPackages {
-		type packageKey struct {
-			name     string
-			registry string
-		}
-		seen := map[packageKey]bool{}
-		for _, pkg := range packages {
-			if len(opts.registries) > 0 && !opts.registries[pkg.Registry] {
-				continue
-			}
-			key := packageKey{name: pkg.Name, registry: pkg.Registry}
-			if seen[key] {
-				cleaned++
-				continue
-			}
-			seen[key] = true
-			removed, _, err := cache.RemovePackageSource(pkg.Name, pkg.Registry)
-			if err != nil {
-				return cleaned, err
-			}
-			if removed {
-				cleaned++
-			}
-		}
-	}
-	if cleanRepos {
-		type repoKey struct {
-			name    string
-			version string
-		}
-		seen := map[repoKey]bool{}
-		for _, repoEntry := range repos {
-			key := repoKey{name: repoEntry.Name, version: repoEntry.Version}
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			version := repoEntry.Version
-			removed, err := cache.RemoveRepoSource(repoEntry.Name, &version)
-			if err != nil {
-				return cleaned, err
-			}
-			if removed {
-				cleaned++
-			}
-		}
-	}
-	return cleaned, nil
+	result, err := cache.NewSourceCache().Clean(cache.CleanOptions{
+		Kinds:      kinds,
+		Registries: opts.registries,
+	})
+	return result.Removed, err
 }
