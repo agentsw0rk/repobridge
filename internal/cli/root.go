@@ -69,6 +69,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 
 	cmd.AddCommand(newFetchCommand(opts))
 	cmd.AddCommand(newPathCommand(opts))
+	cmd.AddCommand(newScanCommand(opts))
 	cmd.AddCommand(newListCommand(opts))
 	cmd.AddCommand(newRemoveCommand(opts))
 	cmd.AddCommand(newCleanCommand(opts))

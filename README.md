@@ -20,6 +20,7 @@
 
 - Resolve package specs from npm, pypi, crates.io, maven, and nuget.
 - Fetch Git repositories from GitHub, GitLab, and Bitbucket.
+- Scan a project for dependency source specs from manifests, lockfiles, and imports.
 - Reuse a stable local cache across repeated agent/tool runs.
 - Detect installed npm package versions from `node_modules`, lockfiles, and `package.json`.
 - Print machine-friendly paths for downstream automation.
@@ -64,6 +65,14 @@ Use `fetch` when you only need to populate the cache:
 repobridge fetch react@19.0.0 vercel/next.js
 ```
 
+Scan a project for dependencies that can be fetched as source references:
+
+```bash
+repobridge scan --cwd .
+repobridge scan --cwd . --json
+repobridge scan --cwd . --fetch --limit 10
+```
+
 Inspect and clean cached sources:
 
 ```bash
@@ -98,11 +107,12 @@ NuGet inputs use package IDs with an optional explicit version. Without a versio
 | --- | --- |
 | `repobridge fetch <spec...>` | Downloads sources into the cache. |
 | `repobridge path <spec...>` | Fetches on cache miss and prints absolute source paths. |
+| `repobridge scan` | Scans a project and proposes dependency source specs. |
 | `repobridge list [--json]` | Lists cached packages and repositories. |
 | `repobridge remove <spec...>` | Removes selected cached sources. |
 | `repobridge clean` | Removes cached sources, optionally scoped by flags. |
 
-Most commands that resolve package versions accept `--cwd` for lockfile detection. `fetch` also accepts `--quiet`; `path` accepts `--verbose`; `clean` accepts filters such as `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, and `--nuget`.
+Most commands that resolve package versions accept `--cwd` for lockfile detection. `fetch` also accepts `--quiet`; `path` accepts `--verbose`; `scan` accepts `--json`, `--fetch`, `--limit`, and `--no-imports`; `clean` accepts filters such as `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, and `--nuget`.
 
 ## Configuration
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -196,6 +197,38 @@ func TestFetchDisplaysNuGetLabel(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestScanJSONPrintsProjectCandidates(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"react":"^19.0.0"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeForTest("scan", "--cwd", dir, "--json", "--no-imports")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	var got struct {
+		Candidates []struct {
+			Spec       string   `json:"spec"`
+			Ecosystem  string   `json:"ecosystem"`
+			Confidence int      `json:"confidence"`
+			Reasons    []string `json:"reasons"`
+		} `json:"candidates"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if len(got.Candidates) != 1 {
+		t.Fatalf("candidates = %#v, want one candidate", got.Candidates)
+	}
+	if got.Candidates[0].Spec != "react@19.0.0" || got.Candidates[0].Ecosystem != "npm" {
+		t.Fatalf("candidate = %#v, want react npm", got.Candidates[0])
 	}
 }
 

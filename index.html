@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="RepoBridge resolves package and repository specs into stable local source-code paths for coding agents and developer tooling."
+      content="RepoBridge scans projects, resolves dependency sources, and gives AI agents read-only framework context."
     />
     <title>RepoBridge Documentation</title>
     <link
@@ -191,7 +191,7 @@
 
       h1 {
         max-width: 850px;
-        font-size: clamp(3.2rem, 8vw, 7.4rem);
+        font-size: clamp(3.2rem, 7vw, 6rem);
         font-weight: 700;
       }
 
@@ -626,10 +626,10 @@
       <section class="hero shell">
         <div>
           <p class="eyebrow">Go CLI · package sources · repository snapshots</p>
-          <h1>Source code context for every AI agent.</h1>
+          <h1>Source context for AI agents.</h1>
           <p class="hero-copy">
-            RepoBridge resolves package and repository specs into stable local source-code paths for coding
-            agents, developer tools, and repeatable analysis workflows.
+            RepoBridge scans a project, detects the frameworks and libraries it uses, fetches their source code,
+            and gives AI agents stable read-only reference paths for code search and symbol investigation.
           </p>
           <div class="hero-actions">
             <a class="button primary" href="#quickstart">Quick start</a>
@@ -643,11 +643,11 @@
             <div class="terminal-title">repobridge</div>
           </div>
           <div class="terminal-body">
-            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge path react@19.0.0</span></span>
-            <span class="line out">/Users/me/.repobridge/repos/github.com/facebook/react/v19.0.0</span>
+            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge scan --cwd . --json</span></span>
+            <span class="line out">"react@19.0.0", "vite@5.0.1", "github.com/spf13/cobra@v1.9.1"</span>
             <span class="line">&nbsp;</span>
-            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge fetch pypi:requests==2.32.3 vercel/next.js</span></span>
-            <span class="line dim">Fetched 2 source(s), 0 already cached</span>
+            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge scan --cwd . --fetch --limit 10</span></span>
+            <span class="line dim">Fetched dependency source context for agent reference</span>
             <div class="terminal-grid">
               <div class="terminal-chip">npm · PyPI · crates.io</div>
               <div class="terminal-chip">Maven · NuGet</div>
@@ -662,23 +662,23 @@
         <div class="section-head">
           <div>
             <p class="section-kicker">Quick start</p>
-            <h2>Resolve, fetch, and reuse source trees.</h2>
+            <h2>Scan a project before the agent starts guessing.</h2>
           </div>
-          <p>Use one command to populate the cache on demand and print a path that other tools can consume.</p>
+          <p>Turn manifests, lockfiles, and imports into source-code references an AI agent skill can search locally.</p>
         </div>
         <div class="code-panel">
           <div class="copy-row">
-            <span>install and fetch examples</span>
+            <span>skill-driven agent context workflow</span>
             <button class="copy-button" data-copy="quickstart-code">Copy</button>
           </div>
           <pre id="quickstart-code"><code>go install ./cmd/repobridge
 
-repobridge path react
-repobridge path pypi:requests==2.32.3
-repobridge path crates:serde@1.0.217
-repobridge path maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0
-repobridge path nuget:Newtonsoft.Json@13.0.3
-repobridge path github.com/vercel/next.js</code></pre>
+# Used by the $repobridge-project-context skill
+repobridge scan --cwd . --json
+repobridge scan --cwd . --fetch --limit 10
+
+REACT_PATH="$(repobridge path --cwd . react)"
+rg "useSyncExternalStore" "$REACT_PATH"</code></pre>
         </div>
       </section>
 
@@ -686,31 +686,31 @@ repobridge path github.com/vercel/next.js</code></pre>
         <div class="section-head">
           <div>
             <p class="section-kicker">Core features</p>
-            <h2>Built for source-aware automation.</h2>
+            <h2>Built for source-aware AI agents.</h2>
           </div>
-          <p>RepoBridge keeps the public interface small: give it a spec, get a stable local source tree.</p>
+          <p>RepoBridge turns project dependencies into searchable local reference code.</p>
         </div>
         <div class="cards">
           <article class="feature-card">
-            <h3>Fetch package sources</h3>
-            <p>Resolve package metadata and fetch matching source repositories or source archives.</p>
+              <h3>Scan project context</h3>
+            <p>Detect dependencies from manifests, lockfiles, and imports before the <code>repobridge-project-context</code> skill guides an AI agent through code work.</p>
+            <div class="tag-row">
+              <span class="tag">scan</span><span class="tag">--json</span><span class="tag">--no-imports</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <h3>Fetch dependency sources</h3>
+            <p>Resolve package metadata and fetch matching source repositories or source archives as read-only reference material.</p>
             <div class="tag-row">
               <span class="tag">npm</span><span class="tag">PyPI</span><span class="tag">crates.io</span>
               <span class="tag">Maven</span><span class="tag">NuGet</span>
             </div>
           </article>
           <article class="feature-card">
-            <h3>Fetch repositories</h3>
-            <p>Accept repository shorthands, host URLs, and tree refs for supported Git hosts.</p>
+            <h3>Search cached references</h3>
+            <p>Use resolved source paths with <code>rg</code>, file reads, and symbol tools while keeping dependency code untouched.</p>
             <div class="tag-row">
-              <span class="tag">GitHub</span><span class="tag">GitLab</span><span class="tag">Bitbucket</span>
-            </div>
-          </article>
-          <article class="feature-card">
-            <h3>Reuse a local cache</h3>
-            <p>Store source snapshots under `REPOBRIDGE_HOME` or `~/.repobridge` and reuse them across runs.</p>
-            <div class="tag-row">
-              <span class="tag">sources.json</span><span class="tag">list</span><span class="tag">clean</span>
+              <span class="tag">path</span><span class="tag">rg</span><span class="tag">read-only</span>
             </div>
           </article>
         </div>
@@ -780,6 +780,11 @@ repobridge path github.com/vercel/next.js</code></pre>
         <div class="split">
           <div class="reference-list">
             <article class="reference-card">
+              <h3><code>scan</code></h3>
+              <p>Finds dependency source specs in a project and can fetch them for agent context.</p>
+              <p><code>--cwd</code> · <code>--json</code> · <code>--fetch</code> · <code>--limit</code></p>
+            </article>
+            <article class="reference-card">
               <h3><code>path &lt;spec...&gt;</code></h3>
               <p>Fetches sources on cache miss and prints absolute local paths.</p>
               <p><code>--cwd</code> · <code>--verbose</code></p>
@@ -797,22 +802,17 @@ repobridge path github.com/vercel/next.js</code></pre>
           </div>
           <div class="code-panel">
             <div class="copy-row">
-              <span>cache management</span>
-              <button class="copy-button" data-copy="cli-code">Copy</button>
-            </div>
-            <pre id="cli-code"><code>repobridge list
-repobridge list --json
+            <span>agent reference commands</span>
+            <button class="copy-button" data-copy="cli-code">Copy</button>
+          </div>
+            <pre id="cli-code"><code>repobridge scan --cwd . --json
+repobridge scan --cwd . --fetch --limit 10
+repobridge scan --cwd . --no-imports
 
-repobridge remove react
-repobridge remove github.com/vercel/next.js
+repobridge path --cwd . react
+repobridge path --cwd . github.com/spf13/cobra
 
-repobridge clean --packages
-repobridge clean --repos
-repobridge clean --npm
-repobridge clean --pypi
-repobridge clean --crates
-repobridge clean --maven
-repobridge clean --nuget</code></pre>
+rg "createRoot|useEffect" "$(repobridge path --cwd . react)"</code></pre>
           </div>
         </div>
       </section>
@@ -821,30 +821,30 @@ repobridge clean --nuget</code></pre>
         <div class="section-head">
           <div>
             <p class="section-kicker">Workflows</p>
-            <h2>Designed for repeated tool and agent runs.</h2>
+            <h2>Designed for AI-agent code investigations.</h2>
           </div>
-          <p>Use RepoBridge where remote package metadata needs to become a concrete local source tree.</p>
+          <p>Use RepoBridge when the agent needs the real implementation behind a framework API.</p>
         </div>
         <div class="workflow-list">
           <article class="workflow">
             <span class="step">01</span>
             <div>
-              <h3>Analyze a dependency</h3>
-              <p>Run <code>repobridge path react@19.0.0</code>, then use the printed path in an editor, agent, or analysis tool.</p>
+              <h3>Scan the project</h3>
+              <p>Run <code>repobridge scan --cwd . --json</code> to identify framework and library specs from manifests, lockfiles, and imports.</p>
             </div>
           </article>
           <article class="workflow">
             <span class="step">02</span>
             <div>
-              <h3>Prepare sources before an agent run</h3>
-              <p>Run <code>repobridge fetch react@19.0.0 pypi:requests==2.32.3 vercel/next.js</code> before the agent starts.</p>
+              <h3>Fetch reference sources</h3>
+              <p>Run <code>repobridge scan --cwd . --fetch --limit 10</code> to cache the most relevant sources before deep code work.</p>
             </div>
           </article>
           <article class="workflow">
             <span class="step">03</span>
             <div>
-              <h3>Use an isolated cache for tests</h3>
-              <p>Set <code>REPOBRIDGE_HOME="$(mktemp -d)"</code> before running destructive cache commands.</p>
+              <h3>Search the dependency implementation</h3>
+              <p>Resolve a path with <code>repobridge path --cwd . &lt;spec&gt;</code>, then use <code>rg</code> against that read-only source tree.</p>
             </div>
           </article>
         </div>

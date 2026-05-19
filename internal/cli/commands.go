@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"repobridge/internal/cache"
+	"repobridge/internal/projectscan"
 	"repobridge/internal/registry"
 	"repobridge/internal/registry/repo"
 	"repobridge/internal/source"
@@ -80,6 +81,78 @@ func newPathCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "show fetch progress")
+	return cmd
+}
+
+func newScanCommand(opts Options) *cobra.Command {
+	var cwd string
+	var jsonOutput bool
+	var fetch bool
+	var includeImports bool
+	var noImports bool
+	var limit int
+	cmd := &cobra.Command{
+		Use:   "scan",
+		Short: "Scan a project for dependency source specs",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+			errOut := cmd.ErrOrStderr()
+			if noImports {
+				includeImports = false
+			}
+			result, err := projectscan.Scan(cwd, projectscan.Options{IncludeImports: includeImports})
+			if err != nil {
+				return err
+			}
+			if limit > 0 && len(result.Candidates) > limit {
+				result.Candidates = result.Candidates[:limit]
+			}
+			if fetch {
+				for _, candidate := range result.Candidates {
+					outcome, err := opts.app().EnsureCached(candidate.Spec, source.Options{CWD: cwd, Verbose: !jsonOutput})
+					if err != nil {
+						fmt.Fprintf(errOut, "Failed %s: %v\n", candidate.Spec, err)
+						continue
+					}
+					if !jsonOutput {
+						if outcome.FromCache {
+							fmt.Fprintf(out, "Cached %s\n", formatOutcome(outcome, candidate.Spec))
+						} else {
+							fmt.Fprintf(out, "Fetched %s\n", formatOutcome(outcome, candidate.Spec))
+						}
+					}
+				}
+			}
+			if jsonOutput {
+				content, err := json.MarshalIndent(result, "", "  ")
+				if err != nil {
+					return err
+				}
+				fmt.Fprintln(out, string(content))
+				return nil
+			}
+			if len(result.Candidates) == 0 {
+				fmt.Fprintln(out, "No dependency source specs found.")
+				return nil
+			}
+			fmt.Fprintf(out, "Dependency source specs for %s:\n", result.Root)
+			for _, candidate := range result.Candidates {
+				fmt.Fprintf(out, "  %s (%s, confidence %d)\n", candidate.Spec, candidate.Ecosystem, candidate.Confidence)
+				for _, reason := range candidate.Reasons {
+					fmt.Fprintf(out, "    - %s\n", reason)
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cwd, "cwd", ".", "project directory to scan")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print scan result as JSON")
+	cmd.Flags().BoolVar(&fetch, "fetch", false, "fetch detected source specs into the cache")
+	cmd.Flags().BoolVar(&includeImports, "include-imports", true, "include import hints from source files")
+	cmd.Flags().BoolVar(&includeImports, "imports", true, "include import hints from source files")
+	cmd.Flags().BoolVar(&noImports, "no-imports", false, "disable import hints from source files")
+	cmd.Flags().IntVar(&limit, "limit", 0, "limit number of reported or fetched specs")
 	return cmd
 }
 

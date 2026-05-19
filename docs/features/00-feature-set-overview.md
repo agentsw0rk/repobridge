@@ -27,6 +27,7 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 | 15 | npm-Version aus `node_modules`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` und `package.json` erkennen | Fertig | `internal/lockfile` | M |
 | 16 | Token-Unterstützung für private oder rate-limitierte Repository-APIs | Fertig | `GITHUB_TOKEN`, `GITLAB_TOKEN`, `BITBUCKET_TOKEN` | S |
 | 17 | NuGet-Pakete über `.nuspec` Repository-Metadaten auf Git-Sources auflösen | Fertig | [17-nuget-sources.md](17-nuget-sources.md) | L |
+| 18 | Projekt-Dependencies aus Manifesten, Lockfiles und Imports als RepoBridge-Specs scannen | Fertig | `internal/projectscan`, `repobridge scan` | M |
 
 ## Unterstützte Eingaben
 
@@ -48,6 +49,7 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 |----------|-------|----------------|
 | `repobridge path <spec...>` | Gibt absolute Quellcode-Pfade aus und lädt bei Cache-Miss nach. | `--cwd`, `--verbose` |
 | `repobridge fetch <spec...>` | Lädt Quellen in den Cache, ohne Pfade als Hauptausgabe zu verwenden. | `--cwd`, `--quiet` |
+| `repobridge scan` | Erkennt Dependency-Specs in einem Projekt und kann sie optional direkt cachen. | `--cwd`, `--json`, `--fetch`, `--limit`, `--no-imports` |
 | `repobridge list` | Listet gecachte Packages und Repositories. | `--json` |
 | `repobridge remove <spec...>` | Entfernt konkrete Cache-Einträge. | Alias: `rm` |
 | `repobridge clean` | Entfernt Cache-Einträge nach Typ oder Registry. | `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, `--nuget` |
@@ -64,6 +66,7 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 | Repository-Resolver | `internal/registry/repo` | GitHub/GitLab/Bitbucket-Spezifikationen und Default-Branch-Abfragen. |
 | Git | `internal/git` | Klonen nach Tag oder Ref und Entfernen des eingebetteten Git-Verzeichnisses. |
 | Lockfiles | `internal/lockfile` | Lokale npm-Versionserkennung aus installierten Paketen und Lockfiles. |
+| Projekt-Scan | `internal/projectscan` | Manifest-, Lockfile- und Import-Erkennung für `repobridge scan`. |
 | HTTP | `internal/httpx` | Gemeinsamer HTTP-Client mit Timeout. |
 
 ## Entwicklungsreihenfolge für Folgefeatures

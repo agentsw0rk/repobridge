@@ -1,0 +1,4 @@
+interface:
+  display_name: "RepoBridge Project Context"
+  short_description: "Fetch dependency sources for agents"
+  default_prompt: "Use $repobridge-project-context to scan this project, fetch relevant dependency sources with RepoBridge, and use them as read-only reference context."
