@@ -60,7 +60,7 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 | Source-Orchestrierung | `internal/source` | Entscheidet zwischen Package- und Repo-Fetching, Cache-Reuse und Index-Updates. |
 | Cache | `internal/cache` | Cache-Home, relative Pfadsicherheit, `sources.json`, Remove/Clean-Operationen. |
 | Registry-Erkennung | `internal/registry` | Input-Klassifikation, Prefixe, Package-Spec-Parser, Repository-URL-Normalisierung. |
-| Registry-Resolver | `internal/registry/{npm,pypi,crates,maven}` | Registry-spezifische Metadatenabfragen und Source-Informationen. |
+| Registry-Resolver | `internal/registry/{npm,pypi,crates,maven,nuget}` | Registry-spezifische Metadatenabfragen und Source-Informationen. |
 | Repository-Resolver | `internal/registry/repo` | GitHub/GitLab/Bitbucket-Spezifikationen und Default-Branch-Abfragen. |
 | Git | `internal/git` | Klonen nach Tag oder Ref und Entfernen des eingebetteten Git-Verzeichnisses. |
 | Lockfiles | `internal/lockfile` | Lokale npm-Versionserkennung aus installierten Paketen und Lockfiles. |
@@ -71,13 +71,12 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 | # | Feature | Abhängig von | Aufwand |
 |---|---------|--------------|---------|
 | 1 | Custom Registry URLs für npm, PyPI, crates.io und Maven | Resolver-Konfiguration | M |
-| 2 | NuGet-Pakete über `.nuspec` Repository-Metadaten auf Git-Sources auflösen | Registry-Grundlagen, Git-Fetching | L |
-| 3 | Checksum- und Signaturprüfung für heruntergeladene Archive | Archiv-Fetching | M |
-| 4 | Snapshot- und Metadata-Auflösung für Maven-Versionen | Maven-Resolver | L |
-| 5 | Gradle- und Maven-Projektdateien zur lokalen Versionserkennung auswerten | Lockfile-Erkennung | M |
-| 6 | Cache-Statuskommando mit Größen, Alter und beschädigten Einträgen | Cache-Index | M |
-| 7 | Optionales JSON-Ausgabeformat für `path` und `fetch` | CLI-Ausgabe | S |
-| 8 | Konfigurationsdatei für Standard-Registry, Cache-Policy und Token-Hinweise | CLI + Cache | M |
+| 2 | Checksum- und Signaturprüfung für heruntergeladene Archive | Archiv-Fetching | M |
+| 3 | Snapshot- und Metadata-Auflösung für Maven-Versionen | Maven-Resolver | L |
+| 4 | Gradle- und Maven-Projektdateien zur lokalen Versionserkennung auswerten | Lockfile-Erkennung | M |
+| 5 | Cache-Statuskommando mit Größen, Alter und beschädigten Einträgen | Cache-Index | M |
+| 6 | Optionales JSON-Ausgabeformat für `path` und `fetch` | CLI-Ausgabe | S |
+| 7 | Konfigurationsdatei für Standard-Registry, Cache-Policy und Token-Hinweise | CLI + Cache | M |
 
 ## Qualität und Tests
 
