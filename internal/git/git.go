@@ -55,6 +55,43 @@ func CloneAtTag(repoURL, target, version string) CloneResult {
 	}
 }
 
+func CloneAtCommit(repoURL, target, commit string) CloneResult {
+	if err := ensureTargetAvailable(target); err != nil {
+		return CloneResult{Error: err}
+	}
+	if !commitSHARE.MatchString(commit) {
+		return CloneResult{Error: fmt.Errorf("invalid commit SHA: %q", commit)}
+	}
+	if err := runGitClone(repoURL, target, "--no-checkout", "--depth", "1"); err != nil {
+		return CloneResult{Error: err}
+	}
+	if err := runGitInTarget(repoURL, target, "fetch", "--depth", "1", "origin", commit); err != nil {
+		removeFailedClone(target)
+		return CloneResult{Error: err}
+	}
+	if err := runGitInTarget(repoURL, target, "checkout", "--detach", commit); err != nil {
+		removeFailedClone(target)
+		return CloneResult{Error: err}
+	}
+	return CloneResult{Success: true}
+}
+
+func CloneAtTagStrict(repoURL, target, version string) CloneResult {
+	if err := ensureTargetAvailable(target); err != nil {
+		return CloneResult{Error: err}
+	}
+	for _, tag := range []string{"v" + version, version} {
+		if err := runGitClone(repoURL, target, "--depth", "1", "--branch", tag); err == nil {
+			return CloneResult{Success: true}
+		} else if isMissingRefError(err) {
+			removeFailedClone(target)
+		} else {
+			return CloneResult{Error: err}
+		}
+	}
+	return CloneResult{Error: fmt.Errorf("could not find tag v%s or %s", version, version)}
+}
+
 func CloneAtRef(repoURL, target, ref string) CloneResult {
 	if err := ensureTargetAvailable(target); err != nil {
 		return CloneResult{Error: err}
@@ -90,6 +127,16 @@ func runGitClone(repoURL, target string, args ...string) error {
 	output, err := gitRunner(env, cloneArgs...)
 	if err != nil {
 		return fmt.Errorf("git clone failed: %s\n%s", redactSecrets(err.Error()), redactSecrets(string(output)))
+	}
+	return nil
+}
+
+func runGitInTarget(repoURL, target string, args ...string) error {
+	env := authConfigEnv(repoURL)
+	gitArgs := append([]string{"-C", target}, args...)
+	output, err := gitRunner(env, gitArgs...)
+	if err != nil {
+		return fmt.Errorf("git command failed: %s\n%s", redactSecrets(err.Error()), redactSecrets(string(output)))
 	}
 	return nil
 }
