@@ -3,56 +3,114 @@
 # separate terms of service, privacy policy, and support
 # documentation.
 
-# This workflow lets you generate SLSA provenance file for your project.
-# The generation satisfies level 3 for the provenance requirements - see https://slsa.dev/spec/v0.1/requirements
-# The project is an initiative of the OpenSSF (openssf.org) and is developed at
-# https://github.com/slsa-framework/slsa-github-generator.
+# This workflow generates SLSA provenance for release artifacts.
 # The provenance file can be verified using https://github.com/slsa-framework/slsa-verifier.
 # For more information about SLSA and how it improves the supply-chain, visit slsa.dev.
 
 name: SLSA generic generator
+
 on:
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to upload assets to"
+        required: true
+        type: string
   release:
     types: [created]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       digests: ${{ steps.hash.outputs.digests }}
+      release-tag: ${{ steps.release.outputs.tag }}
 
     steps:
       - uses: actions/checkout@v4
 
-      # ========================================================
-      #
-      # Step 1: Build your artifacts.
-      #
-      # ========================================================
-      - name: Build artifacts
-        run: |
-            # These are some amazing artifacts.
-            echo "artifact1" > artifact1
-            echo "artifact2" > artifact2
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.22"
 
-      # ========================================================
-      #
-      # Step 2: Add a step to generate the provenance subjects
-      #         as shown below. Update the sha256 sum arguments
-      #         to include all binaries that you generate
-      #         provenance for.
-      #
-      # ========================================================
+      - name: Resolve release tag
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${INPUT_TAG}"
+          else
+            tag="${RELEASE_TAG}"
+          fi
+          if [[ -z "${tag}" ]]; then
+            echo "release tag is required" >&2
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build release artifacts
+        env:
+          VERSION: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          version="${VERSION#v}"
+          targets=(
+            "linux amd64"
+            "linux arm64"
+            "darwin amd64"
+            "darwin arm64"
+            "windows amd64"
+          )
+          for target in "${targets[@]}"; do
+            read -r goos goarch <<< "${target}"
+            name="repobridge_${VERSION}_${goos}_${goarch}"
+            out_dir="dist/${name}"
+            mkdir -p "${out_dir}"
+            binary="${out_dir}/repobridge"
+            if [[ "${goos}" == "windows" ]]; then
+              binary="${binary}.exe"
+            fi
+            GOOS="${goos}" GOARCH="${goarch}" go build \
+              -trimpath \
+              -ldflags="-s -w -X main.version=${version}" \
+              -o "${binary}" \
+              ./cmd/repobridge
+            if [[ "${goos}" == "windows" ]]; then
+              (cd dist && zip -qr "${name}.zip" "${name}")
+            else
+              (cd dist && tar -czf "${name}.tar.gz" "${name}")
+            fi
+            rm -rf "${out_dir}"
+          done
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum *.tar.gz *.zip > checksums.txt)
+
       - name: Generate subject for provenance
         id: hash
         run: |
           set -euo pipefail
+          echo "digests=$(cd dist && sha256sum *.tar.gz *.zip checksums.txt | base64 -w0)" >> "${GITHUB_OUTPUT}"
 
-          # List the artifacts the provenance will refer to.
-          files=$(ls artifact*)
-          # Generate the subjects (base64 encoded).
-          echo "hashes=$(sha256sum $files | base64 -w0)" >> "${GITHUB_OUTPUT}"
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "${RELEASE_TAG}" dist/*.tar.gz dist/*.zip dist/checksums.txt \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber
 
   provenance:
     needs: [build]
@@ -60,7 +118,8 @@ jobs:
       actions: read   # To read the workflow path.
       id-token: write # To sign the provenance.
       contents: write # To add assets to a release.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.4.0
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: "${{ needs.build.outputs.digests }}"
-      upload-assets: true # Optional: Upload to a new release
+      upload-tag-name: "${{ needs.build.outputs.release-tag }}"
+      upload-assets: true
