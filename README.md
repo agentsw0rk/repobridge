@@ -18,7 +18,7 @@
 
 ## Features
 
-- Resolve package specs from npm, pypi, crates.io, maven, and NuGet.
+- Resolve package specs from npm, pypi, crates.io, maven, and nuget.
 - Fetch Git repositories from GitHub, GitLab, and Bitbucket.
 - Reuse a stable local cache across repeated agent/tool runs.
 - Detect installed npm package versions from `node_modules`, lockfiles, and `package.json`.
