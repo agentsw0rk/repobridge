@@ -1,0 +1,17 @@
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Go build/test artifacts
+coverage.out
+*.test
+
+# Local cache when testing with REPOBRIDGE_HOME inside the project
+.repobridge/
+
+.idea
+bin
+.agents
+/AGENTS.md
+.worktrees/
