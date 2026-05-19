@@ -38,6 +38,29 @@ type versionsIndex struct {
 	Versions []string `json:"versions"`
 }
 
+type serviceResourceURLs struct {
+	FlatContainerBaseURL string
+	RegistrationsBaseURL string
+}
+
+type registrationIndex struct {
+	Items []registrationPage `json:"items"`
+}
+
+type registrationPage struct {
+	ID    string             `json:"@id"`
+	Items []registrationLeaf `json:"items"`
+}
+
+type registrationLeaf struct {
+	CatalogEntry registrationCatalogEntry `json:"catalogEntry"`
+}
+
+type registrationCatalogEntry struct {
+	Version string `json:"version"`
+	Listed  *bool  `json:"listed"`
+}
+
 type nuspecDocument struct {
 	Metadata nuspecMetadata `xml:"metadata"`
 }
@@ -71,21 +94,32 @@ func Resolve(name, version string, client *http.Client, serviceIndexURL string) 
 		serviceIndexURL = DefaultServiceIndexURL
 	}
 
-	flatBaseURL, err := loadFlatContainerBaseURL(client, serviceIndexURL)
+	resourceURLs, err := loadServiceResourceURLs(client, serviceIndexURL)
 	if err != nil {
 		return registry.ResolvedPackage{}, err
 	}
 
-	versions, err := loadVersions(client, flatBaseURL, name)
-	if err != nil {
-		return registry.ResolvedPackage{}, err
-	}
-	resolvedVersion, err := resolveVersion(name, version, versions)
-	if err != nil {
-		return registry.ResolvedPackage{}, err
+	var resolvedVersion string
+	if version != "" {
+		versions, err := loadVersions(client, resourceURLs.FlatContainerBaseURL, name)
+		if err != nil {
+			return registry.ResolvedPackage{}, err
+		}
+		resolvedVersion, err = resolveExplicitVersion(name, version, versions)
+		if err != nil {
+			return registry.ResolvedPackage{}, err
+		}
+	} else {
+		if resourceURLs.RegistrationsBaseURL == "" {
+			return registry.ResolvedPackage{}, fmt.Errorf("NuGet service index missing RegistrationsBaseUrl/3.6.0 resource")
+		}
+		resolvedVersion, err = resolveLatestListedStableVersion(client, resourceURLs.RegistrationsBaseURL, name)
+		if err != nil {
+			return registry.ResolvedPackage{}, err
+		}
 	}
 
-	nupkgURL, err := flatContainerURL(flatBaseURL, name, resolvedVersion, strings.ToLower(name)+"."+strings.ToLower(resolvedVersion)+".nupkg")
+	nupkgURL, err := flatContainerURL(resourceURLs.FlatContainerBaseURL, name, resolvedVersion, strings.ToLower(name)+"."+strings.ToLower(resolvedVersion)+".nupkg")
 	if err != nil {
 		return registry.ResolvedPackage{}, err
 	}
@@ -97,6 +131,9 @@ func Resolve(name, version string, client *http.Client, serviceIndexURL string) 
 
 	metadata, err := readNuspecMetadata(nupkgPath)
 	if err != nil {
+		return registry.ResolvedPackage{}, err
+	}
+	if err := validateNuspecIdentity(metadata, name, resolvedVersion); err != nil {
 		return registry.ResolvedPackage{}, err
 	}
 	repoURL := normalizeRepositoryURL(metadata.Repository)
@@ -120,26 +157,33 @@ func Resolve(name, version string, client *http.Client, serviceIndexURL string) 
 	return resolved, nil
 }
 
-func loadFlatContainerBaseURL(client *http.Client, serviceIndexURL string) (string, error) {
+func loadServiceResourceURLs(client *http.Client, serviceIndexURL string) (serviceResourceURLs, error) {
 	resp, err := client.Get(serviceIndexURL)
 	if err != nil {
-		return "", err
+		return serviceResourceURLs{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", repobridge.HTTPStatusError{Context: "NuGet service index", Status: resp.Status}
+		return serviceResourceURLs{}, repobridge.HTTPStatusError{Context: "NuGet service index", Status: resp.Status}
 	}
 
 	var index serviceIndex
 	if err := json.NewDecoder(resp.Body).Decode(&index); err != nil {
-		return "", err
+		return serviceResourceURLs{}, err
 	}
+	var urls serviceResourceURLs
 	for _, resource := range index.Resources {
 		if resource.ID != "" && resource.hasType("PackageBaseAddress/3.0.0") {
-			return resource.ID, nil
+			urls.FlatContainerBaseURL = resource.ID
+		}
+		if resource.ID != "" && resource.hasType("RegistrationsBaseUrl/3.6.0") {
+			urls.RegistrationsBaseURL = resource.ID
 		}
 	}
-	return "", fmt.Errorf("NuGet service index missing PackageBaseAddress/3.0.0 resource")
+	if urls.FlatContainerBaseURL == "" {
+		return serviceResourceURLs{}, fmt.Errorf("NuGet service index missing PackageBaseAddress/3.0.0 resource")
+	}
+	return urls, nil
 }
 
 func (r serviceResource) hasType(want string) bool {
@@ -182,14 +226,19 @@ func loadVersions(client *http.Client, flatBaseURL, name string) ([]string, erro
 	return index.Versions, nil
 }
 
-func resolveVersion(name, requested string, versions []string) (string, error) {
-	if requested != "" {
-		for _, version := range versions {
-			if strings.EqualFold(version, requested) {
-				return version, nil
-			}
+func resolveExplicitVersion(name, requested string, versions []string) (string, error) {
+	for _, version := range versions {
+		if strings.EqualFold(version, requested) {
+			return version, nil
 		}
-		return "", repobridge.VersionNotFoundError{Message: fmt.Sprintf("Version %q not found for NuGet package %q", requested, name)}
+	}
+	return "", repobridge.VersionNotFoundError{Message: fmt.Sprintf("Version %q not found for NuGet package %q", requested, name)}
+}
+
+func resolveLatestListedStableVersion(client *http.Client, registrationsBaseURL, name string) (string, error) {
+	versions, err := loadListedRegistrationVersions(client, registrationsBaseURL, name)
+	if err != nil {
+		return "", err
 	}
 
 	latest := ""
@@ -205,6 +254,80 @@ func resolveVersion(name, requested string, versions []string) (string, error) {
 		return "", repobridge.VersionNotFoundError{Message: fmt.Sprintf("No stable version found for NuGet package %q", name)}
 	}
 	return latest, nil
+}
+
+func loadListedRegistrationVersions(client *http.Client, registrationsBaseURL, name string) ([]string, error) {
+	indexURL, err := flatContainerURL(registrationsBaseURL, name, "index.json")
+	if err != nil {
+		return nil, err
+	}
+	index, err := loadRegistrationIndex(client, indexURL, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var versions []string
+	for _, page := range index.Items {
+		leaves := page.Items
+		if len(leaves) == 0 && page.ID != "" {
+			remotePage, err := loadRegistrationPage(client, page.ID, name)
+			if err != nil {
+				return nil, err
+			}
+			leaves = remotePage.Items
+		}
+		for _, leaf := range leaves {
+			entry := leaf.CatalogEntry
+			if entry.Version == "" {
+				continue
+			}
+			if entry.Listed != nil && !*entry.Listed {
+				continue
+			}
+			versions = append(versions, entry.Version)
+		}
+	}
+	return versions, nil
+}
+
+func loadRegistrationIndex(client *http.Client, registrationURL, name string) (registrationIndex, error) {
+	resp, err := client.Get(registrationURL)
+	if err != nil {
+		return registrationIndex{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return registrationIndex{}, repobridge.PackageNotFoundError{Name: name, Registry: "NuGet"}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return registrationIndex{}, repobridge.HTTPStatusError{Context: "NuGet package registrations", Status: resp.Status}
+	}
+
+	var index registrationIndex
+	if err := json.NewDecoder(resp.Body).Decode(&index); err != nil {
+		return registrationIndex{}, err
+	}
+	return index, nil
+}
+
+func loadRegistrationPage(client *http.Client, pageURL, name string) (registrationPage, error) {
+	resp, err := client.Get(pageURL)
+	if err != nil {
+		return registrationPage{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return registrationPage{}, repobridge.PackageNotFoundError{Name: name, Registry: "NuGet"}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return registrationPage{}, repobridge.HTTPStatusError{Context: "NuGet package registration page", Status: resp.Status}
+	}
+
+	var page registrationPage
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		return registrationPage{}, err
+	}
+	return page, nil
 }
 
 func flatContainerURL(flatBaseURL, name string, parts ...string) (string, error) {
@@ -271,7 +394,8 @@ func readNuspecMetadata(nupkgPath string) (nuspecMetadata, error) {
 	defer zr.Close()
 
 	for _, file := range zr.File {
-		isNuspec := strings.HasSuffix(strings.ToLower(file.Name), ".nuspec")
+		normalizedName := strings.ReplaceAll(file.Name, `\`, "/")
+		isNuspec := strings.HasSuffix(strings.ToLower(normalizedName), ".nuspec")
 		if unsafeZipPath(file.Name) {
 			if isNuspec {
 				return nuspecMetadata{}, fmt.Errorf("unsafe .nuspec path %q in NuGet package", file.Name)
@@ -285,6 +409,9 @@ func readNuspecMetadata(nupkgPath string) (nuspecMetadata, error) {
 			return nuspecMetadata{}, fmt.Errorf("unsafe ZIP symlink %q in NuGet package", file.Name)
 		}
 		if !isNuspec {
+			continue
+		}
+		if strings.Contains(normalizedName, "/") {
 			continue
 		}
 		if file.UncompressedSize64 > maxNuspecBytes {
@@ -315,6 +442,18 @@ func readNuspecMetadata(nupkgPath string) (nuspecMetadata, error) {
 	return nuspecMetadata{}, fmt.Errorf("NuGet package is missing .nuspec metadata")
 }
 
+func validateNuspecIdentity(metadata nuspecMetadata, requestedName, resolvedVersion string) error {
+	id := strings.TrimSpace(metadata.ID)
+	if id != "" && !strings.EqualFold(id, requestedName) {
+		return fmt.Errorf("NuGet .nuspec id %q does not match requested package %q", id, requestedName)
+	}
+	version := strings.TrimSpace(metadata.Version)
+	if version != "" && !strings.EqualFold(version, resolvedVersion) {
+		return fmt.Errorf("NuGet .nuspec version %q does not match resolved version %q", version, resolvedVersion)
+	}
+	return nil
+}
+
 func normalizeRepositoryURL(repo nuspecRepository) string {
 	if !strings.EqualFold(strings.TrimSpace(repo.Type), "git") {
 		return ""
@@ -322,11 +461,34 @@ func normalizeRepositoryURL(repo nuspecRepository) string {
 	value := strings.TrimSpace(repo.URL)
 	value = strings.TrimPrefix(value, "git+")
 	value = strings.TrimSuffix(value, ".git")
+
+	switch {
+	case strings.HasPrefix(value, "git://"):
+		value = "https://" + strings.TrimPrefix(value, "git://")
+	case strings.HasPrefix(value, "ssh://git@"):
+		value = "https://" + strings.TrimPrefix(value, "ssh://git@")
+	case strings.HasPrefix(value, "git@"):
+		converted := scpLikeGitURL(value)
+		if converted == "" {
+			return ""
+		}
+		value = converted
+	}
+
 	normalized := registry.NormalizeRepoURL(value)
 	if strings.HasPrefix(normalized, "https://github.com/") || strings.HasPrefix(normalized, "http://github.com/") {
 		return strings.ToLower(normalized)
 	}
 	return normalized
+}
+
+func scpLikeGitURL(value string) string {
+	hostAndPath := strings.TrimPrefix(value, "git@")
+	host, path, ok := strings.Cut(hostAndPath, ":")
+	if !ok || host == "" || path == "" {
+		return ""
+	}
+	return (&url.URL{Scheme: "https", Host: host, Path: "/" + path}).String()
 }
 
 func compareVersions(a, b string) int {
