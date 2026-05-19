@@ -246,6 +246,22 @@
         white-space: nowrap;
       }
 
+      .install-copy {
+        align-self: stretch;
+        border-width: 0 0 0 1px;
+        border-color: rgba(114, 228, 255, 0.16);
+        border-radius: 0;
+        padding: 0 13px;
+        background: rgba(114, 228, 255, 0.08);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .install-copy:hover {
+        background: rgba(114, 228, 255, 0.14);
+      }
+
       .hero-actions {
         display: flex;
         flex-wrap: wrap;
@@ -610,6 +626,10 @@
           width: 100%;
         }
 
+        .install-copy {
+          min-height: 44px;
+        }
+
         .cards {
           grid-template-columns: 1fr;
         }
@@ -682,7 +702,8 @@
           </p>
           <div class="install-callout" aria-label="Install the RepoBridge AI agent skill">
             <span>Install skill</span>
-            <code>npx skills add ArekCzarnik/RepoBridge</code>
+            <code id="install-skill-code">npx skills add ArekCzarnik/RepoBridge</code>
+            <button class="copy-button install-copy" data-copy="install-skill-code">Copy</button>
           </div>
           <div class="hero-actions">
             <a class="button primary" href="#quickstart">Quick start</a>
