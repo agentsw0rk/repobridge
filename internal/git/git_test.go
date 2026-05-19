@@ -103,6 +103,21 @@ func TestCloneAtCommitFetchesExactCommit(t *testing.T) {
 	}
 }
 
+func TestCloneAtCommitRejectsAbbreviatedCommitSHA(t *testing.T) {
+	calls := captureGitCalls(t, func(env []string, args []string) ([]byte, error) {
+		t.Fatal("git runner should not be called for abbreviated commit SHA")
+		return nil, nil
+	})
+
+	result := CloneAtCommit("https://github.com/o/r", filepath.Join(t.TempDir(), "clone"), "0123456")
+	if result.Success || result.Error == nil {
+		t.Fatalf("CloneAtCommit result = %#v, want abbreviated commit SHA rejection", result)
+	}
+	if got := len(calls()); got != 0 {
+		t.Fatalf("CloneAtCommit made %d git calls, want 0", got)
+	}
+}
+
 func TestCloneAtRefDoesNotFallbackOnNonMissingRefFailure(t *testing.T) {
 	calls := captureGitCalls(t, func(env []string, args []string) ([]byte, error) {
 		return []byte("Authentication failed"), errForTest("auth failed")

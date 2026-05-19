@@ -27,6 +27,7 @@ var gitRunner gitCommandRunner = func(env []string, args ...string) ([]byte, err
 }
 
 var commitSHARE = regexp.MustCompile(`^[0-9a-fA-F]{7,40}$`)
+var fullCommitSHARE = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 
 func AuthenticatedCloneURL(cloneURL string) string {
 	return cloneURL
@@ -59,7 +60,7 @@ func CloneAtCommit(repoURL, target, commit string) CloneResult {
 	if err := ensureTargetAvailable(target); err != nil {
 		return CloneResult{Error: err}
 	}
-	if !commitSHARE.MatchString(commit) {
+	if !fullCommitSHARE.MatchString(commit) {
 		return CloneResult{Error: fmt.Errorf("invalid commit SHA: %q", commit)}
 	}
 	if err := runGitClone(repoURL, target, "--no-checkout", "--depth", "1"); err != nil {
