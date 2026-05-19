@@ -8,7 +8,7 @@ description: Fachliche und funktionale Dokumentation fuer RepoBridge
 
 RepoBridge ist eine Go-CLI, die Paket- und Repository-Spezifikationen in stabile lokale Quellcode-Pfade aufloest. Das Werkzeug richtet sich an Coding Agents, Entwickler-Tools und Entwicklerinnen und Entwickler, die zu einer Dependency schnell den tatsaechlichen Quellcode lokal verfuegbar machen wollen.
 
-## Was loest RepoBridge?
+## Was löst RepoBridge?
 
 Viele Entwickler-Workflows brauchen nicht nur Paketnamen, sondern den Quellcode hinter einer Dependency. RepoBridge uebernimmt dafuer die Aufloesung ueber Paket-Registries oder Repository-Hosts, laedt die passenden Quellen herunter und legt sie in einem wiederverwendbaren lokalen Cache ab.
 
