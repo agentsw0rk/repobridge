@@ -14,7 +14,7 @@
 
 ## Description
 
-`repobridge` is a small Go CLI for turning package or repository specs into local source trees. It supports npm, pypi, crates.io, maven, nuget, and common Git repository hosts.
+`repobridge` is a small Go CLI for turning package or repository specs into local source trees. It supports npm, pypi, crates.io, maven, nuget, and common git repository hosts.
 
 ## Features
 
