@@ -161,10 +161,16 @@
         padding: 72px 0 56px;
       }
 
+      .hero > * {
+        min-width: 0;
+      }
+
       .eyebrow {
         display: inline-flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 10px;
+        max-width: 100%;
         margin: 0 0 18px;
         color: var(--green);
         font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -193,6 +199,7 @@
         max-width: 850px;
         font-size: clamp(3.2rem, 7vw, 6rem);
         font-weight: 700;
+        overflow-wrap: anywhere;
       }
 
       .hero-copy {
@@ -200,6 +207,43 @@
         margin: 24px 0 0;
         color: var(--soft);
         font-size: clamp(1.08rem, 2vw, 1.28rem);
+      }
+
+      .install-callout {
+        display: inline-flex;
+        align-items: center;
+        max-width: 100%;
+        margin-top: 24px;
+        border: 1px solid rgba(114, 228, 255, 0.22);
+        border-radius: 8px;
+        background: rgba(6, 14, 20, 0.66);
+        box-shadow: 0 16px 46px rgba(0, 0, 0, 0.22);
+        overflow: hidden;
+      }
+
+      .install-callout span {
+        align-self: stretch;
+        display: inline-flex;
+        align-items: center;
+        border-right: 1px solid rgba(114, 228, 255, 0.16);
+        padding: 0 13px;
+        color: var(--green);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .install-callout code {
+        display: block;
+        min-width: 0;
+        padding: 12px 14px;
+        color: var(--text);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: clamp(0.78rem, 2vw, 0.95rem);
+        overflow-x: auto;
+        white-space: nowrap;
       }
 
       .hero-actions {
@@ -561,6 +605,11 @@
           padding-top: 48px;
         }
 
+        .install-callout {
+          display: flex;
+          width: 100%;
+        }
+
         .cards {
           grid-template-columns: 1fr;
         }
@@ -631,6 +680,10 @@
             RepoBridge scans a project, detects the frameworks and libraries it uses, fetches their source code,
             and gives AI agents stable read-only reference paths for code search and symbol investigation.
           </p>
+          <div class="install-callout" aria-label="Install the RepoBridge AI agent skill">
+            <span>Install skill</span>
+            <code>npx skills add ArekCzarnik/RepoBridge</code>
+          </div>
           <div class="hero-actions">
             <a class="button primary" href="#quickstart">Quick start</a>
             <a class="button" href="https://github.com/ArekCzarnik/RepoBridge">View on GitHub</a>
@@ -671,7 +724,7 @@
             <span>skill-driven agent context workflow</span>
             <button class="copy-button" data-copy="quickstart-code">Copy</button>
           </div>
-          <pre id="quickstart-code"><code>go install ./cmd/repobridge
+          <pre id="quickstart-code"><code>npx skills add ArekCzarnik/RepoBridge
 
 # Used by the $repobridge-project-context skill
 repobridge scan --cwd . --json
