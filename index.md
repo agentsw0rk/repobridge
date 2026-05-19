@@ -1,32 +1,30 @@
 ---
 layout: default
-title: RepoBridge Dokumentation
-description: Fachliche und funktionale Dokumentation fuer RepoBridge
+title: RepoBridge Documentation
+description: Product and functional documentation for RepoBridge
 ---
 
-# RepoBridge Dokumentation
+RepoBridge is a Go CLI that resolves package and repository specifications into stable local source-code paths. It is built for coding agents, developer tools, and developers who need quick local access to the source code behind a dependency.
 
-RepoBridge ist eine Go-CLI, die Paket- und Repository-Spezifikationen in stabile lokale Quellcode-Pfade aufloest. Das Werkzeug richtet sich an Coding Agents, Entwickler-Tools und Entwicklerinnen und Entwickler, die zu einer Dependency schnell den tatsaechlichen Quellcode lokal verfuegbar machen wollen.
+## What Problem Does RepoBridge Solve?
 
-## Was löst RepoBridge?
+Many development workflows need more than package names. They need the source code behind a dependency. RepoBridge handles package-registry and repository-host resolution, downloads the matching sources, and stores them in a reusable local cache.
 
-Viele Entwickler-Workflows brauchen nicht nur Paketnamen, sondern den Quellcode hinter einer Dependency. RepoBridge uebernimmt dafuer die Aufloesung ueber Paket-Registries oder Repository-Hosts, laedt die passenden Quellen herunter und legt sie in einem wiederverwendbaren lokalen Cache ab.
+RepoBridge is useful when you need to:
 
-RepoBridge hilft besonders bei diesen Aufgaben:
+- Find source code for npm, pypi, crates.io, maven, and nuget packages.
+- Bring GitHub, GitLab, and Bitbucket repositories into stable local paths.
+- Provide coding agents with machine-friendly path output.
+- Speed up repeated tool runs by reusing already cached sources.
+- Detect local npm versions from `node_modules`, lockfiles, and `package.json`.
 
-- Quellcode zu npm-, PyPI-, crates.io-, Maven- und NuGet-Paketen finden.
-- Git-Repositories von GitHub, GitLab und Bitbucket in stabile lokale Pfade bringen.
-- Coding Agents mit maschinenfreundlichen Pfadangaben versorgen.
-- Wiederholte Tool-Laeufe beschleunigen, weil bereits geladene Quellen aus dem Cache kommen.
-- Lokale npm-Versionen aus `node_modules`, Lockfiles und `package.json` erkennen.
+## Core Features
 
-## Kernfunktionen
+### Fetch Sources for Packages
 
-### Quellen zu Paketen abrufen
+RepoBridge accepts package specifications and resolves them to the matching source location. On a cache miss, it fetches the source. On a cache hit, it reuses the existing local path.
 
-RepoBridge akzeptiert Paket-Spezifikationen und ermittelt daraus die passende Source-Quelle. Bei einem Cache-Miss wird die Quelle geladen; bei einem Cache-Hit wird der bestehende lokale Pfad wiederverwendet.
-
-Beispiele:
+Examples:
 
 ```bash
 repobridge path react
@@ -37,13 +35,13 @@ repobridge path maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0
 repobridge path nuget:Newtonsoft.Json@13.0.3
 ```
 
-Wenn bei npm keine Version angegeben ist, versucht RepoBridge zuerst, die lokal installierte Version zu erkennen. Unterstuetzt werden `node_modules`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` und `package.json`.
+When no npm version is provided, RepoBridge first tries to detect the locally installed version. It supports `node_modules`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, and `package.json`.
 
-### Quellen zu Repositories abrufen
+### Fetch Sources for Repositories
 
-Neben Paketnamen koennen auch Repository-Spezifikationen verwendet werden. Ohne explizite Referenz ermittelt RepoBridge den Default-Branch des Repository-Hosts.
+RepoBridge also accepts repository specifications. If no explicit reference is provided, RepoBridge resolves the repository host's default branch.
 
-Beispiele:
+Examples:
 
 ```bash
 repobridge path vercel/next.js
@@ -53,33 +51,33 @@ repobridge path bitbucket.org/workspace/repo
 repobridge path https://github.com/vercel/next.js/tree/canary
 ```
 
-### Cache vorbefuellen
+### Preload the Cache
 
-Mit `fetch` lassen sich eine oder mehrere Quellen vorab in den Cache laden. Das ist nuetzlich, wenn ein Agenten- oder CI-Workflow spaeter nur noch mit lokalen Pfaden arbeiten soll.
+Use `fetch` to load one or more sources into the cache ahead of time. This is useful when an agent or CI workflow should later work only with local paths.
 
 ```bash
 repobridge fetch react@19.0.0 vercel/next.js
 repobridge fetch --quiet pypi:requests==2.32.3
 ```
 
-### Pfade fuer Automatisierung ausgeben
+### Print Paths for Automation
 
-Das Kommando `path` ist fuer nachgelagerte Tools gedacht. Es gibt pro Eingabe den absoluten Pfad zur lokalen Source-Kopie aus.
+The `path` command is designed for downstream tools. It prints one absolute path to the local source copy for each input.
 
 ```bash
 SOURCE_PATH="$(repobridge path react)"
 ls "$SOURCE_PATH"
 ```
 
-Mit `--verbose` zeigt `path` zusaetzliche Fetch-Informationen.
+Use `--verbose` to show additional fetch information.
 
 ```bash
 repobridge path --verbose react
 ```
 
-### Cache ansehen und bereinigen
+### Inspect and Clean the Cache
 
-RepoBridge speichert geladene Quellen unter `REPOBRIDGE_HOME` oder, wenn die Variable nicht gesetzt ist, unter `~/.repobridge`. Der Cache enthaelt Quellcode-Snapshots und einen `sources.json` Index.
+RepoBridge stores fetched sources under `REPOBRIDGE_HOME`, or under `~/.repobridge` when the variable is not set. The cache contains source-code snapshots and a `sources.json` index.
 
 ```bash
 repobridge list
@@ -89,7 +87,7 @@ repobridge remove github.com/vercel/next.js
 repobridge clean
 ```
 
-`clean` kann gezielt auf Quelltypen oder Registries eingeschraenkt werden:
+`clean` can be limited to source types or registries:
 
 ```bash
 repobridge clean --packages
@@ -101,134 +99,134 @@ repobridge clean --maven
 repobridge clean --nuget
 ```
 
-## Unterstuetzte Eingaben
+## Supported Inputs
 
-| Typ | Beispiele | Verhalten |
+| Type | Examples | Behavior |
 | --- | --- | --- |
-| npm | `react`, `react@19.0.0`, `@scope/pkg@1.2.3` | Standard-Registry ohne Prefix. Ohne Version nutzt RepoBridge eine lokal erkannte Version oder die Registry-Aufloesung. |
-| PyPI | `pypi:requests`, `pypi:requests==2.32.3`, `python:requests@2.32.3` | Paket-Metadaten werden aus PyPI gelesen und auf eine Repository-Quelle normalisiert. |
-| crates.io | `crates:serde`, `cargo:serde@1.0.217`, `rust:serde@1.0.217` | RepoBridge nutzt crates.io-Metadaten und passende Git-Referenzen. |
-| Maven | `maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0`, `java:group:artifact@1.0.0` | RepoBridge bevorzugt `*-sources.jar`; falls nicht vorhanden, wird SCM-Metadaten-Fallback versucht. |
-| NuGet | `nuget:Newtonsoft.Json`, `nuget:Newtonsoft.Json@13.0.3`, `dotnet:Serilog@3.1.1` | RepoBridge liest `.nuspec` Repository-Metadaten aus dem Paket und holt die passende Git-Quelle. |
-| GitHub | `vercel/next.js`, `github:vercel/next.js`, `github.com/vercel/next.js` | Ohne Ref wird der Default-Branch ueber die Host-API ermittelt. |
-| GitLab | `gitlab:group/project`, `gitlab.com/group/subgroup/project` | Projektpfade mit Subgroups werden unterstuetzt. |
-| Bitbucket | `bitbucket:workspace/repo`, `bitbucket.org/workspace/repo` | Ohne Ref wird der Default-Branch ueber die Bitbucket-API ermittelt. |
-| URL | `https://github.com/vercel/next.js/tree/canary` | Unterstuetzte Host-URLs werden normalisiert; Tree-Refs werden erkannt. |
+| npm | `react`, `react@19.0.0`, `@scope/pkg@1.2.3` | The default registry when no prefix is used. Without a version, RepoBridge uses a locally detected version or registry resolution. |
+| pypi | `pypi:requests`, `pypi:requests==2.32.3`, `python:requests@2.32.3` | Package metadata is read from pypi and normalized to a repository source. |
+| crates.io | `crates:serde`, `cargo:serde@1.0.217`, `rust:serde@1.0.217` | RepoBridge uses crates.io metadata and matching Git references. |
+| maven | `maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0`, `java:group:artifact@1.0.0` | RepoBridge prefers `*-sources.jar`; if no source JAR exists, it tries SCM metadata fallback. |
+| nuget | `nuget:Newtonsoft.Json`, `nuget:Newtonsoft.Json@13.0.3`, `dotnet:Serilog@3.1.1` | RepoBridge reads `.nuspec` repository metadata from the package and fetches the matching Git source. |
+| GitHub | `vercel/next.js`, `github:vercel/next.js`, `github.com/vercel/next.js` | Without a ref, the default branch is resolved through the host API. |
+| GitLab | `gitlab:group/project`, `gitlab.com/group/subgroup/project` | Project paths with subgroups are supported. |
+| Bitbucket | `bitbucket:workspace/repo`, `bitbucket.org/workspace/repo` | Without a ref, the default branch is resolved through the Bitbucket API. |
+| URL | `https://github.com/vercel/next.js/tree/canary` | Supported host URLs are normalized; tree refs are detected. |
 
-## CLI-Referenz
+## CLI Reference
 
-| Kommando | Zweck | Wichtige Optionen |
+| Command | Purpose | Important Options |
 | --- | --- | --- |
-| `repobridge path <spec...>` | Laedt Quellen bei Bedarf und gibt absolute lokale Pfade aus. | `--cwd`, `--verbose` |
-| `repobridge fetch <spec...>` | Laedt Quellen in den Cache, ohne Pfade als Hauptausgabe zu verwenden. | `--cwd`, `--quiet` |
-| `repobridge list` | Listet gecachte Pakete und Repositories. | `--json` |
-| `repobridge remove <spec...>` | Entfernt ausgewaehlte Cache-Eintraege. | Alias: `rm` |
-| `repobridge clean` | Entfernt Cache-Eintraege nach Typ oder Registry. | `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, `--nuget` |
+| `repobridge path <spec...>` | Fetches sources when needed and prints absolute local paths. | `--cwd`, `--verbose` |
+| `repobridge fetch <spec...>` | Loads sources into the cache without using paths as the primary output. | `--cwd`, `--quiet` |
+| `repobridge list` | Lists cached packages and repositories. | `--json` |
+| `repobridge remove <spec...>` | Removes selected cache entries. | Alias: `rm` |
+| `repobridge clean` | Removes cache entries by type or registry. | `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, `--nuget` |
 
-## Installation und Voraussetzungen
+## Installation and Requirements
 
-RepoBridge benoetigt Go 1.22 oder neuer und `git` auf dem `PATH`.
+RepoBridge requires Go 1.22 or newer and `git` on the `PATH`.
 
-Installation aus dem Repository:
+Install from the repository:
 
 ```bash
 go install ./cmd/repobridge
 ```
 
-Lokaler Build:
+Build a local binary:
 
 ```bash
 go build -o ./bin/repobridge ./cmd/repobridge
 ./bin/repobridge --version
 ```
 
-## Konfiguration
+## Configuration
 
-| Variable | Bedeutung |
+| Variable | Meaning |
 | --- | --- |
-| `REPOBRIDGE_HOME` | Cache-Verzeichnis. Standard ist `~/.repobridge`. |
-| `GITHUB_TOKEN` | Token fuer GitHub API-Aufrufe und private GitHub-Repositories. |
-| `GITLAB_TOKEN` | Token fuer private GitLab-Repositories. |
-| `BITBUCKET_TOKEN` | Token fuer private Bitbucket-Repositories. |
+| `REPOBRIDGE_HOME` | Cache directory. Defaults to `~/.repobridge`. |
+| `GITHUB_TOKEN` | Token for GitHub API calls and private GitHub repositories. |
+| `GITLAB_TOKEN` | Token for private GitLab repositories. |
+| `BITBUCKET_TOKEN` | Token for private Bitbucket repositories. |
 
-Tokens sollten nur ueber die Umgebung gesetzt werden. Sie gehoeren nicht in Quellcode, Logs oder Cache-Inhalte.
+Tokens should be provided through the environment only. They do not belong in source code, logs, or cache contents.
 
-## Typische Workflows
+## Common Workflows
 
-### Quellcode einer Dependency analysieren
+### Analyze the Source Code of a Dependency
 
-1. Paket angeben:
+1. Provide the package:
 
    ```bash
    repobridge path react@19.0.0
    ```
 
-2. Den ausgegebenen Pfad in Editor, Agent oder Analyse-Tool verwenden.
-3. Bei spaeteren Aufrufen wird derselbe Cache-Eintrag wiederverwendet.
+2. Use the printed path in an editor, agent, or analysis tool.
+3. Later runs reuse the same cache entry.
 
-### Quellen fuer einen Agentenlauf vorbereiten
+### Prepare Sources for an Agent Run
 
-1. Alle benoetigten Quellen vorab laden:
+1. Preload all required sources:
 
    ```bash
    repobridge fetch react@19.0.0 pypi:requests==2.32.3 vercel/next.js
    ```
 
-2. Im Agentenlauf nur noch `repobridge path <spec>` aufrufen.
-3. Der Agent erhaelt stabile lokale Pfade statt wechselnder Remote-URLs.
+2. During the agent run, call only `repobridge path <spec>`.
+3. The agent receives stable local paths instead of changing remote URLs.
 
-### Cache vor riskanten Tests isolieren
+### Isolate the Cache Before Risky Tests
 
-1. Temporaeres Cache-Verzeichnis setzen:
+1. Set a temporary cache directory:
 
    ```bash
    export REPOBRIDGE_HOME="$(mktemp -d)"
    ```
 
-2. Befehle ausfuehren:
+2. Run commands:
 
    ```bash
    repobridge fetch react
    repobridge clean --npm
    ```
 
-3. Das temporaere Verzeichnis nach dem Testlauf entfernen.
+3. Remove the temporary directory after the test run.
 
-## Grenzen und aktueller Stand
+## Current Limits
 
-RepoBridge dokumentiert und unterstuetzt aktuell die oeffentlichen Registry- und Repository-Quellen, die in der CLI genannt sind. Einige Erweiterungen sind noch nicht enthalten:
+RepoBridge currently documents and supports the public registry and repository sources exposed by the CLI. Some extensions are not available yet:
 
-- Custom oder private Registry-URLs fuer npm, PyPI, crates.io, Maven und NuGet.
-- Checksum- und Signaturpruefung fuer heruntergeladene Archive.
-- Maven Snapshot-Metadaten und automatische neueste Maven-Versionen.
-- Lokale Versionserkennung fuer Gradle-, Maven- und .NET-Projekte.
-- JSON-Ausgabe fuer `path` und `fetch`.
-- Konfigurationsdatei fuer Standard-Registries oder Cache-Policies.
+- Custom or private registry URLs for npm, pypi, crates.io, maven, and nuget.
+- Checksum and signature verification for downloaded archives.
+- maven snapshot metadata and automatic latest-version resolution for maven.
+- Local version detection for Gradle, maven, and .NET projects.
+- JSON output for `path` and `fetch`.
+- Configuration file support for default registries or cache policies.
 
 ## Troubleshooting
 
-### `git` wird nicht gefunden
+### `git` Is Not Found
 
-**Symptom:** Fetching von Repository-Quellen schlaegt fehl.
+**Symptom:** Fetching repository sources fails.
 
-**Loesung:**
+**Solution:**
 
-1. Pruefen, ob `git` installiert ist:
+1. Check whether `git` is installed:
 
    ```bash
    git --version
    ```
 
-2. Sicherstellen, dass `git` im `PATH` liegt.
-3. Den RepoBridge-Befehl erneut ausfuehren.
+2. Make sure `git` is available on the `PATH`.
+3. Run the RepoBridge command again.
 
-### API-Limits oder private Repositories
+### API Limits or Private Repositories
 
-**Symptom:** Repository-Aufloesung schlaegt bei GitHub, GitLab oder Bitbucket fehl.
+**Symptom:** Repository resolution fails for GitHub, GitLab, or Bitbucket.
 
-**Loesung:**
+**Solution:**
 
-1. Passenden Token als Umgebungsvariable setzen:
+1. Set the matching token as an environment variable:
 
    ```bash
    export GITHUB_TOKEN="..."
@@ -236,56 +234,49 @@ RepoBridge dokumentiert und unterstuetzt aktuell die oeffentlichen Registry- und
    export BITBUCKET_TOKEN="..."
    ```
 
-2. Befehl erneut ausfuehren.
-3. Token nicht in Shell-History, Logs oder Projektdateien ablegen.
+2. Run the command again.
+3. Do not put tokens in shell history, logs, or project files.
 
-### Falsche npm-Version wird geladen
+### The Wrong npm Version Is Loaded
 
-**Symptom:** `repobridge path react` verwendet nicht die erwartete Projektversion.
+**Symptom:** `repobridge path react` does not use the expected project version.
 
-**Loesung:**
+**Solution:**
 
-1. Mit `--cwd` das Projektverzeichnis angeben:
+1. Pass the project directory with `--cwd`:
 
    ```bash
-   repobridge path --cwd /pfad/zum/projekt react
+   repobridge path --cwd /path/to/project react
    ```
 
-2. Pruefen, ob `node_modules`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` oder `package.json` die erwartete Version enthalten.
-3. Falls eine konkrete Version benoetigt wird, diese explizit angeben:
+2. Check whether `node_modules`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, or `package.json` contains the expected version.
+3. If a specific version is required, provide it explicitly:
 
    ```bash
    repobridge path react@19.0.0
    ```
 
-### Cache soll gezielt geleert werden
+### The Cache Needs Targeted Cleanup
 
-**Symptom:** Eine alte oder nicht mehr benoetigte Source-Kopie liegt im Cache.
+**Symptom:** An old or no longer needed source copy remains in the cache.
 
-**Loesung:**
+**Solution:**
 
-1. Cache-Inhalte anzeigen:
+1. Inspect cache contents:
 
    ```bash
    repobridge list
    ```
 
-2. Einzelne Quelle entfernen:
+2. Remove a single source:
 
    ```bash
    repobridge remove react
    ```
 
-3. Alternativ gezielt nach Typ oder Registry bereinigen:
+3. Or clean entries by type or registry:
 
    ```bash
    repobridge clean --repos
    repobridge clean --nuget
    ```
-
-## Weiterfuehrende Informationen
-
-- [README](https://github.com/arkadiuszczarnik/repobridge/blob/main/README.md)
-- [Feature-Uebersicht](https://github.com/arkadiuszczarnik/repobridge/blob/main/docs/features/00-feature-set-overview.md)
-- [Maven Sources Done](https://github.com/arkadiuszczarnik/repobridge/blob/main/docs/features/maven-sources-done.md)
-- [NuGet Sources Done](https://github.com/arkadiuszczarnik/repobridge/blob/main/docs/features/17-nuget-sources-done.md)
