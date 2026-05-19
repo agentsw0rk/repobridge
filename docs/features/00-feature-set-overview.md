@@ -26,7 +26,7 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 | 14 | `remove` und `clean` für gezielte Cache-Bereinigung | Fertig | `internal/cli`, `internal/cache` | M |
 | 15 | npm-Version aus `node_modules`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` und `package.json` erkennen | Fertig | `internal/lockfile` | M |
 | 16 | Token-Unterstützung für private oder rate-limitierte Repository-APIs | Fertig | `GITHUB_TOKEN`, `GITLAB_TOKEN`, `BITBUCKET_TOKEN` | S |
-| 17 | NuGet-Pakete über `.nuspec` Repository-Metadaten auf Git-Sources auflösen | Geplant | [17-nuget-sources.md](17-nuget-sources.md) | L |
+| 17 | NuGet-Pakete über `.nuspec` Repository-Metadaten auf Git-Sources auflösen | Fertig | [17-nuget-sources.md](17-nuget-sources.md) | L |
 
 ## Unterstützte Eingaben
 
@@ -36,6 +36,7 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 | PyPI | `pypi:requests`, `pypi:requests==2.32.3`, `python:requests@2.32.3` | Resolver nutzt PyPI-Metadaten und normalisiert Repository-URLs. |
 | crates.io | `crates:serde`, `cargo:serde@1.0.217` | Resolver nutzt crates.io-Metadaten und Git-Tags. |
 | Maven | `maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0` | Source-JAR hat Vorrang; bei 404 wird SCM aus dem POM versucht. |
+| NuGet | `nuget:Newtonsoft.Json`, `nuget:Newtonsoft.Json@13.0.3`, `dotnet:Serilog@3.1.1` | `.nupkg` wird nur für `.nuspec`-Metadaten gelesen; Source kommt aus Git-Repository-Metadaten. |
 | GitHub | `vercel/next.js`, `github:vercel/next.js`, `github.com/vercel/next.js` | Ohne Ref wird der Default-Branch über die Host-API ermittelt. |
 | GitLab | `gitlab:group/project`, `gitlab.com/group/subgroup/project` | Projektpfade mit Subgroups werden unterstützt. |
 | Bitbucket | `bitbucket:workspace/repo`, `bitbucket.org/workspace/repo` | Default-Branch wird über die Bitbucket-API ermittelt. |
@@ -49,7 +50,7 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 | `repobridge fetch <spec...>` | Lädt Quellen in den Cache, ohne Pfade als Hauptausgabe zu verwenden. | `--cwd`, `--quiet` |
 | `repobridge list` | Listet gecachte Packages und Repositories. | `--json` |
 | `repobridge remove <spec...>` | Entfernt konkrete Cache-Einträge. | Alias: `rm` |
-| `repobridge clean` | Entfernt Cache-Einträge nach Typ oder Registry. | `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven` |
+| `repobridge clean` | Entfernt Cache-Einträge nach Typ oder Registry. | `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, `--nuget` |
 
 ## Projektarchitektur
 
@@ -97,6 +98,7 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 | Maven-Source-Implementierungsplan | [../superpowers/plans/2026-05-18-maven-sources.md](../superpowers/plans/2026-05-18-maven-sources.md) |
 | Maven-Source-Designspec | [../superpowers/specs/2026-05-18-maven-sources-design.md](../superpowers/specs/2026-05-18-maven-sources-design.md) |
 | NuGet-Source-Feature | [17-nuget-sources.md](17-nuget-sources.md) |
+| NuGet-Source-Support Abschlussnotiz | [17-nuget-sources-done.md](17-nuget-sources-done.md) |
 | NuGet-Source-Designspec | [../superpowers/specs/2026-05-19-nuget-sources-design.md](../superpowers/specs/2026-05-19-nuget-sources-design.md) |
 
 ## Tech-Stack
@@ -108,5 +110,5 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 | Tests | Go `testing` Package |
 | Quellcode-Fetching | `git` auf dem `PATH`, HTTP Downloads |
 | Persistenz | Lokales Dateisystem unter `REPOBRIDGE_HOME` oder `~/.repobridge` |
-| Unterstützte Paketquellen | npm, PyPI, crates.io, Maven Central |
+| Unterstützte Paketquellen | npm, PyPI, crates.io, Maven Central, NuGet |
 | Unterstützte Repository-Hosts | GitHub, GitLab, Bitbucket |

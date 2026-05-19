@@ -8,15 +8,15 @@
   <a href="https://github.com/arkadiuszczarnik/repobridge"><img alt="Repository" src="https://img.shields.io/badge/github-repobridge-181717?logo=github"></a>
   <img alt="Go" src="https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white">
   <img alt="Cobra" src="https://img.shields.io/badge/Cobra-1.9.1-6F42C1">
-  <img alt="Registries" src="https://img.shields.io/badge/registries-npm%20%7C%20PyPI%20%7C%20crates.io%20%7C%20Maven-2F855A">
+  <img alt="Registries" src="https://img.shields.io/badge/registries-npm%20%7C%20pypi%20%7C%20crates.io%20%7C%20Maven%20%7C%20NuGet-2F855A">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
 </p>
 
-`repobridge` is a small Go CLI for turning package or repository specs into local source trees. It supports npm, PyPI, crates.io, Maven Central, and common Git repository hosts.
+`repobridge` is a small Go CLI for turning package or repository specs into local source trees. It supports npm, pypi, crates.io, maven, NuGet, and common Git repository hosts.
 
 ## Features
 
-- Resolve package specs from npm, PyPI, crates.io, and Maven Central.
+- Resolve package specs from npm, pypi, crates.io, maven, and NuGet.
 - Fetch Git repositories from GitHub, GitLab, and Bitbucket.
 - Reuse a stable local cache across repeated agent/tool runs.
 - Detect installed npm package versions from `node_modules`, lockfiles, and `package.json`.
@@ -51,6 +51,8 @@ repobridge path react
 repobridge path pypi:requests==2.32.3
 repobridge path crates:serde@1.0.217
 repobridge path maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0
+repobridge path nuget:Newtonsoft.Json@13.0.3
+repobridge path dotnet:Serilog@3.1.1
 repobridge path github.com/vercel/next.js
 ```
 
@@ -74,16 +76,19 @@ repobridge clean --repos
 | Input | Example |
 | --- | --- |
 | npm package | `react`, `react@19.0.0`, `@scope/package@1.2.3` |
-| PyPI package | `pypi:requests`, `pypi:requests==2.32.3` |
+| pypi package | `pypi:requests`, `pypi:requests==2.32.3` |
 | crates.io package | `crates:serde`, `crates:serde@1.0.217` |
-| Maven Central artifact | `maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0` |
+| maven artifact | `maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0` |
+| NuGet package | `nuget:Newtonsoft.Json`, `nuget:Newtonsoft.Json@13.0.3`, `dotnet:Serilog@3.1.1` |
 | GitHub shorthand | `vercel/next.js` |
 | Repository host | `github.com/vercel/next.js`, `gitlab.com/group/project` |
 | Full URL | `https://github.com/vercel/next.js` |
 
 Package inputs default to npm. Use a registry prefix for non-npm packages.
 
-Maven inputs use explicit `groupId:artifactId@version` coordinates. RepoBridge downloads the published `*-sources.jar` from Maven Central first; when no source JAR exists, it tries to clone a Git repository from SCM metadata in the artifact POM.
+Maven inputs use explicit `groupId:artifactId@version` coordinates. RepoBridge downloads the published `*-sources.jar` from maven first; when no source JAR exists, it tries to clone a Git repository from SCM metadata in the artifact POM.
+
+NuGet inputs use package IDs with an optional explicit version. Without a version, RepoBridge selects the latest stable NuGet version. RepoBridge downloads the `.nupkg` only to read `.nuspec` repository metadata, then fetches the matching Git repository by commit or version tag. It does not cache package binaries as source.
 
 ## Commands
 
@@ -95,7 +100,7 @@ Maven inputs use explicit `groupId:artifactId@version` coordinates. RepoBridge d
 | `repobridge remove <spec...>` | Removes selected cached sources. |
 | `repobridge clean` | Removes cached sources, optionally scoped by flags. |
 
-Most commands that resolve package versions accept `--cwd` for lockfile detection. `fetch` also accepts `--quiet`; `path` accepts `--verbose`; `clean` accepts filters such as `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, and `--maven`.
+Most commands that resolve package versions accept `--cwd` for lockfile detection. `fetch` also accepts `--quiet`; `path` accepts `--verbose`; `clean` accepts filters such as `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, and `--nuget`.
 
 ## Configuration
 
