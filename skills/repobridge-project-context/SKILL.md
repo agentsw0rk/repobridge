@@ -10,28 +10,53 @@ Use this skill to enrich an agent's local context with source code for the frame
 ## Workflow
 
 1. **Find the project root.** Use the current working directory unless the user gives another path.
-2. **Scan dependencies.** Run RepoBridge's project scanner:
+2. **Ensure RepoBridge is available.** Run `command -v repobridge`. If it is missing, install the pinned GitHub release using the platform-specific asset table below.
+3. **Scan dependencies.** Run RepoBridge's project scanner:
 
    ```bash
    repobridge scan --cwd . --json
    ```
 
-3. **Review the proposed specs.** Prefer the highest-confidence specs from manifests and lockfiles. Use import-derived specs as supporting evidence.
-4. **Fetch only useful references.** Do not blindly fetch every transitive dependency. Prioritize frameworks, runtimes, SDKs, ORMs, test frameworks, UI libraries, and libraries related to the task.
-5. **Fetch sources with RepoBridge.**
+4. **Review the proposed specs.** Prefer the highest-confidence specs from manifests and lockfiles. Use import-derived specs as supporting evidence.
+5. **Fetch only useful references.** Do not blindly fetch every transitive dependency. Prioritize frameworks, runtimes, SDKs, ORMs, test frameworks, UI libraries, and libraries related to the task.
+6. **Fetch sources with RepoBridge.**
 
    ```bash
    repobridge scan --cwd <project-root> --fetch --limit 10
    repobridge path --cwd <project-root> <spec>
    ```
 
-6. **Use resolved paths as read-only references.** Search and read them with tools such as `rg`, file reads, and LSP navigation when available:
+7. **Use resolved paths as read-only references.** Search and read them with tools such as `rg`, file reads, and LSP navigation when available:
 
    ```bash
    rg "createRoot|useEffect" "$(repobridge path --cwd <project-root> react)"
    ```
 
-7. **State what was fetched.** In the final response, mention which frameworks/libraries were resolved and which paths were used when that matters for the task.
+8. **State what was fetched.** In the final response, mention which frameworks/libraries were resolved and which paths were used when that matters for the task.
+
+## Installing RepoBridge from GitHub Releases
+
+Use this only when `command -v repobridge` fails. Prefer an existing installed binary when available.
+
+Use the pinned release version `v0.2.0`. Pick the asset for the current platform:
+
+| Platform | Asset |
+| --- | --- |
+| macOS Apple Silicon | `repobridge_v0.2.0_darwin_arm64.tar.gz` |
+| macOS Intel | `repobridge_v0.2.0_darwin_amd64.tar.gz` |
+| Linux x86_64 | `repobridge_v0.2.0_linux_amd64.tar.gz` |
+| Linux arm64 | `repobridge_v0.2.0_linux_arm64.tar.gz` |
+| Windows x86_64 | `repobridge_v0.2.0_windows_amd64.zip` |
+
+Download the selected asset from:
+
+```text
+https://github.com/ArekCzarnik/RepoBridge/releases/download/v0.2.0/<asset>
+```
+
+For macOS/Linux, extract the tarball, copy `repobridge` to a directory on `PATH` such as `$HOME/.local/bin`, make it executable, and verify with `repobridge --version`.
+
+For Windows, extract `repobridge.exe` from the zip file, add its directory to `PATH`, and verify with `repobridge --version`.
 
 ## Selection Rules
 
@@ -89,7 +114,7 @@ repobridge fetch --cwd /path/to/service pypi:fastapi maven:org.springframework:s
 
 ## Failure Handling
 
-- If `repobridge` is not installed, tell the user to build or install it before fetching sources.
+- If `repobridge` is not installed, download the pinned `v0.2.0` asset for the current OS/architecture, install it into a local bin directory, and verify `repobridge --version`.
 - If a proposed spec fails, continue with the remaining specs and report the failure.
 - If too many dependencies are detected, narrow to the libraries relevant to the user's current task.
 - If private repositories fail, ask the user to provide the appropriate token through `GITHUB_TOKEN`, `GITLAB_TOKEN`, or `BITBUCKET_TOKEN`.
