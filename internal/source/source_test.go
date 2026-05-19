@@ -117,6 +117,46 @@ func TestEnsureCachedReturnsExistingMavenPackageCacheEntry(t *testing.T) {
 	}
 }
 
+func TestEnsureCachedReturnsExistingNuGetPackageCacheEntry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+	relativePath := "repos/github.com/serilog/serilog/3.1.1"
+	if err := os.MkdirAll(filepath.Join(home, filepath.FromSlash(relativePath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, filepath.FromSlash(relativePath), "Serilog.csproj"), []byte("<Project />"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.WriteSources([]cache.PackageEntry{{
+		Name:      "Serilog",
+		Version:   "3.1.1",
+		Registry:  string(registry.NuGet),
+		Path:      relativePath,
+		FetchedAt: "2026-05-18T12:00:00Z",
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	fetcher := &fakeFetcher{}
+
+	got, err := EnsureCached("nuget:Serilog@3.1.1", Options{Fetcher: fetcher})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetcher.packageCalls != 0 || fetcher.repoCalls != 0 {
+		t.Fatalf("fetcher calls = package:%d repo:%d, want none", fetcher.packageCalls, fetcher.repoCalls)
+	}
+	wantPath := filepath.Join(home, filepath.FromSlash(relativePath))
+	if got.Path != wantPath {
+		t.Fatalf("Path = %q, want %q", got.Path, wantPath)
+	}
+	if !got.FromCache {
+		t.Fatal("FromCache = false, want true")
+	}
+	if got.Name != "Serilog" || got.Version != "3.1.1" || got.SourceLabel != "NuGet" {
+		t.Fatalf("outcome = %#v", got)
+	}
+}
+
 func TestEnsureCachedFetchesRepoAndWritesSources(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("REPOBRIDGE_HOME", home)
@@ -546,6 +586,116 @@ func TestFetchPackageWithGitClonesWhenTargetOnlyContainsGitDir(t *testing.T) {
 	}
 	if !got.Success {
 		t.Fatal("Success = false, want true")
+	}
+}
+
+func TestFetchPackageWithGitUsesGitRefBeforeGitTag(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+	target := filepath.Join(home, "repos/github.com/owner/repo/1.2.3")
+	commit := "0123456789abcdef0123456789abcdef01234567"
+
+	cloneCalled := false
+	oldCloneAtTag := cloneAtTag
+	oldCloneAtCommit := cloneAtCommit
+	cloneAtTag = func(repoURL, gotTarget, version string) git.CloneResult {
+		t.Fatalf("cloneAtTag was called; GitRef should take precedence")
+		return git.CloneResult{}
+	}
+	cloneAtCommit = func(repoURL, gotTarget, gotCommit string) git.CloneResult {
+		cloneCalled = true
+		if repoURL != "https://github.com/owner/repo" {
+			t.Fatalf("repoURL = %q", repoURL)
+		}
+		if gotTarget != target {
+			t.Fatalf("target = %q, want %q", gotTarget, target)
+		}
+		if gotCommit != commit {
+			t.Fatalf("commit = %q, want %q", gotCommit, commit)
+		}
+		if err := os.MkdirAll(gotTarget, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return git.CloneResult{Success: true}
+	}
+	t.Cleanup(func() {
+		cloneAtTag = oldCloneAtTag
+		cloneAtCommit = oldCloneAtCommit
+	})
+
+	got := FetchPackageWithGit(registry.ResolvedPackage{
+		Registry: registry.NuGet,
+		Name:     "Example.Package",
+		Version:  "1.2.3",
+		RepoURL:  "https://github.com/owner/repo",
+		GitTag:   "v1.2.3",
+		GitRef:   commit,
+	})
+	if got.Error != nil {
+		t.Fatal(got.Error)
+	}
+	if !cloneCalled {
+		t.Fatal("cloneAtCommit was not called")
+	}
+	if !got.Success {
+		t.Fatal("Success = false, want true")
+	}
+	if got.Path != "repos/github.com/owner/repo/1.2.3" {
+		t.Fatalf("Path = %q", got.Path)
+	}
+}
+
+func TestFetchPackageWithGitUsesStrictTagCloneForNuGetWithoutGitRef(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+	target := filepath.Join(home, "repos/github.com/owner/repo/1.2.3")
+
+	cloneCalled := false
+	oldCloneAtTag := cloneAtTag
+	oldCloneAtTagStrict := cloneAtTagStrict
+	cloneAtTag = func(repoURL, gotTarget, version string) git.CloneResult {
+		t.Fatalf("cloneAtTag was called; NuGet should use strict tag clone")
+		return git.CloneResult{}
+	}
+	cloneAtTagStrict = func(repoURL, gotTarget, version string) git.CloneResult {
+		cloneCalled = true
+		if repoURL != "https://github.com/owner/repo" {
+			t.Fatalf("repoURL = %q", repoURL)
+		}
+		if gotTarget != target {
+			t.Fatalf("target = %q, want %q", gotTarget, target)
+		}
+		if version != "1.2.3" {
+			t.Fatalf("version = %q, want normalized tag version", version)
+		}
+		if err := os.MkdirAll(gotTarget, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return git.CloneResult{Success: true}
+	}
+	t.Cleanup(func() {
+		cloneAtTag = oldCloneAtTag
+		cloneAtTagStrict = oldCloneAtTagStrict
+	})
+
+	got := FetchPackageWithGit(registry.ResolvedPackage{
+		Registry: registry.NuGet,
+		Name:     "Example.Package",
+		Version:  "1.2.3",
+		RepoURL:  "https://github.com/owner/repo",
+		GitTag:   "v1.2.3",
+	})
+	if got.Error != nil {
+		t.Fatal(got.Error)
+	}
+	if !cloneCalled {
+		t.Fatal("cloneAtTagStrict was not called")
+	}
+	if !got.Success {
+		t.Fatal("Success = false, want true")
+	}
+	if got.Path != "repos/github.com/owner/repo/1.2.3" {
+		t.Fatalf("Path = %q", got.Path)
 	}
 }
 

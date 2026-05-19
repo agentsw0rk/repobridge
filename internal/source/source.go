@@ -14,6 +14,7 @@ import (
 	"repobridge/internal/registry/crates"
 	"repobridge/internal/registry/maven"
 	"repobridge/internal/registry/npm"
+	"repobridge/internal/registry/nuget"
 	"repobridge/internal/registry/pypi"
 	"repobridge/internal/registry/repo"
 	"repobridge/internal/repobridge"
@@ -224,6 +225,8 @@ func defaultResolvePackage(spec registry.PackageSpec, client *http.Client) (regi
 		return crates.Resolve(spec.Name, spec.Version, client, "")
 	case registry.Maven:
 		return maven.Resolve(spec.Name, spec.Version, client, "")
+	case registry.NuGet:
+		return nuget.Resolve(spec.Name, spec.Version, client, "")
 	default:
 		return registry.ResolvedPackage{}, fmt.Errorf("unsupported registry: %s", spec.Registry)
 	}
