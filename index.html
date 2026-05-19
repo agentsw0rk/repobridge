@@ -1,0 +1,904 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="RepoBridge resolves package and repository specs into stable local source-code paths for coding agents and developer tooling."
+    />
+    <title>RepoBridge Documentation</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23071016'/%3E%3Cpath d='M16 38V20h11c5 0 8 3 8 7 0 3-2 5-4 6l5 5h-7l-4-4h-3v4h-6Zm6-9h5c1 0 2-1 2-2s-1-2-2-2h-5v4Zm19 9V20h6v18h-6Z' fill='%2372e4ff'/%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #071016;
+        --bg-2: #0c1820;
+        --panel: #101f29;
+        --panel-2: #132832;
+        --line: #24404d;
+        --line-strong: #386070;
+        --text: #ecf8fb;
+        --muted: #9db6c0;
+        --soft: #d0e3e8;
+        --cyan: #72e4ff;
+        --green: #6ff2b4;
+        --amber: #ffd166;
+        --red: #ff6b6b;
+        --shadow: 0 28px 90px rgba(0, 0, 0, 0.36);
+        --max: 1160px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 16% 8%, rgba(114, 228, 255, 0.14), transparent 28rem),
+          radial-gradient(circle at 88% 6%, rgba(111, 242, 180, 0.1), transparent 24rem),
+          linear-gradient(180deg, #061016 0%, #09141b 44%, #081116 100%);
+        color: var(--text);
+        font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+        line-height: 1.6;
+      }
+
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        content: "";
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+        background-size: 44px 44px;
+        mask-image: linear-gradient(to bottom, black 0%, transparent 82%);
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .shell {
+        width: min(var(--max), calc(100% - 40px));
+        margin: 0 auto;
+      }
+
+      .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        border-bottom: 1px solid rgba(114, 228, 255, 0.12);
+        background: rgba(7, 16, 22, 0.84);
+        backdrop-filter: blur(18px);
+      }
+
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 68px;
+        gap: 24px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        text-decoration: none;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border: 1px solid rgba(114, 228, 255, 0.38);
+        border-radius: 10px;
+        background: linear-gradient(145deg, rgba(114, 228, 255, 0.16), rgba(111, 242, 180, 0.08));
+        box-shadow: 0 0 24px rgba(114, 228, 255, 0.12);
+        color: var(--cyan);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-weight: 700;
+      }
+
+      .brand-name {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.1;
+      }
+
+      .brand-name strong {
+        font-size: 1rem;
+        letter-spacing: 0;
+      }
+
+      .brand-name span {
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--soft);
+        font-size: 0.9rem;
+      }
+
+      .nav-links a {
+        border-radius: 8px;
+        padding: 9px 11px;
+        text-decoration: none;
+      }
+
+      .nav-links a:hover {
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.02fr) minmax(360px, 0.98fr);
+        align-items: center;
+        gap: 48px;
+        min-height: calc(100vh - 68px);
+        padding: 72px 0 56px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 18px;
+        color: var(--green);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 0.83rem;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .eyebrow::before {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 22px rgba(111, 242, 180, 0.8);
+        content: "";
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        line-height: 1.05;
+      }
+
+      h1 {
+        max-width: 850px;
+        font-size: clamp(3.2rem, 8vw, 7.4rem);
+        font-weight: 700;
+      }
+
+      .hero-copy {
+        max-width: 720px;
+        margin: 24px 0 0;
+        color: var(--soft);
+        font-size: clamp(1.08rem, 2vw, 1.28rem);
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin-top: 34px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 46px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        padding: 0 16px;
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .button.primary {
+        border-color: rgba(114, 228, 255, 0.72);
+        background: var(--cyan);
+        color: #061016;
+      }
+
+      .button:hover {
+        transform: translateY(-1px);
+      }
+
+      .terminal {
+        overflow: hidden;
+        min-width: 0;
+        border: 1px solid rgba(114, 228, 255, 0.24);
+        border-radius: 14px;
+        background: rgba(10, 22, 30, 0.94);
+        box-shadow: var(--shadow);
+      }
+
+      .terminal-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(114, 228, 255, 0.12);
+        padding: 13px 15px;
+        background: rgba(255, 255, 255, 0.035);
+      }
+
+      .lights {
+        display: flex;
+        gap: 7px;
+      }
+
+      .lights span {
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+      }
+
+      .lights span:nth-child(1) {
+        background: var(--red);
+      }
+
+      .lights span:nth-child(2) {
+        background: var(--amber);
+      }
+
+      .lights span:nth-child(3) {
+        background: var(--green);
+      }
+
+      .terminal-title {
+        color: var(--muted);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 0.77rem;
+      }
+
+      .terminal-body {
+        padding: 20px;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 0.88rem;
+      }
+
+      .line {
+        display: block;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+
+      .prompt {
+        color: var(--green);
+      }
+
+      .cmd {
+        color: var(--text);
+      }
+
+      .out {
+        color: var(--cyan);
+      }
+
+      .dim {
+        color: var(--muted);
+      }
+
+      .terminal-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .terminal-chip {
+        border: 1px solid rgba(114, 228, 255, 0.2);
+        border-radius: 8px;
+        padding: 10px;
+        color: var(--soft);
+        background: rgba(255, 255, 255, 0.035);
+      }
+
+      section {
+        padding: 76px 0;
+      }
+
+      .section-head {
+        display: grid;
+        grid-template-columns: minmax(0, 0.72fr) minmax(280px, 0.28fr);
+        align-items: end;
+        gap: 32px;
+        margin-bottom: 28px;
+      }
+
+      .section-kicker {
+        margin: 0 0 10px;
+        color: var(--cyan);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 0.82rem;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      h2 {
+        font-size: clamp(2rem, 4vw, 3.7rem);
+      }
+
+      .section-head p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .feature-card,
+      .workflow,
+      .trouble,
+      .reference-card {
+        border: 1px solid rgba(114, 228, 255, 0.16);
+        border-radius: 12px;
+        background: linear-gradient(180deg, rgba(16, 31, 41, 0.92), rgba(11, 22, 29, 0.9));
+        box-shadow: 0 16px 50px rgba(0, 0, 0, 0.17);
+      }
+
+      .feature-card {
+        min-height: 240px;
+        padding: 22px;
+      }
+
+      .feature-card h3 {
+        margin-bottom: 14px;
+        font-size: 1.24rem;
+      }
+
+      .feature-card p,
+      .workflow p,
+      .trouble p,
+      .reference-card p {
+        color: var(--muted);
+      }
+
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      .tag {
+        border: 1px solid rgba(114, 228, 255, 0.18);
+        border-radius: 999px;
+        padding: 5px 9px;
+        color: var(--soft);
+        background: rgba(255, 255, 255, 0.035);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 0.75rem;
+      }
+
+      .code-panel {
+        overflow: auto;
+        border: 1px solid rgba(114, 228, 255, 0.16);
+        border-radius: 12px;
+        background: #081219;
+      }
+
+      pre {
+        margin: 0;
+        padding: 20px;
+        color: var(--soft);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 0.87rem;
+        line-height: 1.7;
+      }
+
+      .copy-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(114, 228, 255, 0.14);
+        padding: 10px 12px;
+        color: var(--muted);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 0.78rem;
+      }
+
+      .copy-button {
+        border: 1px solid rgba(114, 228, 255, 0.28);
+        border-radius: 7px;
+        padding: 6px 9px;
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--cyan);
+        cursor: pointer;
+        font: inherit;
+      }
+
+      .input-table {
+        overflow: hidden;
+        border: 1px solid rgba(114, 228, 255, 0.16);
+        border-radius: 12px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: rgba(16, 31, 41, 0.68);
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid rgba(114, 228, 255, 0.12);
+        padding: 15px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--cyan);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+      }
+
+      td {
+        color: var(--soft);
+      }
+
+      td code,
+      li code,
+      p code {
+        color: var(--green);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 0.42fr) minmax(0, 0.58fr);
+        gap: 18px;
+      }
+
+      .reference-card,
+      .workflow,
+      .trouble {
+        padding: 22px;
+      }
+
+      .reference-list,
+      .workflow-list,
+      .trouble-list {
+        display: grid;
+        gap: 14px;
+      }
+
+      .workflow {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 16px;
+      }
+
+      .step {
+        display: grid;
+        width: 36px;
+        height: 36px;
+        place-items: center;
+        border-radius: 9px;
+        background: rgba(114, 228, 255, 0.1);
+        color: var(--cyan);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-weight: 700;
+      }
+
+      ul {
+        margin: 12px 0 0;
+        padding-left: 20px;
+        color: var(--muted);
+      }
+
+      .footer {
+        border-top: 1px solid rgba(114, 228, 255, 0.12);
+        padding: 32px 0 44px;
+        color: var(--muted);
+      }
+
+      .footer-inner {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      @media (max-width: 900px) {
+        .shell {
+          width: min(100% - 28px, var(--max));
+        }
+
+        .nav {
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 14px 0;
+        }
+
+        .nav-links {
+          overflow-x: auto;
+          width: 100%;
+          padding-bottom: 4px;
+        }
+
+        .hero,
+        .section-head,
+        .split {
+          grid-template-columns: 1fr;
+        }
+
+        .hero {
+          min-height: auto;
+          padding-top: 48px;
+        }
+
+        .cards {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 620px) {
+        h1 {
+          font-size: 3.1rem;
+        }
+
+        .terminal-grid {
+          grid-template-columns: 1fr;
+        }
+
+        th,
+        td {
+          display: block;
+          width: 100%;
+        }
+
+        th {
+          display: none;
+        }
+
+        tr {
+          display: block;
+          border-bottom: 1px solid rgba(114, 228, 255, 0.16);
+          padding: 10px 0;
+        }
+
+        td {
+          border: 0;
+          padding: 8px 14px;
+        }
+
+        .footer-inner {
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="shell nav">
+        <a class="brand" href="#top" aria-label="RepoBridge home">
+          <span class="brand-mark">rb</span>
+          <span class="brand-name">
+            <strong>RepoBridge</strong>
+            <span>source paths for agents</span>
+          </span>
+        </a>
+        <nav class="nav-links" aria-label="Primary navigation">
+          <a href="#features">Features</a>
+          <a href="#inputs">Inputs</a>
+          <a href="#cli">CLI</a>
+          <a href="#workflows">Workflows</a>
+          <a href="#troubleshooting">Trouble</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero shell">
+        <div>
+          <p class="eyebrow">Go CLI · package sources · repository snapshots</p>
+          <h1>Local source code paths for every dependency.</h1>
+          <p class="hero-copy">
+            RepoBridge resolves package and repository specs into stable local source-code paths for coding
+            agents, developer tools, and repeatable analysis workflows.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#quickstart">Quick start</a>
+            <a class="button" href="https://github.com/ArekCzarnik/RepoBridge">View on GitHub</a>
+          </div>
+        </div>
+
+        <div class="terminal" aria-label="RepoBridge terminal example">
+          <div class="terminal-top">
+            <div class="lights" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div class="terminal-title">repobridge</div>
+          </div>
+          <div class="terminal-body">
+            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge path react@19.0.0</span></span>
+            <span class="line out">/Users/me/.repobridge/repos/github.com/facebook/react/v19.0.0</span>
+            <span class="line">&nbsp;</span>
+            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge fetch pypi:requests==2.32.3 vercel/next.js</span></span>
+            <span class="line dim">Fetched 2 source(s), 0 already cached</span>
+            <div class="terminal-grid">
+              <div class="terminal-chip">npm · PyPI · crates.io</div>
+              <div class="terminal-chip">Maven · NuGet</div>
+              <div class="terminal-chip">GitHub · GitLab</div>
+              <div class="terminal-chip">Bitbucket · URLs</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="quickstart" class="shell">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Quick start</p>
+            <h2>Resolve, fetch, and reuse source trees.</h2>
+          </div>
+          <p>Use one command to populate the cache on demand and print a path that other tools can consume.</p>
+        </div>
+        <div class="code-panel">
+          <div class="copy-row">
+            <span>install and fetch examples</span>
+            <button class="copy-button" data-copy="quickstart-code">Copy</button>
+          </div>
+          <pre id="quickstart-code"><code>go install ./cmd/repobridge
+
+repobridge path react
+repobridge path pypi:requests==2.32.3
+repobridge path crates:serde@1.0.217
+repobridge path maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0
+repobridge path nuget:Newtonsoft.Json@13.0.3
+repobridge path github.com/vercel/next.js</code></pre>
+        </div>
+      </section>
+
+      <section id="features" class="shell">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Core features</p>
+            <h2>Built for source-aware automation.</h2>
+          </div>
+          <p>RepoBridge keeps the public interface small: give it a spec, get a stable local source tree.</p>
+        </div>
+        <div class="cards">
+          <article class="feature-card">
+            <h3>Fetch package sources</h3>
+            <p>Resolve package metadata and fetch matching source repositories or source archives.</p>
+            <div class="tag-row">
+              <span class="tag">npm</span><span class="tag">PyPI</span><span class="tag">crates.io</span>
+              <span class="tag">Maven</span><span class="tag">NuGet</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <h3>Fetch repositories</h3>
+            <p>Accept repository shorthands, host URLs, and tree refs for supported Git hosts.</p>
+            <div class="tag-row">
+              <span class="tag">GitHub</span><span class="tag">GitLab</span><span class="tag">Bitbucket</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <h3>Reuse a local cache</h3>
+            <p>Store source snapshots under `REPOBRIDGE_HOME` or `~/.repobridge` and reuse them across runs.</p>
+            <div class="tag-row">
+              <span class="tag">sources.json</span><span class="tag">list</span><span class="tag">clean</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="inputs" class="shell">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Supported inputs</p>
+            <h2>One CLI shape across registries and hosts.</h2>
+          </div>
+          <p>Package inputs default to npm. Use a prefix for other registries.</p>
+        </div>
+        <div class="input-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Examples</th>
+                <th>Behavior</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>npm</td>
+                <td><code>react</code>, <code>react@19.0.0</code>, <code>@scope/pkg@1.2.3</code></td>
+                <td>Default registry. Without a version, RepoBridge can use a locally detected project version.</td>
+              </tr>
+              <tr>
+                <td>PyPI</td>
+                <td><code>pypi:requests</code>, <code>pypi:requests==2.32.3</code></td>
+                <td>Reads PyPI metadata and normalizes repository sources.</td>
+              </tr>
+              <tr>
+                <td>crates.io</td>
+                <td><code>crates:serde</code>, <code>cargo:serde@1.0.217</code></td>
+                <td>Uses crates.io metadata and matching Git references.</td>
+              </tr>
+              <tr>
+                <td>Maven</td>
+                <td><code>maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0</code></td>
+                <td>Prefers source JARs and falls back to SCM metadata when needed.</td>
+              </tr>
+              <tr>
+                <td>NuGet</td>
+                <td><code>nuget:Newtonsoft.Json@13.0.3</code>, <code>dotnet:Serilog@3.1.1</code></td>
+                <td>Reads `.nuspec` repository metadata and fetches the matching Git source.</td>
+              </tr>
+              <tr>
+                <td>Repositories</td>
+                <td><code>vercel/next.js</code>, <code>github.com/vercel/next.js</code></td>
+                <td>Resolves supported GitHub, GitLab, and Bitbucket repositories.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="cli" class="shell">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">CLI reference</p>
+            <h2>Small command surface, predictable output.</h2>
+          </div>
+          <p>The commands are optimized for scripting, cache management, and agent workflows.</p>
+        </div>
+        <div class="split">
+          <div class="reference-list">
+            <article class="reference-card">
+              <h3><code>path &lt;spec...&gt;</code></h3>
+              <p>Fetches sources on cache miss and prints absolute local paths.</p>
+              <p><code>--cwd</code> · <code>--verbose</code></p>
+            </article>
+            <article class="reference-card">
+              <h3><code>fetch &lt;spec...&gt;</code></h3>
+              <p>Preloads one or more sources into the cache.</p>
+              <p><code>--cwd</code> · <code>--quiet</code></p>
+            </article>
+            <article class="reference-card">
+              <h3><code>list</code></h3>
+              <p>Lists cached packages and repositories.</p>
+              <p><code>--json</code></p>
+            </article>
+          </div>
+          <div class="code-panel">
+            <div class="copy-row">
+              <span>cache management</span>
+              <button class="copy-button" data-copy="cli-code">Copy</button>
+            </div>
+            <pre id="cli-code"><code>repobridge list
+repobridge list --json
+
+repobridge remove react
+repobridge remove github.com/vercel/next.js
+
+repobridge clean --packages
+repobridge clean --repos
+repobridge clean --npm
+repobridge clean --pypi
+repobridge clean --crates
+repobridge clean --maven
+repobridge clean --nuget</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="workflows" class="shell">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Workflows</p>
+            <h2>Designed for repeated tool and agent runs.</h2>
+          </div>
+          <p>Use RepoBridge where remote package metadata needs to become a concrete local source tree.</p>
+        </div>
+        <div class="workflow-list">
+          <article class="workflow">
+            <span class="step">01</span>
+            <div>
+              <h3>Analyze a dependency</h3>
+              <p>Run <code>repobridge path react@19.0.0</code>, then use the printed path in an editor, agent, or analysis tool.</p>
+            </div>
+          </article>
+          <article class="workflow">
+            <span class="step">02</span>
+            <div>
+              <h3>Prepare sources before an agent run</h3>
+              <p>Run <code>repobridge fetch react@19.0.0 pypi:requests==2.32.3 vercel/next.js</code> before the agent starts.</p>
+            </div>
+          </article>
+          <article class="workflow">
+            <span class="step">03</span>
+            <div>
+              <h3>Use an isolated cache for tests</h3>
+              <p>Set <code>REPOBRIDGE_HOME="$(mktemp -d)"</code> before running destructive cache commands.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="troubleshooting" class="shell">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Troubleshooting</p>
+            <h2>Common failure modes and fixes.</h2>
+          </div>
+          <p>Most problems are related to local tooling, host API limits, or version detection context.</p>
+        </div>
+        <div class="cards">
+          <article class="trouble">
+            <h3>`git` is not found</h3>
+            <p>Install `git`, make sure it is available on the `PATH`, then rerun the command.</p>
+          </article>
+          <article class="trouble">
+            <h3>API limits or private repositories</h3>
+            <p>Set `GITHUB_TOKEN`, `GITLAB_TOKEN`, or `BITBUCKET_TOKEN` through your environment.</p>
+          </article>
+          <article class="trouble">
+            <h3>Wrong npm version</h3>
+            <p>Pass `--cwd /path/to/project` or provide the exact package version explicitly.</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="shell footer-inner">
+        <span>RepoBridge · Apache-2.0</span>
+        <span>Static GitHub Pages documentation</span>
+      </div>
+    </footer>
+
+    <script>
+      for (const button of document.querySelectorAll("[data-copy]")) {
+        button.addEventListener("click", async () => {
+          const target = document.getElementById(button.dataset.copy);
+          const text = target ? target.innerText : "";
+          try {
+            await navigator.clipboard.writeText(text);
+            const original = button.textContent;
+            button.textContent = "Copied";
+            setTimeout(() => {
+              button.textContent = original;
+            }, 1400);
+          } catch {
+            button.textContent = "Select text";
+          }
+        });
+      }
+    </script>
+  </body>
+</html>
