@@ -155,6 +155,28 @@ func TestFetchEnsuresCachedAndSummarizesOutcomes(t *testing.T) {
 	}
 }
 
+func TestFetchDisplaysMavenLabel(t *testing.T) {
+	app := &fakeApp{outcomes: map[string]source.Outcome{
+		"maven:org.example:lib@1.0.0": {
+			Name:        "org.example:lib",
+			Version:     "1.0.0",
+			SourceLabel: "Maven",
+			Path:        "/cache/lib",
+		},
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "fetch", "maven:org.example:lib@1.0.0")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout, "Fetched org.example:lib@1.0.0 from Maven") {
+		t.Fatalf("stdout = %q, want Maven fetch line", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
 func TestListJSONUsesCacheIndex(t *testing.T) {
 	withHome(t)
 	packages := []cache.PackageEntry{{
@@ -308,5 +330,38 @@ func TestCleanRegistryFilter(t *testing.T) {
 	}
 	if repoInfo == nil {
 		t.Fatal("repo missing after npm clean")
+	}
+}
+
+func TestCleanMavenRegistryFilter(t *testing.T) {
+	withHome(t)
+	packages := []cache.PackageEntry{
+		{Name: "zod", Version: "3.22.4", Registry: "npm", Path: "repos/github.com/colinhacks/zod/3.22.4"},
+		{Name: "org.example:lib", Version: "1.0.0", Registry: "maven", Path: "repos/maven/org.example/lib/1.0.0"},
+	}
+	if err := cache.WriteSources(packages, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, err := executeForTest("clean", "--maven")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if strings.TrimSpace(stdout) != "Cleaned 1 source(s)" {
+		t.Fatalf("stdout = %q, want one-source clean summary", stdout)
+	}
+	mavenInfo, err := cache.PackageInfo("org.example:lib", "maven")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mavenInfo != nil {
+		t.Fatalf("maven package = %#v, want nil", mavenInfo)
+	}
+	npmInfo, err := cache.PackageInfo("zod", "npm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if npmInfo == nil {
+		t.Fatal("npm package missing after Maven clean")
 	}
 }

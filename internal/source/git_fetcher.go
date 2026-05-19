@@ -1,7 +1,9 @@
 package source
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -10,14 +12,40 @@ import (
 	"repobridge/internal/cache"
 	"repobridge/internal/git"
 	"repobridge/internal/registry"
+	"repobridge/internal/registry/maven"
+	"repobridge/internal/repobridge"
 )
 
-type GitFetcher struct{}
+type GitFetcher struct {
+	Client *http.Client
+}
 
 var cloneAtTag = git.CloneAtTag
 var cloneAtRef = git.CloneAtRef
 
-func (GitFetcher) FetchPackage(pkg registry.ResolvedPackage) FetchResult {
+func (f GitFetcher) FetchPackage(pkg registry.ResolvedPackage) FetchResult {
+	if pkg.SourceArchiveURL != "" {
+		result := FetchPackageArchive(pkg, f.Client)
+		if result.Error == nil {
+			return result
+		}
+		var notFound *sourceArchiveNotFoundError
+		if !errors.As(result.Error, &notFound) {
+			return result
+		}
+		if pkg.RepoURL == "" && pkg.Registry == registry.Maven && pkg.SourceMetadataURL != "" {
+			repoURL, err := maven.ResolveSCMURL(f.Client, pkg.SourceMetadataURL, pkg.Name, pkg.Version)
+			if err != nil {
+				return FetchResult{Error: err}
+			}
+			pkg.RepoURL = repoURL
+		}
+		if pkg.RepoURL == "" {
+			return FetchResult{Error: repobridge.NoRepoURLError{
+				Message: fmt.Sprintf("No Maven source JAR found for %q and no usable SCM URL found in the POM", pkg.Name+"@"+pkg.Version),
+			}}
+		}
+	}
 	return FetchPackageWithGit(pkg)
 }
 
@@ -52,7 +80,11 @@ func FetchPackageWithGit(pkg registry.ResolvedPackage) FetchResult {
 			Registry: pkg.Registry,
 		}
 	}
-	clone := cloneAtTag(pkg.RepoURL, target, pkg.Version)
+	cloneRef := pkg.Version
+	if pkg.GitTag != "" {
+		cloneRef = strings.TrimPrefix(pkg.GitTag, "v")
+	}
+	clone := cloneAtTag(pkg.RepoURL, target, cloneRef)
 	if clone.Error != nil || !clone.Success {
 		return FetchResult{Success: clone.Success, Warning: clone.Warning, Error: clone.Error}
 	}

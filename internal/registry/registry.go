@@ -12,6 +12,7 @@ const (
 	NPM    Registry = "npm"
 	PyPI   Registry = "pypi"
 	Crates Registry = "crates"
+	Maven  Registry = "maven"
 )
 
 func (r Registry) Label() string {
@@ -22,6 +23,8 @@ func (r Registry) Label() string {
 		return "PyPI"
 	case Crates:
 		return "crates.io"
+	case Maven:
+		return "Maven"
 	default:
 		return string(r)
 	}
@@ -46,12 +49,14 @@ type PackageSpec struct {
 }
 
 type ResolvedPackage struct {
-	Registry      Registry
-	Name          string
-	Version       string
-	RepoURL       string
-	RepoDirectory string
-	GitTag        string
+	Registry          Registry
+	Name              string
+	Version           string
+	RepoURL           string
+	RepoDirectory     string
+	GitTag            string
+	SourceArchiveURL  string
+	SourceMetadataURL string
 }
 
 var scopedNPM = regexp.MustCompile(`^(@[^/]+/[^@]+)(?:@(.+))?$`)
@@ -68,6 +73,9 @@ var prefixes = []struct {
 	{"crates:", Crates},
 	{"cargo:", Crates},
 	{"rust:", Crates},
+	{"maven:", Maven},
+	{"java:", Maven},
+	{"kotlin:", Maven},
 }
 
 func DetectRegistry(spec string) DetectedRegistry {
@@ -95,6 +103,8 @@ func parseByRegistry(reg Registry, spec string) (string, string) {
 		return ParsePyPISpec(spec)
 	case Crates:
 		return ParseCratesSpec(spec)
+	case Maven:
+		return ParseMavenSpec(spec)
 	default:
 		return strings.TrimSpace(spec), ""
 	}
@@ -128,6 +138,14 @@ func ParsePyPISpec(spec string) (string, string) {
 }
 
 func ParseCratesSpec(spec string) (string, string) {
+	trimmed := strings.TrimSpace(spec)
+	if at := strings.LastIndex(trimmed, "@"); at > 0 {
+		return strings.TrimSpace(trimmed[:at]), strings.TrimSpace(trimmed[at+1:])
+	}
+	return trimmed, ""
+}
+
+func ParseMavenSpec(spec string) (string, string) {
 	trimmed := strings.TrimSpace(spec)
 	if at := strings.LastIndex(trimmed, "@"); at > 0 {
 		return strings.TrimSpace(trimmed[:at]), strings.TrimSpace(trimmed[at+1:])
@@ -186,7 +204,7 @@ func isSupportedRepoHost(host string) bool {
 
 func SupportedRegistry(reg Registry) error {
 	switch reg {
-	case NPM, PyPI, Crates:
+	case NPM, PyPI, Crates, Maven:
 		return nil
 	default:
 		return fmt.Errorf("unsupported registry: %s", reg)

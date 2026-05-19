@@ -3,6 +3,7 @@ package source
 import (
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,6 +77,46 @@ func TestEnsureCachedReturnsExistingPackageCacheEntry(t *testing.T) {
 	}
 }
 
+func TestEnsureCachedReturnsExistingMavenPackageCacheEntry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+	relativePath := "repos/maven/org.jetbrains.kotlin/kotlin-stdlib/2.1.0"
+	if err := os.MkdirAll(filepath.Join(home, filepath.FromSlash(relativePath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, filepath.FromSlash(relativePath), "KotlinVersion.kt"), []byte("class KotlinVersion"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.WriteSources([]cache.PackageEntry{{
+		Name:      "org.jetbrains.kotlin:kotlin-stdlib",
+		Version:   "2.1.0",
+		Registry:  string(registry.Maven),
+		Path:      relativePath,
+		FetchedAt: "2026-05-18T12:00:00Z",
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	fetcher := &fakeFetcher{}
+
+	got, err := EnsureCached("maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0", Options{Fetcher: fetcher})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetcher.packageCalls != 0 || fetcher.repoCalls != 0 {
+		t.Fatalf("fetcher calls = package:%d repo:%d, want none", fetcher.packageCalls, fetcher.repoCalls)
+	}
+	wantPath := filepath.Join(home, filepath.FromSlash(relativePath))
+	if got.Path != wantPath {
+		t.Fatalf("Path = %q, want %q", got.Path, wantPath)
+	}
+	if !got.FromCache {
+		t.Fatal("FromCache = false, want true")
+	}
+	if got.Name != "org.jetbrains.kotlin:kotlin-stdlib" || got.Version != "2.1.0" || got.SourceLabel != "Maven" {
+		t.Fatalf("outcome = %#v", got)
+	}
+}
+
 func TestEnsureCachedFetchesRepoAndWritesSources(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("REPOBRIDGE_HOME", home)
@@ -126,6 +167,245 @@ func TestEnsureCachedInvalidRepoSpecReturnsTypedError(t *testing.T) {
 	var invalidErr repobridge.InvalidRepoSpecError
 	if !errors.As(err, &invalidErr) {
 		t.Fatalf("EnsureCached() error = %T %q, want InvalidRepoSpecError", err, err)
+	}
+}
+
+func TestGitFetcherUsesSourceArchiveBeforeGit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+
+	body := zipBytes(t, map[string]string{
+		"src/main/java/App.java": "class App {}",
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/demo-1.0.0-sources.jar" {
+			t.Fatalf("path = %q, want source archive path", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write(body); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	oldCloneAtTag := cloneAtTag
+	cloneAtTag = func(repoURL, target, version string) git.CloneResult {
+		t.Fatalf("cloneAtTag was called for archive-backed Maven package")
+		return git.CloneResult{}
+	}
+	t.Cleanup(func() { cloneAtTag = oldCloneAtTag })
+
+	got := GitFetcher{Client: server.Client()}.FetchPackage(registry.ResolvedPackage{
+		Registry:          registry.Maven,
+		Name:              "org.example:demo",
+		Version:           "1.0.0",
+		RepoURL:           "https://github.com/owner/repo",
+		SourceArchiveURL:  server.URL + "/demo-1.0.0-sources.jar",
+		SourceMetadataURL: server.URL + "/demo-1.0.0.pom",
+	})
+	if got.Error != nil {
+		t.Fatal(got.Error)
+	}
+	if !got.Success {
+		t.Fatal("Success = false, want true")
+	}
+	if got.Path != "repos/maven/org.example/demo/1.0.0" {
+		t.Fatalf("Path = %q", got.Path)
+	}
+	if got.Version != "1.0.0" || got.Registry != registry.Maven {
+		t.Fatalf("result = %#v", got)
+	}
+	if _, err := os.Stat(filepath.Join(home, "repos/maven/org.example/demo/1.0.0/src/main/java/App.java")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGitFetcherFallsBackToGitWhenSourceArchiveMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+
+	server := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(server.Close)
+
+	target := filepath.Join(home, "repos/github.com/owner/repo/1.0.0")
+	cloneCalled := false
+	oldCloneAtTag := cloneAtTag
+	cloneAtTag = func(repoURL, gotTarget, version string) git.CloneResult {
+		cloneCalled = true
+		if repoURL != "https://github.com/owner/repo" {
+			t.Fatalf("repoURL = %q", repoURL)
+		}
+		if gotTarget != target {
+			t.Fatalf("target = %q, want %q", gotTarget, target)
+		}
+		if version != "1.0.0" {
+			t.Fatalf("clone ref = %q, want 1.0.0", version)
+		}
+		if err := os.MkdirAll(gotTarget, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return git.CloneResult{Success: true}
+	}
+	t.Cleanup(func() { cloneAtTag = oldCloneAtTag })
+
+	got := GitFetcher{Client: server.Client()}.FetchPackage(registry.ResolvedPackage{
+		Registry:         registry.Maven,
+		Name:             "org.example:demo",
+		Version:          "1.0.0",
+		RepoURL:          "https://github.com/owner/repo",
+		GitTag:           "v1.0.0",
+		SourceArchiveURL: server.URL + "/missing-sources.jar",
+	})
+	if got.Error != nil {
+		t.Fatal(got.Error)
+	}
+	if !cloneCalled {
+		t.Fatal("cloneAtTag was not called")
+	}
+	if !got.Success {
+		t.Fatal("Success = false, want true")
+	}
+	if got.Version != "1.0.0" {
+		t.Fatalf("Version = %q, want package version", got.Version)
+	}
+	if got.Path != "repos/github.com/owner/repo/1.0.0" {
+		t.Fatalf("Path = %q", got.Path)
+	}
+}
+
+func TestGitFetcherResolvesMavenSCMWhenSourceArchiveMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/demo-1.0.0-sources.jar":
+			http.NotFound(w, r)
+		case "/demo-1.0.0.pom":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<project>
+  <scm>
+    <connection>scm:git:https://github.com/Owner/repo.git</connection>
+  </scm>
+</project>`))
+		default:
+			t.Fatalf("unexpected path = %q", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	target := filepath.Join(home, "repos/github.com/owner/repo/1.0.0")
+	cloneCalled := false
+	oldCloneAtTag := cloneAtTag
+	cloneAtTag = func(repoURL, gotTarget, version string) git.CloneResult {
+		cloneCalled = true
+		if repoURL != "https://github.com/owner/repo" {
+			t.Fatalf("repoURL = %q", repoURL)
+		}
+		if gotTarget != target {
+			t.Fatalf("target = %q, want %q", gotTarget, target)
+		}
+		if version != "1.0.0" {
+			t.Fatalf("clone ref = %q, want 1.0.0", version)
+		}
+		if err := os.MkdirAll(gotTarget, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return git.CloneResult{Success: true}
+	}
+	t.Cleanup(func() { cloneAtTag = oldCloneAtTag })
+
+	got := GitFetcher{Client: server.Client()}.FetchPackage(registry.ResolvedPackage{
+		Registry:          registry.Maven,
+		Name:              "org.example:demo",
+		Version:           "1.0.0",
+		GitTag:            "v1.0.0",
+		SourceArchiveURL:  server.URL + "/demo-1.0.0-sources.jar",
+		SourceMetadataURL: server.URL + "/demo-1.0.0.pom",
+	})
+	if got.Error != nil {
+		t.Fatal(got.Error)
+	}
+	if !cloneCalled {
+		t.Fatal("cloneAtTag was not called")
+	}
+	if !got.Success {
+		t.Fatal("Success = false, want true")
+	}
+	if got.Path != "repos/github.com/owner/repo/1.0.0" {
+		t.Fatalf("Path = %q", got.Path)
+	}
+}
+
+func TestGitFetcherReturnsMavenPOMErrorWhenDeferredSCMFails(t *testing.T) {
+	t.Setenv("REPOBRIDGE_HOME", t.TempDir())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/demo-1.0.0-sources.jar":
+			http.NotFound(w, r)
+		case "/demo-1.0.0.pom":
+			http.Error(w, "unavailable", http.StatusInternalServerError)
+		default:
+			t.Fatalf("unexpected path = %q", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	oldCloneAtTag := cloneAtTag
+	cloneAtTag = func(repoURL, target, version string) git.CloneResult {
+		t.Fatalf("cloneAtTag was called after POM failure")
+		return git.CloneResult{}
+	}
+	t.Cleanup(func() { cloneAtTag = oldCloneAtTag })
+
+	got := GitFetcher{Client: server.Client()}.FetchPackage(registry.ResolvedPackage{
+		Registry:          registry.Maven,
+		Name:              "org.example:demo",
+		Version:           "1.0.0",
+		SourceArchiveURL:  server.URL + "/demo-1.0.0-sources.jar",
+		SourceMetadataURL: server.URL + "/demo-1.0.0.pom",
+	})
+	var statusErr repobridge.HTTPStatusError
+	if !errors.As(got.Error, &statusErr) {
+		t.Fatalf("Error = %T %[1]v, want HTTPStatusError", got.Error)
+	}
+	if statusErr.Context != "Maven POM" {
+		t.Fatalf("Context = %q, want Maven POM", statusErr.Context)
+	}
+}
+
+func TestGitFetcherDoesNotResolveMavenSCMForNon404ArchiveError(t *testing.T) {
+	t.Setenv("REPOBRIDGE_HOME", t.TempDir())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/demo-1.0.0-sources.jar" {
+			t.Fatalf("unexpected POM lookup or path = %q", r.URL.Path)
+		}
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+
+	oldCloneAtTag := cloneAtTag
+	cloneAtTag = func(repoURL, target, version string) git.CloneResult {
+		t.Fatalf("cloneAtTag was called after non-404 archive failure")
+		return git.CloneResult{}
+	}
+	t.Cleanup(func() { cloneAtTag = oldCloneAtTag })
+
+	got := GitFetcher{Client: server.Client()}.FetchPackage(registry.ResolvedPackage{
+		Registry:          registry.Maven,
+		Name:              "org.example:demo",
+		Version:           "1.0.0",
+		SourceArchiveURL:  server.URL + "/demo-1.0.0-sources.jar",
+		SourceMetadataURL: server.URL + "/demo-1.0.0.pom",
+	})
+	var statusErr repobridge.HTTPStatusError
+	if !errors.As(got.Error, &statusErr) {
+		t.Fatalf("Error = %T %[1]v, want HTTPStatusError", got.Error)
+	}
+	if statusErr.Context != "source archive" {
+		t.Fatalf("Context = %q, want source archive", statusErr.Context)
 	}
 }
 

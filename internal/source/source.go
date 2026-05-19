@@ -12,6 +12,7 @@ import (
 	"repobridge/internal/lockfile"
 	"repobridge/internal/registry"
 	"repobridge/internal/registry/crates"
+	"repobridge/internal/registry/maven"
 	"repobridge/internal/registry/npm"
 	"repobridge/internal/registry/pypi"
 	"repobridge/internal/registry/repo"
@@ -106,7 +107,7 @@ func ensurePackageCached(input string, opts Options) (Outcome, error) {
 
 	fetcher := opts.Fetcher
 	if fetcher == nil {
-		fetcher = GitFetcher{}
+		fetcher = GitFetcher{Client: opts.Client}
 	}
 	result := fetcher.FetchPackage(resolved)
 	if err := fetchError(result); err != nil {
@@ -176,7 +177,7 @@ func ensureRepoCached(input string, opts Options) (Outcome, error) {
 
 	fetcher := opts.Fetcher
 	if fetcher == nil {
-		fetcher = GitFetcher{}
+		fetcher = GitFetcher{Client: opts.Client}
 	}
 	result := fetcher.FetchRepo(resolved.DisplayName, resolved.RepoURL, resolved.GitRef)
 	if err := fetchError(result); err != nil {
@@ -221,6 +222,8 @@ func defaultResolvePackage(spec registry.PackageSpec, client *http.Client) (regi
 		return pypi.Resolve(spec.Name, spec.Version, client, "")
 	case registry.Crates:
 		return crates.Resolve(spec.Name, spec.Version, client, "")
+	case registry.Maven:
+		return maven.Resolve(spec.Name, spec.Version, client, "")
 	default:
 		return registry.ResolvedPackage{}, fmt.Errorf("unsupported registry: %s", spec.Registry)
 	}

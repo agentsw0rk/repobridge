@@ -16,6 +16,9 @@ func TestDetectRegistry(t *testing.T) {
 		{"crates:serde", Crates, "serde"},
 		{"cargo:serde", Crates, "serde"},
 		{"rust:serde", Crates, "serde"},
+		{"maven:org.jetbrains.kotlin:kotlin-stdlib", Maven, "org.jetbrains.kotlin:kotlin-stdlib"},
+		{"java:com.fasterxml.jackson.core:jackson-databind", Maven, "com.fasterxml.jackson.core:jackson-databind"},
+		{"kotlin:org.jetbrains.kotlin:kotlin-stdlib", Maven, "org.jetbrains.kotlin:kotlin-stdlib"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.spec, func(t *testing.T) {
@@ -38,6 +41,9 @@ func TestParsePackageSpec(t *testing.T) {
 		{"@babel/core@7.0.0", NPM, "@babel/core", "7.0.0"},
 		{"pypi:requests==2.31.0", PyPI, "requests", "2.31.0"},
 		{"crates:serde@1.0.200", Crates, "serde", "1.0.200"},
+		{"maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0", Maven, "org.jetbrains.kotlin:kotlin-stdlib", "2.1.0"},
+		{"java:com.fasterxml.jackson.core:jackson-databind@2.17.2", Maven, "com.fasterxml.jackson.core:jackson-databind", "2.17.2"},
+		{"kotlin:org.jetbrains.kotlin:kotlin-stdlib@2.1.0", Maven, "org.jetbrains.kotlin:kotlin-stdlib", "2.1.0"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.spec, func(t *testing.T) {
@@ -51,19 +57,22 @@ func TestParsePackageSpec(t *testing.T) {
 
 func TestDetectInputType(t *testing.T) {
 	tests := map[string]InputType{
-		"zod":                            PackageInput,
-		"npm:owner/repo":                 PackageInput,
-		"owner/repo":                     RepoInput,
-		"github:owner/repo":              RepoInput,
-		"GitHub:owner/repo":              RepoInput,
-		"github.com/owner/repo":          RepoInput,
-		"gitlab.com/team/project":        RepoInput,
-		"gitlab.com/group/subgroup/repo": RepoInput,
-		"bitbucket.org/team/project":     RepoInput,
-		"https://github.com/owner/repo":  RepoInput,
-		"https://GitHub.com/owner/repo":  RepoInput,
-		"https://example.com/owner/repo": RepoInput,
-		"@scope/pkg":                     PackageInput,
+		"zod":                                            PackageInput,
+		"npm:owner/repo":                                 PackageInput,
+		"owner/repo":                                     RepoInput,
+		"github:owner/repo":                              RepoInput,
+		"GitHub:owner/repo":                              RepoInput,
+		"github.com/owner/repo":                          RepoInput,
+		"gitlab.com/team/project":                        RepoInput,
+		"gitlab.com/group/subgroup/repo":                 RepoInput,
+		"bitbucket.org/team/project":                     RepoInput,
+		"https://github.com/owner/repo":                  RepoInput,
+		"https://GitHub.com/owner/repo":                  RepoInput,
+		"https://example.com/owner/repo":                 RepoInput,
+		"@scope/pkg":                                     PackageInput,
+		"maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0": PackageInput,
+		"java:com.fasterxml.jackson.core:jackson-databind@2.17.2": PackageInput,
+		"kotlin:org.jetbrains.kotlin:kotlin-stdlib@2.1.0":         PackageInput,
 	}
 	for spec, want := range tests {
 		if got := DetectInputType(spec); got != want {
