@@ -114,4 +114,3 @@ repobridge clean --nuget
 - Bestehender Git-Fetch-Pfad mit Tag/Ref-Unterstützung.
 - Bestehende Cache-Index-Struktur für Package-Einträge.
 - Bestehende sichere Archivlogik aus dem Maven-Source-JAR-Feature als Orientierung.
-

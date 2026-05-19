@@ -159,4 +159,3 @@ Add table-driven and `httptest` coverage:
 - Local .NET lockfile/project version detection is out of scope.
 - `.snupkg` symbol package inspection is out of scope.
 - NuGet package signatures/checksums are out of scope.
-
