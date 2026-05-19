@@ -182,6 +182,7 @@ func newCleanCommand(opts Options) *cobra.Command {
 	var pypiOnly bool
 	var cratesOnly bool
 	var mavenOnly bool
+	var nugetOnly bool
 	cmd := &cobra.Command{
 		Use:   "clean",
 		Short: "Clean cached sources",
@@ -191,7 +192,7 @@ func newCleanCommand(opts Options) *cobra.Command {
 			count, err := cleanSources(cleanOptions{
 				packagesOnly: packagesOnly,
 				reposOnly:    reposOnly,
-				registries:   selectedRegistries(npmOnly, pypiOnly, cratesOnly, mavenOnly),
+				registries:   selectedRegistries(npmOnly, pypiOnly, cratesOnly, mavenOnly, nugetOnly),
 			})
 			if err != nil {
 				return err
@@ -206,6 +207,7 @@ func newCleanCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&pypiOnly, "pypi", false, "only remove PyPI package sources")
 	cmd.Flags().BoolVar(&cratesOnly, "crates", false, "only remove crates.io package sources")
 	cmd.Flags().BoolVar(&mavenOnly, "maven", false, "only remove Maven package sources")
+	cmd.Flags().BoolVar(&nugetOnly, "nuget", false, "only remove NuGet package sources")
 	return cmd
 }
 
@@ -271,7 +273,7 @@ type cleanOptions struct {
 	registries   map[string]bool
 }
 
-func selectedRegistries(npmOnly, pypiOnly, cratesOnly, mavenOnly bool) map[string]bool {
+func selectedRegistries(npmOnly, pypiOnly, cratesOnly, mavenOnly, nugetOnly bool) map[string]bool {
 	registries := map[string]bool{}
 	if npmOnly {
 		registries[string(registry.NPM)] = true
@@ -284,6 +286,9 @@ func selectedRegistries(npmOnly, pypiOnly, cratesOnly, mavenOnly bool) map[strin
 	}
 	if mavenOnly {
 		registries[string(registry.Maven)] = true
+	}
+	if nugetOnly {
+		registries[string(registry.NuGet)] = true
 	}
 	return registries
 }

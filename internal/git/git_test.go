@@ -2,8 +2,10 @@ package git
 
 import (
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -78,6 +80,44 @@ func TestCloneAtRefDoesNotPassTokenInCloneURLOrError(t *testing.T) {
 	}
 }
 
+func TestCloneAtCommitFetchesExactCommit(t *testing.T) {
+	repoURL := "https://github.com/o/r"
+	target := filepath.Join(t.TempDir(), "clone")
+	commit := "0123456789abcdef0123456789abcdef01234567"
+	calls := captureGitCalls(t, func(env []string, args []string) ([]byte, error) {
+		return []byte("ok"), nil
+	})
+
+	result := CloneAtCommit(repoURL, target, commit)
+	if !result.Success {
+		t.Fatalf("CloneAtCommit failed: %#v", result)
+	}
+
+	want := [][]string{
+		{"clone", "--no-checkout", "--depth", "1", repoURL, target},
+		{"-C", target, "fetch", "--depth", "1", "origin", commit},
+		{"-C", target, "checkout", "--detach", commit},
+	}
+	if got := calls(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("git calls = %#v, want %#v", got, want)
+	}
+}
+
+func TestCloneAtCommitRejectsAbbreviatedCommitSHA(t *testing.T) {
+	calls := captureGitCalls(t, func(env []string, args []string) ([]byte, error) {
+		t.Fatal("git runner should not be called for abbreviated commit SHA")
+		return nil, nil
+	})
+
+	result := CloneAtCommit("https://github.com/o/r", filepath.Join(t.TempDir(), "clone"), "0123456")
+	if result.Success || result.Error == nil {
+		t.Fatalf("CloneAtCommit result = %#v, want abbreviated commit SHA rejection", result)
+	}
+	if got := len(calls()); got != 0 {
+		t.Fatalf("CloneAtCommit made %d git calls, want 0", got)
+	}
+}
+
 func TestCloneAtRefDoesNotFallbackOnNonMissingRefFailure(t *testing.T) {
 	calls := captureGitCalls(t, func(env []string, args []string) ([]byte, error) {
 		return []byte("Authentication failed"), errForTest("auth failed")
@@ -149,6 +189,23 @@ func TestCloneAtTagDoesNotFallbackOnNonMissingRefFailure(t *testing.T) {
 	if got := len(calls()); got != 1 {
 		t.Fatalf("CloneAtTag made %d clone attempts, want 1", got)
 	}
+}
+
+func TestCloneAtTagStrictDoesNotCloneDefaultBranch(t *testing.T) {
+	calls := captureGitCalls(t, func(env []string, args []string) ([]byte, error) {
+		return []byte("fatal: couldn't find remote ref"), errors.New("exit status 128")
+	})
+
+	result := CloneAtTagStrict("https://github.com/o/r", filepath.Join(t.TempDir(), "clone"), "1.2.3")
+	if result.Success || result.Error == nil {
+		t.Fatalf("CloneAtTagStrict result = %#v, want missing tag error", result)
+	}
+	gotCalls := calls()
+	if len(gotCalls) != 2 {
+		t.Fatalf("CloneAtTagStrict made %d clone attempts, want 2", len(gotCalls))
+	}
+	assertArgsContain(t, gotCalls[0], "--branch", "v1.2.3")
+	assertArgsContain(t, gotCalls[1], "--branch", "1.2.3")
 }
 
 func TestCloneAtRefMissingRefFallsBackWithWarning(t *testing.T) {

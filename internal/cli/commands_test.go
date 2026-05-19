@@ -177,6 +177,28 @@ func TestFetchDisplaysMavenLabel(t *testing.T) {
 	}
 }
 
+func TestFetchDisplaysNuGetLabel(t *testing.T) {
+	app := &fakeApp{outcomes: map[string]source.Outcome{
+		"nuget:Newtonsoft.Json@13.0.3": {
+			Name:        "Newtonsoft.Json",
+			Version:     "13.0.3",
+			SourceLabel: "NuGet",
+			Path:        "/cache/Newtonsoft.Json",
+		},
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "fetch", "nuget:Newtonsoft.Json@13.0.3")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout, "Fetched Newtonsoft.Json@13.0.3 from NuGet") {
+		t.Fatalf("stdout = %q, want NuGet fetch line", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
 func TestListJSONUsesCacheIndex(t *testing.T) {
 	withHome(t)
 	packages := []cache.PackageEntry{{
@@ -363,5 +385,38 @@ func TestCleanMavenRegistryFilter(t *testing.T) {
 	}
 	if npmInfo == nil {
 		t.Fatal("npm package missing after Maven clean")
+	}
+}
+
+func TestCleanNuGetRegistryFilter(t *testing.T) {
+	withHome(t)
+	packages := []cache.PackageEntry{
+		{Name: "zod", Version: "3.22.4", Registry: "npm", Path: "repos/github.com/colinhacks/zod/3.22.4"},
+		{Name: "Newtonsoft.Json", Version: "13.0.3", Registry: "nuget", Path: "repos/github.com/JamesNK/Newtonsoft.Json/13.0.3"},
+	}
+	if err := cache.WriteSources(packages, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, err := executeForTest("clean", "--nuget")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if strings.TrimSpace(stdout) != "Cleaned 1 source(s)" {
+		t.Fatalf("stdout = %q, want one-source clean summary", stdout)
+	}
+	nugetInfo, err := cache.PackageInfo("Newtonsoft.Json", "nuget")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nugetInfo != nil {
+		t.Fatalf("nuget package = %#v, want nil", nugetInfo)
+	}
+	npmInfo, err := cache.PackageInfo("zod", "npm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if npmInfo == nil {
+		t.Fatal("npm package missing after NuGet clean")
 	}
 }

@@ -21,6 +21,8 @@ type GitFetcher struct {
 }
 
 var cloneAtTag = git.CloneAtTag
+var cloneAtCommit = git.CloneAtCommit
+var cloneAtTagStrict = git.CloneAtTagStrict
 var cloneAtRef = git.CloneAtRef
 
 func (f GitFetcher) FetchPackage(pkg registry.ResolvedPackage) FetchResult {
@@ -80,11 +82,7 @@ func FetchPackageWithGit(pkg registry.ResolvedPackage) FetchResult {
 			Registry: pkg.Registry,
 		}
 	}
-	cloneRef := pkg.Version
-	if pkg.GitTag != "" {
-		cloneRef = strings.TrimPrefix(pkg.GitTag, "v")
-	}
-	clone := cloneAtTag(pkg.RepoURL, target, cloneRef)
+	clone := clonePackageRepo(pkg, target)
 	if clone.Error != nil || !clone.Success {
 		return FetchResult{Success: clone.Success, Warning: clone.Warning, Error: clone.Error}
 	}
@@ -103,6 +101,20 @@ func FetchPackageWithGit(pkg registry.ResolvedPackage) FetchResult {
 		Warning:  clone.Warning,
 		Registry: pkg.Registry,
 	}
+}
+
+func clonePackageRepo(pkg registry.ResolvedPackage, target string) git.CloneResult {
+	if pkg.GitRef != "" {
+		return cloneAtCommit(pkg.RepoURL, target, pkg.GitRef)
+	}
+	cloneRef := pkg.Version
+	if pkg.GitTag != "" {
+		cloneRef = strings.TrimPrefix(pkg.GitTag, "v")
+	}
+	if pkg.Registry == registry.NuGet {
+		return cloneAtTagStrict(pkg.RepoURL, target, cloneRef)
+	}
+	return cloneAtTag(pkg.RepoURL, target, cloneRef)
 }
 
 func FetchRepoWithGit(displayName, repoURL, gitRef string) FetchResult {
