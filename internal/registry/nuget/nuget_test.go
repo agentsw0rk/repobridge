@@ -214,20 +214,33 @@ func TestResolveWithoutStableVersionReturnsVersionNotFound(t *testing.T) {
 }
 
 func TestResolveRejectsUnsafeNuspecPath(t *testing.T) {
-	server := newNuGetTestServer(t, nugetTestPackage{
-		ID:       "Example.Package",
-		Versions: []string{"1.0.0"},
-		Packages: map[string][]byte{
-			"1.0.0": zipPackage(t, map[string][]byte{
-				"../Example.Package.nuspec": []byte(`<package><metadata><id>Example.Package</id><version>1.0.0</version></metadata></package>`),
-			}),
-		},
-	})
-	defer server.Close()
+	for _, name := range []string{
+		"../Example.Package.nuspec",
+		`..\Example.Package.nuspec`,
+		`dir\..\Example.Package.nuspec`,
+		"C:/Example.Package.nuspec",
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := newNuGetTestServer(t, nugetTestPackage{
+				ID:       "Example.Package",
+				Versions: []string{"1.0.0"},
+				Packages: map[string][]byte{
+					"1.0.0": zipPackage(t, map[string][]byte{
+						name: []byte(`<package><metadata>
+  <id>Example.Package</id>
+  <version>1.0.0</version>
+  <repository type="git" url="https://github.com/owner/repo.git" />
+</metadata></package>`),
+					}),
+				},
+			})
+			defer server.Close()
 
-	_, err := Resolve("Example.Package", "1.0.0", server.Client(), server.ServiceIndexURL)
-	if err == nil || !strings.Contains(err.Error(), "unsafe .nuspec path") {
-		t.Fatalf("error = %T %[1]v, want unsafe nuspec path error", err)
+			_, err := Resolve("Example.Package", "1.0.0", server.Client(), server.ServiceIndexURL)
+			if err == nil || !strings.Contains(err.Error(), "unsafe .nuspec path") {
+				t.Fatalf("error = %T %[1]v, want unsafe nuspec path error", err)
+			}
+		})
 	}
 }
 

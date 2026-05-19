@@ -386,6 +386,22 @@ func hasUnsafePathComponent(value string) bool {
 }
 
 func unsafeZipPath(name string) bool {
-	cleaned := path.Clean(name)
-	return path.IsAbs(name) || cleaned == "." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../")
+	normalized := strings.ReplaceAll(name, `\`, "/")
+	if path.IsAbs(normalized) || hasWindowsVolumeName(normalized) {
+		return true
+	}
+	for _, component := range strings.Split(normalized, "/") {
+		if component == ".." {
+			return true
+		}
+	}
+	return path.Clean(normalized) == "."
+}
+
+func hasWindowsVolumeName(name string) bool {
+	if len(name) < 2 || name[1] != ':' {
+		return false
+	}
+	drive := name[0]
+	return (drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z')
 }
