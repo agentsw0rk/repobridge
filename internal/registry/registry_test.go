@@ -19,6 +19,8 @@ func TestDetectRegistry(t *testing.T) {
 		{"maven:org.jetbrains.kotlin:kotlin-stdlib", Maven, "org.jetbrains.kotlin:kotlin-stdlib"},
 		{"java:com.fasterxml.jackson.core:jackson-databind", Maven, "com.fasterxml.jackson.core:jackson-databind"},
 		{"kotlin:org.jetbrains.kotlin:kotlin-stdlib", Maven, "org.jetbrains.kotlin:kotlin-stdlib"},
+		{"nuget:Newtonsoft.Json", NuGet, "Newtonsoft.Json"},
+		{"dotnet:Serilog", NuGet, "Serilog"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.spec, func(t *testing.T) {
@@ -44,6 +46,9 @@ func TestParsePackageSpec(t *testing.T) {
 		{"maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0", Maven, "org.jetbrains.kotlin:kotlin-stdlib", "2.1.0"},
 		{"java:com.fasterxml.jackson.core:jackson-databind@2.17.2", Maven, "com.fasterxml.jackson.core:jackson-databind", "2.17.2"},
 		{"kotlin:org.jetbrains.kotlin:kotlin-stdlib@2.1.0", Maven, "org.jetbrains.kotlin:kotlin-stdlib", "2.1.0"},
+		{"nuget:Newtonsoft.Json@13.0.3", NuGet, "Newtonsoft.Json", "13.0.3"},
+		{"dotnet:Serilog@3.1.1", NuGet, "Serilog", "3.1.1"},
+		{"nuget:Example.Package@2.0.0-beta.1", NuGet, "Example.Package", "2.0.0-beta.1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.spec, func(t *testing.T) {
@@ -73,6 +78,8 @@ func TestDetectInputType(t *testing.T) {
 		"maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0": PackageInput,
 		"java:com.fasterxml.jackson.core:jackson-databind@2.17.2": PackageInput,
 		"kotlin:org.jetbrains.kotlin:kotlin-stdlib@2.1.0":         PackageInput,
+		"nuget:Newtonsoft.Json@13.0.3":                            PackageInput,
+		"dotnet:Serilog@3.1.1":                                    PackageInput,
 	}
 	for spec, want := range tests {
 		if got := DetectInputType(spec); got != want {

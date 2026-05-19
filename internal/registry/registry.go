@@ -13,6 +13,7 @@ const (
 	PyPI   Registry = "pypi"
 	Crates Registry = "crates"
 	Maven  Registry = "maven"
+	NuGet  Registry = "nuget"
 )
 
 func (r Registry) Label() string {
@@ -25,6 +26,8 @@ func (r Registry) Label() string {
 		return "crates.io"
 	case Maven:
 		return "Maven"
+	case NuGet:
+		return "NuGet"
 	default:
 		return string(r)
 	}
@@ -55,6 +58,7 @@ type ResolvedPackage struct {
 	RepoURL           string
 	RepoDirectory     string
 	GitTag            string
+	GitRef            string
 	SourceArchiveURL  string
 	SourceMetadataURL string
 }
@@ -76,6 +80,8 @@ var prefixes = []struct {
 	{"maven:", Maven},
 	{"java:", Maven},
 	{"kotlin:", Maven},
+	{"nuget:", NuGet},
+	{"dotnet:", NuGet},
 }
 
 func DetectRegistry(spec string) DetectedRegistry {
@@ -105,6 +111,8 @@ func parseByRegistry(reg Registry, spec string) (string, string) {
 		return ParseCratesSpec(spec)
 	case Maven:
 		return ParseMavenSpec(spec)
+	case NuGet:
+		return ParseNuGetSpec(spec)
 	default:
 		return strings.TrimSpace(spec), ""
 	}
@@ -146,6 +154,14 @@ func ParseCratesSpec(spec string) (string, string) {
 }
 
 func ParseMavenSpec(spec string) (string, string) {
+	trimmed := strings.TrimSpace(spec)
+	if at := strings.LastIndex(trimmed, "@"); at > 0 {
+		return strings.TrimSpace(trimmed[:at]), strings.TrimSpace(trimmed[at+1:])
+	}
+	return trimmed, ""
+}
+
+func ParseNuGetSpec(spec string) (string, string) {
 	trimmed := strings.TrimSpace(spec)
 	if at := strings.LastIndex(trimmed, "@"); at > 0 {
 		return strings.TrimSpace(trimmed[:at]), strings.TrimSpace(trimmed[at+1:])
@@ -204,7 +220,7 @@ func isSupportedRepoHost(host string) bool {
 
 func SupportedRegistry(reg Registry) error {
 	switch reg {
-	case NPM, PyPI, Crates, Maven:
+	case NPM, PyPI, Crates, Maven, NuGet:
 		return nil
 	default:
 		return fmt.Errorf("unsupported registry: %s", reg)
