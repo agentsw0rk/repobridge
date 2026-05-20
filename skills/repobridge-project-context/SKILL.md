@@ -1,11 +1,24 @@
 ---
 name: repobridge-project-context
-description: Use when an AI agent needs real framework or library source code as read-only reference context for a project. Scans project manifests, lockfiles, and imports, proposes RepoBridge specs, fetches relevant sources with repobridge, and uses AST codegraph search, resolved paths, file reads, and focused fallback rg searches for investigation.
+description: Use when an AI agent needs to find, inspect, search, or reason about external framework, library, dependency, package, or fetched source code for a project. Prefer this skill before raw network fetches, gh/curl downloads, generic file search, rg, grep, or manually browsing dependency trees. Scans manifests/lockfiles/imports, resolves RepoBridge specs, fetches only needed sources, and uses `repobridge search` AST codegraph queries first.
 ---
 
 # RepoBridge Project Context
 
 Use this skill to enrich an agent's local context with source code for the frameworks and libraries a project actually uses. The goal is not to edit dependency code. The goal is to resolve dependency sources into stable local paths and use them as reference material while working on the project.
+
+## Source Search Policy
+
+When the user asks about dependency, framework, library, package, or fetched source code, use RepoBridge as the first search path.
+
+- Do not start with raw `rg`, `grep`, `find`, `gh`, `curl`, `wget`, package registry pages, or manual browsing of dependency directories.
+- Do not use a plain network fetch to inspect sources that RepoBridge can resolve.
+- Use `repobridge scan`, `repobridge path`, and `repobridge search` to resolve and query dependency sources.
+- Use `repobridge search` before opening large files or scanning whole trees manually.
+- Use `rg` or `grep` only as a documented fallback after `repobridge search` cannot represent the target, for example comments, README text, raw string literals, generated files, config files, or unindexed file types.
+- If fallback `rg` or `grep` is used, scope it to `$(repobridge path --cwd <project-root> <spec>)` and state why AST search was insufficient.
+
+For project-local code that is not an external dependency, normal local code tools can still be used. This skill is specifically the default path for dependency and fetched source investigation.
 
 ## Workflow
 
@@ -33,7 +46,7 @@ Use this skill to enrich an agent's local context with source code for the frame
    repobridge search --cwd <project-root> maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
    ```
 
-8. **Use resolved paths as read-only references when needed.** Read files directly, use LSP navigation when available, and use `rg` only as a fallback for text that is not represented in the AST graph.
+8. **Use resolved paths as read-only references when needed.** Open specific files returned by `repobridge search`, use LSP navigation when available, and use `rg` only as a fallback for text that is not represented in the AST graph.
 9. **State what was fetched and searched.** In the final response, mention which frameworks/libraries were resolved and which search queries or paths were used when that matters for the task.
 
 ## Installing RepoBridge from GitHub Releases
@@ -63,6 +76,14 @@ For Windows, extract the zip file and keep `repobridge.exe` beside the bundled `
 ## Codegraph Search
 
 After successful `path`, `fetch`, or `scan --fetch`, RepoBridge starts background AST indexing for cached sources. `repobridge search` builds a missing or stale graph synchronously unless `--no-sync-index` is set. Use search before reading large dependency trees manually.
+
+Use this decision order for source-code questions:
+
+1. `repobridge scan --cwd <project-root> --json` to identify candidate specs when the spec is unknown.
+2. `repobridge scan --cwd <project-root> --fetch --limit <N>` or `repobridge fetch --cwd <project-root> <spec>` only to populate the local source cache.
+3. `repobridge search --cwd <project-root> <spec> "<query>"` for definitions, functions, methods, classes, imports, paths, languages, or call relationships.
+4. Open only the files and lines returned by `repobridge search`.
+5. Use scoped fallback `rg` only for non-AST content and explain the fallback.
 
 Search command shape:
 
@@ -98,6 +119,17 @@ repobridge search --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:k
 repobridge search --cwd . github.com/vercel/next.js "path:packages kind:method"
 repobridge search --cwd . <spec> "kind:function calls:exec path:DockerCompose.kt"
 ```
+
+Translate common source-search requests like this:
+
+| User intent | Prefer this |
+| --- | --- |
+| Find a function or method | `repobridge search --cwd . <spec> "kind:function name:<name>"` or `kind:method name:<name>` |
+| Find classes/interfaces | `repobridge search --cwd . <spec> "kind:class name:<name>"` or `kind:interface name:<name>` |
+| Find callers of a function | `repobridge search --cwd . <spec> "kind:function calls:<symbol>"` |
+| Search Kotlin sources | `repobridge search --cwd . <spec> "lang:kotlin <query>"` |
+| Restrict to a file or package path | `repobridge search --cwd . <spec> "path:<substring> <query>"` |
+| Need structured output for an agent | `repobridge search --cwd . --json --limit 20 <spec> "<query>"` |
 
 Prefer search when the task is about definitions, declarations, functions, methods, classes, imports, languages, paths, or function calls. Use fallback `rg` on `$(repobridge path --cwd <project-root> <spec>)` for comments, docs, string literals, configuration files, generated code, or patterns outside the current AST extraction.
 
