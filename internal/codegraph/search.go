@@ -47,6 +47,7 @@ type GraphStore interface {
 	Files() ([]GraphFile, error)
 	Nodes(GraphNodeQuery) ([]GraphNode, error)
 	CallsByNode(stableID string) ([]string, error)
+	Callgraph(CallgraphQuery) ([]CallgraphEdge, error)
 	Replace(IndexResult) error
 	Search(SearchQuery) ([]SearchResult, error)
 }

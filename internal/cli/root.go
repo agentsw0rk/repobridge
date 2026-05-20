@@ -29,6 +29,7 @@ type App interface {
 	CodeGraphStatus(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphInspectStatus, error)
 	CodeGraphFiles(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphFilesResult, error)
 	CodeGraphNode(spec, lookup string, opts codegraph.GraphInspectOptions) (codegraph.GraphNodeLookupResult, error)
+	CodeGraphCallgraph(spec, symbol string, opts codegraph.CallgraphOptions) (codegraph.CallgraphResult, error)
 }
 
 type IndexScheduler interface {
@@ -61,6 +62,15 @@ func (defaultApp) CodeGraphFiles(spec string, opts codegraph.GraphInspectOptions
 
 func (defaultApp) CodeGraphNode(spec, lookup string, opts codegraph.GraphInspectOptions) (codegraph.GraphNodeLookupResult, error) {
 	return defaultInspectService().Node(spec, lookup, opts)
+}
+
+func (defaultApp) CodeGraphCallgraph(spec, symbol string, opts codegraph.CallgraphOptions) (codegraph.CallgraphResult, error) {
+	return codegraph.NewCallgraphService(codegraph.SearchServiceOptions{
+		Resolver: defaultApp{},
+		StoreOpener: func(dir string) (codegraph.GraphStore, error) {
+			return store.Open(dir)
+		},
+	}).Callgraph(spec, symbol, opts)
 }
 
 func defaultInspectService() *codegraph.InspectService {
@@ -182,6 +192,9 @@ func NewRootCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newGraphStatusCommand(opts))
 	cmd.AddCommand(newGraphFilesCommand(opts))
 	cmd.AddCommand(newGraphNodeCommand(opts))
+	cmd.AddCommand(newCallersCommand(opts))
+	cmd.AddCommand(newCalleesCommand(opts))
+	cmd.AddCommand(newImpactCommand(opts))
 	cmd.AddCommand(newListCommand(opts))
 	cmd.AddCommand(newRemoveCommand(opts))
 	cmd.AddCommand(newCleanCommand(opts))

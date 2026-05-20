@@ -273,6 +273,112 @@ func (s *Store) Nodes(query codegraph.GraphNodeQuery) ([]codegraph.GraphNode, er
 	return nodes, err
 }
 
+func (s *Store) Callgraph(query codegraph.CallgraphQuery) ([]codegraph.CallgraphEdge, error) {
+	var results []codegraph.CallgraphEdge
+	err := s.ob.RunInReadTx(func() error {
+		nodeEntities, err := BoxForNodeEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+		edgeEntities, err := BoxForEdgeEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+		unresolvedEntities, err := BoxForUnresolvedReferenceEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+
+		nodes := make(map[string]codegraph.GraphNodeDetail, len(nodeEntities))
+		for _, entity := range nodeEntities {
+			node := graphNodeFromEntity(entity)
+			nodes[node.ID] = graphNodeDetailFromNode(node)
+		}
+		root, ok := nodes[query.RootNodeID]
+		if !ok {
+			return nil
+		}
+
+		depth := query.Depth
+		if depth <= 0 {
+			depth = 1
+		}
+		if depth > 5 {
+			depth = 5
+		}
+
+		type queueItem struct {
+			nodeID string
+			depth  int
+		}
+		queue := []queueItem{{nodeID: query.RootNodeID, depth: 0}}
+		expanded := make(map[string]struct{})
+		seenEdges := make(map[string]struct{})
+
+		for len(queue) > 0 {
+			current := queue[0]
+			queue = queue[1:]
+			if current.depth >= depth {
+				continue
+			}
+			expandKey := current.nodeID + "@" + strconv.Itoa(current.depth)
+			if _, ok := expanded[expandKey]; ok {
+				continue
+			}
+			expanded[expandKey] = struct{}{}
+
+			for _, entity := range edgeEntities {
+				edge, nextID, ok := callgraphEdgeFromEntity(entity, current.nodeID, current.depth+1, query.Direction, nodes)
+				if !ok {
+					continue
+				}
+				if !callgraphEdgeKindAllowed(edge.Kind, query.Direction) {
+					continue
+				}
+				if !callgraphEdgeMatchesFilters(edge, query) {
+					continue
+				}
+				edgeKey := edge.From.ID + "->" + edge.To.ID + "|" + string(edge.Kind) + "|" + strconv.Itoa(edge.Line) + "|" + strconv.Itoa(edge.Depth)
+				if _, ok := seenEdges[edgeKey]; ok {
+					continue
+				}
+				seenEdges[edgeKey] = struct{}{}
+				results = append(results, edge)
+				if _, alreadyExpanded := expanded[nextID+"@"+strconv.Itoa(current.depth+1)]; !alreadyExpanded {
+					queue = append(queue, queueItem{nodeID: nextID, depth: current.depth + 1})
+				}
+			}
+
+			if query.IncludeUnresolved {
+				for _, entity := range unresolvedEntities {
+					edge, ok := unresolvedCallgraphEdge(entity, current.nodeID, current.depth+1, query.Direction, root, nodes)
+					if !ok {
+						continue
+					}
+					if !callgraphEdgeMatchesFilters(edge, query) {
+						continue
+					}
+					edgeKey := edge.From.ID + "->" + edge.To.ID + "|unresolved|" + edge.ReferenceName + "|" + strconv.Itoa(edge.Line) + "|" + strconv.Itoa(edge.Depth)
+					if _, ok := seenEdges[edgeKey]; ok {
+						continue
+					}
+					seenEdges[edgeKey] = struct{}{}
+					results = append(results, edge)
+				}
+			}
+		}
+
+		sort.SliceStable(results, func(i, j int) bool {
+			return callgraphSortKey(results[i]) < callgraphSortKey(results[j])
+		})
+		if query.Limit > 0 && len(results) > query.Limit {
+			results = results[:query.Limit]
+		}
+		return nil
+	})
+	return results, err
+}
+
 func (s *Store) Search(query codegraph.SearchQuery) ([]codegraph.SearchResult, error) {
 	var results []codegraph.SearchResult
 	err := s.ob.RunInReadTx(func() error {
@@ -460,6 +566,148 @@ func graphNodeFromEntity(node *NodeEntity) codegraph.GraphNode {
 		EndColumn:     node.EndColumn,
 		Signature:     node.Signature,
 	}
+}
+
+func graphNodeDetailFromNode(node codegraph.GraphNode) codegraph.GraphNodeDetail {
+	return codegraph.GraphNodeDetail{
+		ID:            node.ID,
+		Kind:          node.Kind,
+		Name:          node.Name,
+		QualifiedName: node.QualifiedName,
+		Language:      node.Language,
+		Path:          node.FilePath,
+		StartLine:     node.StartLine,
+		EndLine:       node.EndLine,
+		Signature:     node.Signature,
+	}
+}
+
+func callgraphEdgeFromEntity(entity *EdgeEntity, currentID string, depth int, direction codegraph.CallgraphDirection, nodes map[string]codegraph.GraphNodeDetail) (codegraph.CallgraphEdge, string, bool) {
+	kind := codegraph.EdgeKind(entity.Kind)
+	switch direction {
+	case codegraph.CallgraphDirectionCallees:
+		if entity.SourceStableID != currentID {
+			return codegraph.CallgraphEdge{}, "", false
+		}
+		from, fromOK := nodes[entity.SourceStableID]
+		to, toOK := nodes[entity.TargetStableID]
+		if !fromOK || !toOK {
+			return codegraph.CallgraphEdge{}, "", false
+		}
+		return codegraph.CallgraphEdge{
+			Depth:  depth,
+			From:   from,
+			To:     to,
+			Kind:   kind,
+			Path:   entity.FilePath,
+			Line:   entity.Line,
+			Column: entity.Column,
+		}, entity.TargetStableID, true
+	default:
+		if entity.TargetStableID != currentID {
+			return codegraph.CallgraphEdge{}, "", false
+		}
+		from, fromOK := nodes[entity.SourceStableID]
+		to, toOK := nodes[entity.TargetStableID]
+		if !fromOK || !toOK {
+			return codegraph.CallgraphEdge{}, "", false
+		}
+		return codegraph.CallgraphEdge{
+			Depth:  depth,
+			From:   from,
+			To:     to,
+			Kind:   kind,
+			Path:   entity.FilePath,
+			Line:   entity.Line,
+			Column: entity.Column,
+		}, entity.SourceStableID, true
+	}
+}
+
+func callgraphEdgeKindAllowed(kind codegraph.EdgeKind, direction codegraph.CallgraphDirection) bool {
+	if direction == codegraph.CallgraphDirectionImpact {
+		return kind == codegraph.EdgeKindCalls || kind == codegraph.EdgeKindImports
+	}
+	return kind == codegraph.EdgeKindCalls
+}
+
+func callgraphEdgeMatchesFilters(edge codegraph.CallgraphEdge, query codegraph.CallgraphQuery) bool {
+	node := edge.To
+	if query.Direction != codegraph.CallgraphDirectionCallees {
+		node = edge.From
+	}
+	if !matchesAny(string(node.Kind), nodeKindStrings(query.Kinds), true) {
+		return false
+	}
+	if !matchesAny(string(node.Language), languageStrings(query.Languages), true) {
+		return false
+	}
+	return matchesAny(node.Path, query.PathFilters, false)
+}
+
+func unresolvedCallgraphEdge(ref *UnresolvedReferenceEntity, currentID string, depth int, direction codegraph.CallgraphDirection, root codegraph.GraphNodeDetail, nodes map[string]codegraph.GraphNodeDetail) (codegraph.CallgraphEdge, bool) {
+	if ref.ReferenceKind != string(codegraph.EdgeKindCalls) || ref.ReferenceName == "" {
+		return codegraph.CallgraphEdge{}, false
+	}
+	switch direction {
+	case codegraph.CallgraphDirectionCallees:
+		if ref.FromStableID != currentID {
+			return codegraph.CallgraphEdge{}, false
+		}
+		from, ok := nodes[ref.FromStableID]
+		if !ok {
+			return codegraph.CallgraphEdge{}, false
+		}
+		to := codegraph.GraphNodeDetail{
+			ID:        "unresolved:" + ref.ReferenceName,
+			Kind:      codegraph.NodeKindFunction,
+			Name:      ref.ReferenceName,
+			Language:  codegraph.Language(ref.Language),
+			Path:      ref.FilePath,
+			StartLine: ref.Line,
+		}
+		return codegraph.CallgraphEdge{
+			Depth:         depth,
+			From:          from,
+			To:            to,
+			Kind:          codegraph.EdgeKindCalls,
+			Path:          ref.FilePath,
+			Line:          ref.Line,
+			Column:        ref.Column,
+			ReferenceName: ref.ReferenceName,
+			Unresolved:    true,
+		}, true
+	default:
+		if !unresolvedReferenceMatchesRoot(ref.ReferenceName, root) {
+			return codegraph.CallgraphEdge{}, false
+		}
+		from, ok := nodes[ref.FromStableID]
+		if !ok {
+			return codegraph.CallgraphEdge{}, false
+		}
+		return codegraph.CallgraphEdge{
+			Depth:         depth,
+			From:          from,
+			To:            root,
+			Kind:          codegraph.EdgeKindCalls,
+			Path:          ref.FilePath,
+			Line:          ref.Line,
+			Column:        ref.Column,
+			ReferenceName: ref.ReferenceName,
+			Unresolved:    true,
+		}, true
+	}
+}
+
+func unresolvedReferenceMatchesRoot(reference string, root codegraph.GraphNodeDetail) bool {
+	reference = strings.ToLower(reference)
+	return reference == strings.ToLower(root.Name) ||
+		reference == strings.ToLower(root.QualifiedName) ||
+		strings.HasSuffix(reference, "."+strings.ToLower(root.Name))
+}
+
+func callgraphSortKey(edge codegraph.CallgraphEdge) string {
+	return fmt.Sprintf("%06d|%s|%06d|%s|%s|%s|%s", edge.Depth, edge.Path, edge.Line, edge.From.Path, edge.From.ID, edge.To.Path, edge.To.ID)
 }
 
 func nodeMatchesExactLookup(node *NodeEntity, lookup string, numericID uint64, hasNumericID bool) bool {

@@ -324,6 +324,84 @@ func newGraphNodeCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+func newCallersCommand(opts Options) *cobra.Command {
+	return newCallgraphCommand(opts, codegraph.CallgraphDirectionCallers)
+}
+
+func newCalleesCommand(opts Options) *cobra.Command {
+	return newCallgraphCommand(opts, codegraph.CallgraphDirectionCallees)
+}
+
+func newImpactCommand(opts Options) *cobra.Command {
+	return newCallgraphCommand(opts, codegraph.CallgraphDirectionImpact)
+}
+
+func newCallgraphCommand(opts Options, direction codegraph.CallgraphDirection) *cobra.Command {
+	var cwd string
+	var jsonOutput bool
+	var noSyncIndex bool
+	var includeUnresolved bool
+	var limit int
+	var depth int
+	var kinds []string
+	var languages []string
+	var paths []string
+
+	cmd := &cobra.Command{
+		Use:   string(direction) + " <spec> <symbol>",
+		Short: "Traverse cached code graph " + string(direction),
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+			result, err := opts.app().CodeGraphCallgraph(args[0], args[1], codegraph.CallgraphOptions{
+				CWD:               cwd,
+				SyncIndex:         !noSyncIndex,
+				Limit:             limit,
+				Depth:             depth,
+				Kinds:             parseNodeKinds(kinds),
+				Languages:         parseLanguages(languages),
+				PathFilters:       paths,
+				IncludeUnresolved: includeUnresolved,
+				Direction:         direction,
+			})
+			if err != nil {
+				return err
+			}
+			if jsonOutput {
+				return printJSON(out, result)
+			}
+			printCallgraphResult(out, result)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print call graph results as JSON")
+	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale code graph index")
+	cmd.Flags().BoolVar(&includeUnresolved, "include-unresolved", false, "include unresolved call references")
+	cmd.Flags().IntVar(&limit, "limit", 0, "limit number of call graph edges")
+	cmd.Flags().IntVar(&depth, "depth", 1, "call graph traversal depth")
+	cmd.Flags().StringArrayVar(&kinds, "kind", nil, "filter by node kind")
+	cmd.Flags().StringArrayVar(&languages, "lang", nil, "filter by language")
+	cmd.Flags().StringArrayVar(&paths, "path", nil, "filter by path substring")
+	return cmd
+}
+
+func parseNodeKinds(values []string) []codegraph.NodeKind {
+	kinds := make([]codegraph.NodeKind, 0, len(values))
+	for _, value := range values {
+		kinds = append(kinds, codegraph.NodeKind(value))
+	}
+	return kinds
+}
+
+func parseLanguages(values []string) []codegraph.Language {
+	languages := make([]codegraph.Language, 0, len(values))
+	for _, value := range values {
+		languages = append(languages, codegraph.Language(value))
+	}
+	return languages
+}
+
 func appendSearchFilters(query string, kinds, languages, paths, calls []string) string {
 	filters := make([]string, 0, len(kinds)+len(languages)+len(paths)+len(calls))
 	for _, kind := range kinds {
@@ -449,6 +527,54 @@ func printGraphNodeDetail(out io.Writer, prefix string, node codegraph.GraphNode
 			fmt.Fprintf(out, "%s    %d: %s\n", prefix, line.Line, line.Text)
 		}
 	}
+}
+
+func printCallgraphResult(out io.Writer, result codegraph.CallgraphResult) {
+	fmt.Fprintf(out, "%s of %s\n", result.Direction, result.Symbol)
+	if len(result.Matches) > 0 {
+		fmt.Fprintf(out, "  Multiple code graph nodes matched %s:\n", result.Symbol)
+		for _, match := range result.Matches {
+			location := formatSearchLocation(match.Path, match.StartLine)
+			fmt.Fprintf(out, "    %s %s %s %s\n", match.ID, match.Kind, bestNodeDisplayName(match), location)
+		}
+		return
+	}
+	if len(result.Edges) == 0 {
+		fmt.Fprintln(out, "  No call graph results found.")
+		return
+	}
+	for _, edge := range result.Edges {
+		target := callgraphDisplayNode(result.Direction, edge)
+		location := formatSearchLocation(target.Path, target.StartLine)
+		fmt.Fprintf(out, "  %s %s %s\n", target.Kind, bestNodeDisplayName(target), location)
+		reference := bestCallgraphReference(result.Direction, edge)
+		if edge.Unresolved {
+			fmt.Fprintf(out, "    unresolved %s at line %d\n", reference, edge.Line)
+			continue
+		}
+		if edge.Line > 0 {
+			fmt.Fprintf(out, "    %s %s at line %d\n", edge.Kind, reference, edge.Line)
+		} else {
+			fmt.Fprintf(out, "    %s %s\n", edge.Kind, reference)
+		}
+	}
+}
+
+func callgraphDisplayNode(direction codegraph.CallgraphDirection, edge codegraph.CallgraphEdge) codegraph.GraphNodeDetail {
+	if direction == codegraph.CallgraphDirectionCallees {
+		return edge.To
+	}
+	return edge.From
+}
+
+func bestCallgraphReference(direction codegraph.CallgraphDirection, edge codegraph.CallgraphEdge) string {
+	if edge.ReferenceName != "" {
+		return edge.ReferenceName
+	}
+	if direction == codegraph.CallgraphDirectionCallees {
+		return bestNodeDisplayName(edge.To)
+	}
+	return bestNodeDisplayName(edge.To)
 }
 
 func bestNodeDisplayName(node codegraph.GraphNodeDetail) string {

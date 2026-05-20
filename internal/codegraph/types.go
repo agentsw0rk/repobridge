@@ -147,3 +147,56 @@ type GraphNodeQuery struct {
 	Lookup string
 	Limit  int
 }
+
+type CallgraphDirection string
+
+const (
+	CallgraphDirectionCallers CallgraphDirection = "callers"
+	CallgraphDirectionCallees CallgraphDirection = "callees"
+	CallgraphDirectionImpact  CallgraphDirection = "impact"
+)
+
+type CallgraphOptions struct {
+	CWD               string
+	SyncIndex         bool
+	Limit             int
+	Depth             int
+	Kinds             []NodeKind
+	Languages         []Language
+	PathFilters       []string
+	IncludeUnresolved bool
+	Direction         CallgraphDirection
+	SourceOpts        source.Options
+}
+
+type CallgraphResult struct {
+	Source    string             `json:"source"`
+	Symbol    string             `json:"symbol"`
+	Direction CallgraphDirection `json:"direction"`
+	Root      *GraphNodeDetail   `json:"root,omitempty"`
+	Matches   []GraphNodeDetail  `json:"matches,omitempty"`
+	Edges     []CallgraphEdge    `json:"edges"`
+}
+
+type CallgraphEdge struct {
+	Depth         int             `json:"depth"`
+	From          GraphNodeDetail `json:"from"`
+	To            GraphNodeDetail `json:"to"`
+	Kind          EdgeKind        `json:"kind"`
+	Path          string          `json:"path,omitempty"`
+	Line          int             `json:"line,omitempty"`
+	Column        int             `json:"column,omitempty"`
+	ReferenceName string          `json:"referenceName,omitempty"`
+	Unresolved    bool            `json:"unresolved,omitempty"`
+}
+
+type CallgraphQuery struct {
+	RootNodeID        string
+	Direction         CallgraphDirection
+	Depth             int
+	Limit             int
+	Kinds             []NodeKind
+	Languages         []Language
+	PathFilters       []string
+	IncludeUnresolved bool
+}

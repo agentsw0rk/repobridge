@@ -255,6 +255,159 @@ func TestStoreNodesResolvesStableIDQualifiedNameAndAmbiguousName(t *testing.T) {
 	}
 }
 
+func TestStoreCallgraphReturnsDirectCallersAndCallees(t *testing.T) {
+	graph := openTestStore(t)
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   time.Now(),
+		Nodes: []codegraph.GraphNode{
+			{ID: "caller", Kind: codegraph.NodeKindFunction, Name: "Caller", QualifiedName: "main.Caller", FilePath: "caller.go", Language: codegraph.LanguageGo, StartLine: 3},
+			{ID: "target", Kind: codegraph.NodeKindFunction, Name: "Target", QualifiedName: "main.Target", FilePath: "target.go", Language: codegraph.LanguageGo, StartLine: 7},
+			{ID: "callee", Kind: codegraph.NodeKindFunction, Name: "Callee", QualifiedName: "main.Callee", FilePath: "callee.go", Language: codegraph.LanguageGo, StartLine: 11},
+		},
+		Edges: []codegraph.GraphEdge{
+			{SourceNodeID: "caller", TargetNodeID: "target", Kind: codegraph.EdgeKindCalls, FilePath: "caller.go", Line: 4},
+			{SourceNodeID: "target", TargetNodeID: "callee", Kind: codegraph.EdgeKindCalls, FilePath: "target.go", Line: 8},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	callers, err := graph.Callgraph(codegraph.CallgraphQuery{
+		RootNodeID: "target",
+		Direction:  codegraph.CallgraphDirectionCallers,
+		Depth:      1,
+		Limit:      10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(callers) != 1 || callers[0].From.ID != "caller" || callers[0].To.ID != "target" || callers[0].Line != 4 {
+		t.Fatalf("callers = %#v, want caller -> target", callers)
+	}
+
+	callees, err := graph.Callgraph(codegraph.CallgraphQuery{
+		RootNodeID: "target",
+		Direction:  codegraph.CallgraphDirectionCallees,
+		Depth:      1,
+		Limit:      10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(callees) != 1 || callees[0].From.ID != "target" || callees[0].To.ID != "callee" || callees[0].Line != 8 {
+		t.Fatalf("callees = %#v, want target -> callee", callees)
+	}
+}
+
+func TestStoreCallgraphTraversesDepthAndAvoidsCycles(t *testing.T) {
+	graph := openTestStore(t)
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   time.Now(),
+		Nodes: []codegraph.GraphNode{
+			{ID: "a", Kind: codegraph.NodeKindFunction, Name: "A", FilePath: "a.go", Language: codegraph.LanguageGo, StartLine: 1},
+			{ID: "b", Kind: codegraph.NodeKindFunction, Name: "B", FilePath: "b.go", Language: codegraph.LanguageGo, StartLine: 1},
+			{ID: "c", Kind: codegraph.NodeKindFunction, Name: "C", FilePath: "c.go", Language: codegraph.LanguageGo, StartLine: 1},
+		},
+		Edges: []codegraph.GraphEdge{
+			{SourceNodeID: "a", TargetNodeID: "b", Kind: codegraph.EdgeKindCalls, FilePath: "a.go", Line: 2},
+			{SourceNodeID: "b", TargetNodeID: "c", Kind: codegraph.EdgeKindCalls, FilePath: "b.go", Line: 2},
+			{SourceNodeID: "c", TargetNodeID: "a", Kind: codegraph.EdgeKindCalls, FilePath: "c.go", Line: 2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	edges, err := graph.Callgraph(codegraph.CallgraphQuery{
+		RootNodeID: "a",
+		Direction:  codegraph.CallgraphDirectionCallees,
+		Depth:      3,
+		Limit:      10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := edgePairs(edges)
+	want := []string{"a->b@1", "b->c@2", "c->a@3"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("edges = %#v, want %#v", got, want)
+	}
+}
+
+func TestStoreCallgraphFiltersAndLimits(t *testing.T) {
+	graph := openTestStore(t)
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   time.Now(),
+		Nodes: []codegraph.GraphNode{
+			{ID: "root", Kind: codegraph.NodeKindFunction, Name: "Root", FilePath: "root.go", Language: codegraph.LanguageGo, StartLine: 1},
+			{ID: "keep", Kind: codegraph.NodeKindMethod, Name: "Keep", FilePath: "internal/keep.go", Language: codegraph.LanguageGo, StartLine: 2},
+			{ID: "drop", Kind: codegraph.NodeKindFunction, Name: "Drop", FilePath: "external/drop.ts", Language: codegraph.LanguageTypeScript, StartLine: 3},
+		},
+		Edges: []codegraph.GraphEdge{
+			{SourceNodeID: "root", TargetNodeID: "keep", Kind: codegraph.EdgeKindCalls, FilePath: "root.go", Line: 2},
+			{SourceNodeID: "root", TargetNodeID: "drop", Kind: codegraph.EdgeKindCalls, FilePath: "root.go", Line: 3},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	edges, err := graph.Callgraph(codegraph.CallgraphQuery{
+		RootNodeID:  "root",
+		Direction:   codegraph.CallgraphDirectionCallees,
+		Depth:       1,
+		Limit:       1,
+		Kinds:       []codegraph.NodeKind{codegraph.NodeKindMethod},
+		Languages:   []codegraph.Language{codegraph.LanguageGo},
+		PathFilters: []string{"internal"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edges) != 1 || edges[0].To.ID != "keep" {
+		t.Fatalf("edges = %#v, want only keep", edges)
+	}
+}
+
+func TestStoreCallgraphIncludesUnresolvedCalleesWhenRequested(t *testing.T) {
+	graph := openTestStore(t)
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   time.Now(),
+		Nodes: []codegraph.GraphNode{
+			{ID: "root", Kind: codegraph.NodeKindFunction, Name: "Root", FilePath: "root.go", Language: codegraph.LanguageGo, StartLine: 1},
+		},
+		Unresolved: []codegraph.UnresolvedReference{
+			{FromNodeID: "root", ReferenceName: "fmt.Println", ReferenceKind: codegraph.EdgeKindCalls, FilePath: "root.go", Language: codegraph.LanguageGo, Line: 2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	edges, err := graph.Callgraph(codegraph.CallgraphQuery{
+		RootNodeID:        "root",
+		Direction:         codegraph.CallgraphDirectionCallees,
+		Depth:             1,
+		Limit:             10,
+		IncludeUnresolved: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edges) != 1 || !edges[0].Unresolved || edges[0].ReferenceName != "fmt.Println" {
+		t.Fatalf("edges = %#v, want unresolved fmt.Println", edges)
+	}
+}
+
 func TestStoreReplacePersistsWarningsInStatusErrorText(t *testing.T) {
 	graph := openTestStore(t)
 
@@ -623,6 +776,14 @@ func resultQualifiedNamesKindsLanguagesEndLines(results []codegraph.SearchResult
 	values := make([]string, 0, len(results))
 	for _, result := range results {
 		values = append(values, result.QualifiedName+"|"+string(result.Kind)+"|"+string(result.Language)+"|"+strconv.Itoa(result.EndLine)+"|"+strings.Join(result.Calls, ","))
+	}
+	return values
+}
+
+func edgePairs(edges []codegraph.CallgraphEdge) []string {
+	values := make([]string, 0, len(edges))
+	for _, edge := range edges {
+		values = append(values, edge.From.ID+"->"+edge.To.ID+"@"+strconv.Itoa(edge.Depth))
 	}
 	return values
 }

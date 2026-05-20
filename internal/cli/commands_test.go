@@ -42,22 +42,26 @@ type ensureCall struct {
 }
 
 type fakeApp struct {
-	outcomes      map[string]source.Outcome
-	calls         []ensureCall
-	searchResults []codegraph.SearchResult
-	searchSpec    string
-	searchQuery   string
-	searchOpts    codegraph.SearchOptions
-	statusResult  codegraph.GraphInspectStatus
-	statusSpec    string
-	statusOpts    codegraph.GraphInspectOptions
-	filesResult   codegraph.GraphFilesResult
-	filesSpec     string
-	filesOpts     codegraph.GraphInspectOptions
-	nodeResult    codegraph.GraphNodeLookupResult
-	nodeSpec      string
-	nodeLookup    string
-	nodeOpts      codegraph.GraphInspectOptions
+	outcomes        map[string]source.Outcome
+	calls           []ensureCall
+	searchResults   []codegraph.SearchResult
+	searchSpec      string
+	searchQuery     string
+	searchOpts      codegraph.SearchOptions
+	statusResult    codegraph.GraphInspectStatus
+	statusSpec      string
+	statusOpts      codegraph.GraphInspectOptions
+	filesResult     codegraph.GraphFilesResult
+	filesSpec       string
+	filesOpts       codegraph.GraphInspectOptions
+	nodeResult      codegraph.GraphNodeLookupResult
+	nodeSpec        string
+	nodeLookup      string
+	nodeOpts        codegraph.GraphInspectOptions
+	callgraphResult codegraph.CallgraphResult
+	callgraphSpec   string
+	callgraphSymbol string
+	callgraphOpts   codegraph.CallgraphOptions
 }
 
 func (a *fakeApp) EnsureCached(spec string, opts source.Options) (source.Outcome, error) {
@@ -89,6 +93,13 @@ func (a *fakeApp) CodeGraphNode(spec, lookup string, opts codegraph.GraphInspect
 	a.nodeLookup = lookup
 	a.nodeOpts = opts
 	return a.nodeResult, nil
+}
+
+func (a *fakeApp) CodeGraphCallgraph(spec, symbol string, opts codegraph.CallgraphOptions) (codegraph.CallgraphResult, error) {
+	a.callgraphSpec = spec
+	a.callgraphSymbol = symbol
+	a.callgraphOpts = opts
+	return a.callgraphResult, nil
 }
 
 type fakeIndexer struct {
@@ -805,6 +816,111 @@ func TestGraphNodePrintsAmbiguousMatches(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestCallersPrintsHumanReadableEdges(t *testing.T) {
+	app := &fakeApp{callgraphResult: codegraph.CallgraphResult{
+		Source:    "demo@v1",
+		Direction: codegraph.CallgraphDirectionCallers,
+		Symbol:    "login",
+		Root: &codegraph.GraphNodeDetail{
+			ID: "target", Kind: codegraph.NodeKindFunction, Name: "login", QualifiedName: "auth.login", Path: "auth.go", StartLine: 12,
+		},
+		Edges: []codegraph.CallgraphEdge{{
+			Depth: 1,
+			From:  codegraph.GraphNodeDetail{ID: "caller", Kind: codegraph.NodeKindMethod, Name: "postLogin", QualifiedName: "AuthController.postLogin", Path: "controller.kt", StartLine: 31},
+			To:    codegraph.GraphNodeDetail{ID: "target", Kind: codegraph.NodeKindFunction, Name: "login", QualifiedName: "auth.login", Path: "auth.go", StartLine: 12},
+			Kind:  codegraph.EdgeKindCalls,
+			Line:  38,
+		}},
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "callers", "--depth", "2", "--limit", "5", "--kind", "method", "--lang", "kotlin", "--path", "controller", "demo@v1", "login")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	for _, want := range []string{
+		"callers of login",
+		"method AuthController.postLogin controller.kt:31",
+		"calls auth.login at line 38",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if app.callgraphSpec != "demo@v1" || app.callgraphSymbol != "login" {
+		t.Fatalf("callgraph call = %q %q, want spec and symbol", app.callgraphSpec, app.callgraphSymbol)
+	}
+	if app.callgraphOpts.Direction != codegraph.CallgraphDirectionCallers || app.callgraphOpts.Depth != 2 || app.callgraphOpts.Limit != 5 {
+		t.Fatalf("callgraph opts = %#v, want callers depth limit", app.callgraphOpts)
+	}
+	if len(app.callgraphOpts.Kinds) != 1 || app.callgraphOpts.Kinds[0] != codegraph.NodeKindMethod {
+		t.Fatalf("kinds = %#v, want method", app.callgraphOpts.Kinds)
+	}
+	if len(app.callgraphOpts.Languages) != 1 || app.callgraphOpts.Languages[0] != codegraph.LanguageKotlin {
+		t.Fatalf("languages = %#v, want kotlin", app.callgraphOpts.Languages)
+	}
+	if len(app.callgraphOpts.PathFilters) != 1 || app.callgraphOpts.PathFilters[0] != "controller" {
+		t.Fatalf("paths = %#v, want controller", app.callgraphOpts.PathFilters)
+	}
+}
+
+func TestCalleesJSONPrintsEdges(t *testing.T) {
+	app := &fakeApp{callgraphResult: codegraph.CallgraphResult{
+		Source:    "demo@v1",
+		Direction: codegraph.CallgraphDirectionCallees,
+		Symbol:    "Run",
+		Edges: []codegraph.CallgraphEdge{{
+			Depth: 1,
+			From:  codegraph.GraphNodeDetail{ID: "run", Name: "Run"},
+			To:    codegraph.GraphNodeDetail{ID: "helper", Name: "helper"},
+			Kind:  codegraph.EdgeKindCalls,
+			Line:  4,
+		}},
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "callees", "--json", "--include-unresolved", "--no-sync-index", "demo@v1", "Run")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	var got codegraph.CallgraphResult
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if got.Direction != codegraph.CallgraphDirectionCallees || len(got.Edges) != 1 || got.Edges[0].To.Name != "helper" {
+		t.Fatalf("result = %#v, want callee helper", got)
+	}
+	if app.callgraphOpts.SyncIndex || !app.callgraphOpts.IncludeUnresolved {
+		t.Fatalf("callgraph opts = %#v, want no sync and unresolved", app.callgraphOpts)
+	}
+}
+
+func TestImpactPrintsNoEdgesMessage(t *testing.T) {
+	app := &fakeApp{callgraphResult: codegraph.CallgraphResult{
+		Source:    "demo@v1",
+		Direction: codegraph.CallgraphDirectionImpact,
+		Symbol:    "Config",
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "impact", "demo@v1", "Config")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout, "No call graph results found.") {
+		t.Fatalf("stdout = %q, want no results message", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if app.callgraphOpts.Direction != codegraph.CallgraphDirectionImpact {
+		t.Fatalf("direction = %q, want impact", app.callgraphOpts.Direction)
 	}
 }
 
