@@ -66,6 +66,22 @@ func TestExtractFromSourceSkipsGoComplexCallTargets(t *testing.T) {
 	assertNoUnresolvedContaining(t, result.Unresolved, "func")
 }
 
+func TestExtractFromSourceWarnsForUnsupportedLanguage(t *testing.T) {
+	result, err := ExtractFromSource("file.unknown", []byte("content"), codegraph.LanguageUnknown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Warnings) != 1 || result.Warnings[0] != "unsupported language: unknown" {
+		t.Fatalf("unexpected warnings: %#v", result.Warnings)
+	}
+	if len(result.Nodes) != 0 {
+		t.Fatalf("expected no nodes, got %#v", result.Nodes)
+	}
+	if len(result.Unresolved) != 0 {
+		t.Fatalf("expected no unresolved references, got %#v", result.Unresolved)
+	}
+}
+
 func assertNode(t *testing.T, nodes []codegraph.GraphNode, kind codegraph.NodeKind, name string) {
 	t.Helper()
 	for _, node := range nodes {
