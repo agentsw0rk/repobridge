@@ -26,7 +26,7 @@
 - Detect installed npm package versions from `node_modules`, lockfiles, and `package.json`.
 - Print machine-friendly paths for downstream automation.
 
-The `test/e2e-search` benchmark compares `repobridge search` with comparable `rg -C 3` output on a pinned Kotlin repository. The current run shows that structured AST search returns much smaller outputs for LLM context while preserving code-level intent such as function and call matching. Estimated tokens use UTF-8 bytes divided by four; use API usage metrics or a model tokenizer for exact accounting.
+The E2E benchmark compares `repobridge search` with comparable `rg -C 3` output on a pinned Kotlin repository. The current run shows that structured AST search returns much smaller outputs for LLM context while preserving code-level intent such as function and call matching.
 
 | Task | Results | RepoBridge tokens | rg tokens | Estimated reduction |
 | --- | ---: | ---: | ---: | ---: |
