@@ -5,22 +5,28 @@ import "time"
 type NodeKind string
 
 const (
-	NodeKindFile      NodeKind = "file"
-	NodeKindModule    NodeKind = "module"
-	NodeKindClass     NodeKind = "class"
-	NodeKindStruct    NodeKind = "struct"
-	NodeKindInterface NodeKind = "interface"
-	NodeKindFunction  NodeKind = "function"
-	NodeKindMethod    NodeKind = "method"
-	NodeKindImport    NodeKind = "import"
+	NodeKindFile           NodeKind = "file"
+	NodeKindModule         NodeKind = "module"
+	NodeKindClass          NodeKind = "class"
+	NodeKindStruct         NodeKind = "struct"
+	NodeKindInterface      NodeKind = "interface"
+	NodeKindFunction       NodeKind = "function"
+	NodeKindMethod         NodeKind = "method"
+	NodeKindImport         NodeKind = "import"
+	NodeKindRoute          NodeKind = "route"
+	NodeKindHandler        NodeKind = "handler"
+	NodeKindComponentRoute NodeKind = "component_route"
 )
 
 type EdgeKind string
 
 const (
-	EdgeKindContains EdgeKind = "contains"
-	EdgeKindCalls    EdgeKind = "calls"
-	EdgeKindImports  EdgeKind = "imports"
+	EdgeKindContains   EdgeKind = "contains"
+	EdgeKindCalls      EdgeKind = "calls"
+	EdgeKindImports    EdgeKind = "imports"
+	EdgeKindHandles    EdgeKind = "handles"
+	EdgeKindRoutesTo   EdgeKind = "routes_to"
+	EdgeKindMiddleware EdgeKind = "middleware"
 )
 
 type Language string

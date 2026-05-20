@@ -763,10 +763,10 @@
             <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge search react@19.0.0 "calls:createRoot"</span></span>
             <span class="line out">function render src/client/ReactDOMRoot.js:92</span>
             <span class="line">&nbsp;</span>
-            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge context react@19.0.0 "createRoot render flow"</span></span>
-            <span class="line out">entry points · relationships · snippets · related files</span>
+            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge search github.com/acme/service "kind:route path:/login"</span></span>
+            <span class="line out">route POST /login AuthController.kt:12</span>
             <div class="terminal-grid">
-              <div class="terminal-chip">AST nodes · callgraph</div>
+              <div class="terminal-chip">AST nodes · routes</div>
               <div class="terminal-chip">Go · Java · Kotlin</div>
               <div class="terminal-chip">C# · JS · TS</div>
               <div class="terminal-chip">Python · Rust</div>
@@ -799,15 +799,18 @@ repobridge scan --cwd . --fetch --limit 10
 repobridge search react@19.0.0 "kind:function calls:createRoot"
 repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
 repobridge search github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 "lang:kotlin calls:exec"
+repobridge search github.com/acme/service "kind:route path:/login"
 
 repobridge status github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8
 repobridge files github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 --path src --limit 10
 repobridge node github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 up --source-lines 12
 
 repobridge callers github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 exec --include-unresolved
+repobridge callers github.com/acme/service AuthController.login --depth 1
 repobridge callees github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 findDockerCompose --depth 2
 
 repobridge context github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 "findDockerCompose exec flow" --budget small
+repobridge context github.com/acme/service "POST /login" --budget small
 repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 "DockerComposeContainer up" --budget large --depth 2</code></pre>
         </div>
         <div class="input-table budget-panel" aria-label="Search output budget benchmark">
@@ -876,9 +879,16 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
           </article>
           <article class="feature-card">
             <h3>Search AST code graphs</h3>
-            <p>Query cached source graphs by symbol name, node kind, path, language, and function calls without touching dependency code.</p>
+            <p>Query cached source graphs by symbol name, node kind, path, language, framework route, and function calls without touching dependency code.</p>
             <div class="tag-row">
-              <span class="tag">search</span><span class="tag">calls:</span><span class="tag">lang:kotlin</span>
+              <span class="tag">search</span><span class="tag">kind:route</span><span class="tag">lang:kotlin</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <h3>Index Spring routes</h3>
+            <p>Store Java and Kotlin Spring route mappings as graph evidence with HTTP method, route pattern, handler, file, and line.</p>
+            <div class="tag-row">
+              <span class="tag">@GetMapping</span><span class="tag">@PostMapping</span><span class="tag">handles</span>
             </div>
           </article>
           <article class="feature-card">
@@ -985,7 +995,7 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
             </article>
             <article class="reference-card">
               <h3><code>search &lt;spec&gt; &lt;query&gt;</code></h3>
-              <p>Searches the local AST graph, rebuilding missing or stale graph data when needed.</p>
+              <p>Searches the local AST graph, including Spring Java/Kotlin route and handler nodes, rebuilding missing or stale graph data when needed.</p>
               <p><code>--json</code> · <code>--limit</code> · <code>--kind</code> · <code>--lang</code> · <code>--calls</code></p>
             </article>
             <article class="reference-card">
@@ -995,7 +1005,7 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
             </article>
             <article class="reference-card">
               <h3><code>callers · callees · impact</code></h3>
-              <p>Traverses call and impact relationships from the stored AST graph with deterministic, compact output.</p>
+              <p>Traverses call, route handler, and impact relationships from the stored AST graph with deterministic, compact output.</p>
               <p><code>--depth</code> · <code>--limit</code> · <code>--include-unresolved</code> · <code>--json</code></p>
             </article>
             <article class="reference-card">
@@ -1019,16 +1029,19 @@ repobridge path --cwd . github.com/spf13/cobra
 repobridge search react@19.0.0 "kind:function calls:createRoot"
 repobridge search pypi:requests==2.32.3 "calls:send lang:python"
 repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
+repobridge search github.com/acme/service "kind:route path:/login"
 
 repobridge status react@19.0.0
 repobridge files react@19.0.0 --path packages/react-dom --limit 10
 repobridge node react@19.0.0 createRoot --source-lines 20
 
 repobridge callers react@19.0.0 createRoot --depth 2
+repobridge callers github.com/acme/service AuthController.login --depth 1
 repobridge callees react@19.0.0 createRoot --include-unresolved
 repobridge impact react@19.0.0 createRoot --json
 
 repobridge context react@19.0.0 "createRoot render flow" --budget small
+repobridge context github.com/acme/service "POST /login" --budget small
 repobridge explore github.com/vercel/next.js "AppRouter cache invalidation" --budget large --depth 2</code></pre>
           </div>
         </div>
@@ -1052,9 +1065,16 @@ repobridge explore github.com/vercel/next.js "AppRouter cache invalidation" --bu
           </article>
           <article class="feature-card">
             <h3>Language coverage</h3>
-            <p>Tree-sitter parsers extract functions, methods, and call references from Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust.</p>
+            <p>Tree-sitter parsers extract functions, methods, call references, and Spring Java/Kotlin route handlers across Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust.</p>
             <div class="tag-row">
               <span class="tag">go</span><span class="tag">kotlin</span><span class="tag">python</span><span class="tag">rust</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <h3>Framework routes</h3>
+            <p>Spring annotations create <code>route</code> and <code>handler</code> nodes linked by <code>handles</code> edges, so <code>POST /login</code> can lead straight to the controller method.</p>
+            <div class="tag-row">
+              <span class="tag">route</span><span class="tag">handler</span><span class="tag">handles</span>
             </div>
           </article>
           <article class="feature-card">

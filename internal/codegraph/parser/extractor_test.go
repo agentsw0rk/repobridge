@@ -131,6 +131,39 @@ func TestExtractFromSourceFindsJavaMethodAndCall(t *testing.T) {
 	assertUnresolvedFrom(t, result.Unresolved, "helper", runID)
 }
 
+func TestExtractFromSourceFindsSpringJavaRouteAndHandler(t *testing.T) {
+	source := []byte(`@RestController
+@RequestMapping("/api")
+class AuthController {
+  @PostMapping(path="/login")
+  public void login() { audit(); }
+}`)
+
+	result, err := ExtractFromSource("AuthController.java", source, model.LanguageJava)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, "POST /api/login")
+	handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "login")
+	assertQualifiedNode(t, result.Nodes, model.NodeKindHandler, "login", "AuthController.login")
+	assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+	assertUnresolvedFrom(t, result.Unresolved, "audit", handlerID)
+}
+
+func TestExtractFromSourceFindsSpringJavaRequestMappingMethod(t *testing.T) {
+	source := []byte(`@RestController
+class AuthController {
+  @RequestMapping(value="/login", method=RequestMethod.POST)
+  public void login() {}
+}`)
+
+	result, err := ExtractFromSource("AuthController.java", source, model.LanguageJava)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindRoute, "POST /login", model.LanguageJava)
+}
+
 func TestExtractFromSourceFindsCSharpMethodAndCall(t *testing.T) {
 	source := []byte(`class App { void Run() { Helper(); } }`)
 
@@ -153,6 +186,25 @@ func TestExtractFromSourceFindsKotlinFunctionAndCall(t *testing.T) {
 	runID := findNodeID(t, result.Nodes, model.NodeKindFunction, "run")
 	assertUnresolvedWithLanguage(t, result.Unresolved, "helper", model.LanguageKotlin)
 	assertUnresolvedFrom(t, result.Unresolved, "helper", runID)
+}
+
+func TestExtractFromSourceFindsSpringKotlinRouteAndHandler(t *testing.T) {
+	source := []byte(`@RestController
+@RequestMapping("/api")
+class AuthController {
+  @GetMapping("/users/{id}")
+  fun user() { audit() }
+}`)
+
+	result, err := ExtractFromSource("AuthController.kt", source, model.LanguageKotlin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /api/users/{id}")
+	handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "user")
+	assertQualifiedNode(t, result.Nodes, model.NodeKindHandler, "user", "AuthController.user")
+	assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+	assertUnresolvedFrom(t, result.Unresolved, "audit", handlerID)
 }
 
 func TestExtractFromSourceWarnsForUnsupportedLanguage(t *testing.T) {
@@ -191,6 +243,16 @@ func assertNode(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name
 	t.Fatalf("node %s %s not found in %#v", kind, name, nodes)
 }
 
+func assertQualifiedNode(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name, qualified string) {
+	t.Helper()
+	for _, node := range nodes {
+		if node.Kind == kind && node.Name == name && node.QualifiedName == qualified {
+			return
+		}
+	}
+	t.Fatalf("node %s %s qualified %s not found in %#v", kind, name, qualified, nodes)
+}
+
 func findNodeID(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name string) string {
 	t.Helper()
 	for _, node := range nodes {
@@ -200,6 +262,16 @@ func findNodeID(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name
 	}
 	t.Fatalf("node %s %s not found in %#v", kind, name, nodes)
 	return ""
+}
+
+func assertEdge(t *testing.T, edges []model.GraphEdge, fromID, toID string, kind model.EdgeKind) {
+	t.Helper()
+	for _, edge := range edges {
+		if edge.SourceNodeID == fromID && edge.TargetNodeID == toID && edge.Kind == kind {
+			return
+		}
+	}
+	t.Fatalf("edge %s -> %s %s not found in %#v", fromID, toID, kind, edges)
 }
 
 func assertUnresolved(t *testing.T, refs []model.UnresolvedReference, name string) {

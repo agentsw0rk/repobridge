@@ -26,6 +26,7 @@
 - Fetch Git repositories from GitHub, GitLab, and Bitbucket.
 - Scan a project for dependency source specs from manifests, lockfiles, and imports.
 - Build local Tree-sitter AST graphs for cached sources and search them by symbol, kind, path, language, and calls.
+- Index Spring Java/Kotlin routes and handlers as graph nodes, including HTTP method, route pattern, file, and line.
 - Inspect cached code graphs with `status`, `files`, and `node` without scanning source trees again.
 - Traverse call graphs with `callers`, `callees`, and `impact` for focused agent investigations.
 - Build task-oriented agent context with `context` and broader graph explanations with `explore`.
@@ -97,6 +98,7 @@ repobridge search react@19.0.0 "kind:function name:render"
 repobridge search pypi:requests==2.32.3 "calls:send lang:python"
 repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
 repobridge search github.com/vercel/next.js "path:packages kind:method"
+repobridge search github.com/acme/service "kind:route path:/login"
 ```
 
 Inspect graph health, indexed files, and exact nodes:
@@ -111,6 +113,7 @@ Trace call relationships:
 
 ```bash
 repobridge callers react@19.0.0 createRoot --depth 2
+repobridge callers github.com/acme/service AuthController.login --depth 1
 repobridge callees react@19.0.0 createRoot --include-unresolved
 repobridge impact react@19.0.0 createRoot --json
 ```
@@ -119,6 +122,7 @@ Build task context for an agent:
 
 ```bash
 repobridge context react@19.0.0 "createRoot render flow" --budget small
+repobridge context github.com/acme/service "POST /login" --budget small
 repobridge explore github.com/vercel/next.js "AppRouter cache invalidation" --budget large --depth 2
 ```
 
@@ -150,7 +154,7 @@ Maven inputs use explicit `groupId:artifactId@version` coordinates. RepoBridge d
 
 NuGet inputs use package IDs with an optional explicit version. Without a version, RepoBridge selects the latest stable NuGet version. RepoBridge downloads the `.nupkg` only to read `.nuspec` repository metadata, then fetches the matching Git repository by commit or version tag. It does not cache package binaries as source.
 
-AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust sources with Tree-sitter. Indexing runs in the background after successful `path`, `fetch`, and `scan --fetch` commands. `search`, graph inspection, callgraph, `context`, and `explore` rebuild a missing or stale graph synchronously before returning results unless `--no-sync-index` is set.
+AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust sources with Tree-sitter. Java and Kotlin parsing also recognizes Spring `@RequestMapping`, `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`, and `@PatchMapping` routes, stores `route` and `handler` nodes, and links them with `handles` edges. Indexing runs in the background after successful `path`, `fetch`, and `scan --fetch` commands. `search`, graph inspection, callgraph, `context`, and `explore` rebuild a missing or stale graph synchronously before returning results unless `--no-sync-index` is set.
 
 ## Commands
 
@@ -159,11 +163,11 @@ AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeSc
 | `repobridge fetch <spec...>` | Downloads sources into the cache. |
 | `repobridge path <spec...>` | Fetches on cache miss and prints absolute source paths. |
 | `repobridge scan` | Scans a project and proposes dependency source specs. |
-| `repobridge search <spec> <query>` | Searches the local AST graph for a cached source, building the graph synchronously if needed. |
+| `repobridge search <spec> <query>` | Searches the local AST graph for a cached source, including framework routes such as `kind:route path:/login`, building the graph synchronously if needed. |
 | `repobridge status <spec>` | Shows graph path, freshness status, schema version, file/node/edge counts, and warnings. |
 | `repobridge files <spec>` | Lists files stored in the AST graph without walking the source tree again. |
 | `repobridge node <spec> <id-or-name>` | Shows one symbol's kind, qualified name, location, calls, and optional source lines. |
-| `repobridge callers <spec> <symbol>` | Finds functions or methods that call a symbol. |
+| `repobridge callers <spec> <symbol>` | Finds functions, methods, or routes that call or handle a symbol. |
 | `repobridge callees <spec> <symbol>` | Finds functions or methods called by a symbol. |
 | `repobridge impact <spec> <symbol>` | Traverses incoming call/import relationships to estimate change impact. |
 | `repobridge context <spec> <query>` | Returns focused task context with entry points, relationships, snippets, related files, warnings, and stats. |

@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
@@ -104,34 +105,11 @@ func walkRust(path string, source []byte, node *tree_sitter.Node, result *Extrac
 }
 
 func walkJava(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
-	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: model.LanguageJava,
-		nodeKinds: map[string]model.NodeKind{
-			"method_declaration": model.NodeKindMethod,
-		},
-		callKinds: map[string]bool{
-			"method_invocation": true,
-		},
-		anonymousKinds: map[string]bool{
-			"lambda_expression": true,
-		},
-	})
+	walkJavaNode(path, source, node, result, "", "", "")
 }
 
 func walkKotlin(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
-	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: model.LanguageKotlin,
-		nodeKinds: map[string]model.NodeKind{
-			"function_declaration": model.NodeKindFunction,
-		},
-		callKinds: map[string]bool{
-			"call_expression": true,
-		},
-		anonymousKinds: map[string]bool{
-			"anonymous_function": true,
-			"lambda_literal":     true,
-		},
-	})
+	walkKotlinNode(path, source, node, result, "", "", "")
 }
 
 func walkCSharp(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
@@ -168,6 +146,71 @@ func walkConfiguredNode(path string, source []byte, node *tree_sitter.Node, resu
 
 	for i := uint(0); i < node.NamedChildCount(); i++ {
 		walkConfiguredNode(path, source, node.NamedChild(i), result, currentNodeID, config)
+	}
+}
+
+func walkJavaNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID, routePrefix, className string) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind() {
+	case "class_declaration":
+		if name := declarationName(source, node); name != "" {
+			className = name
+		}
+		if prefix, ok := springClassRoutePrefix(source, node); ok {
+			routePrefix = combineRoutePatterns(routePrefix, prefix)
+		}
+	case "method_declaration":
+		if id := appendSpringHandlerOrJavaMethod(path, source, node, result, routePrefix, className); id != "" {
+			currentNodeID = id
+		}
+	case "lambda_expression":
+		currentNodeID = ""
+	case "method_invocation":
+		if currentNodeID != "" {
+			appendLanguageCall(path, source, node, model.LanguageJava, result, currentNodeID)
+		}
+	}
+
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		walkJavaNode(path, source, node.NamedChild(i), result, currentNodeID, routePrefix, className)
+	}
+}
+
+func walkKotlinNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID, routePrefix, className string) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind() {
+	case "annotated_expression":
+		if prefix, ok := springRoutePrefixFromAnnotations(source, directAnnotations(node)); ok {
+			routePrefix = combineRoutePatterns(routePrefix, prefix)
+		}
+	case "class_declaration", "object_declaration":
+		if name := declarationName(source, node); name != "" {
+			className = name
+		}
+	case "infix_expression":
+		if name := kotlinClassLikeName(source, node); name != "" {
+			className = name
+		}
+	case "function_declaration":
+		if id := appendSpringHandlerOrKotlinFunction(path, source, node, result, routePrefix, className); id != "" {
+			currentNodeID = id
+		}
+	case "anonymous_function", "lambda_literal":
+		currentNodeID = ""
+	case "call_expression":
+		if currentNodeID != "" {
+			appendLanguageCall(path, source, node, model.LanguageKotlin, result, currentNodeID)
+		}
+	}
+
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		walkKotlinNode(path, source, node.NamedChild(i), result, currentNodeID, routePrefix, className)
 	}
 }
 
@@ -248,6 +291,82 @@ func appendLanguageNode(path string, source []byte, node *tree_sitter.Node, kind
 		Signature:     strings.TrimSpace(nodeText(source, node)),
 	})
 	return id
+}
+
+func appendSpringHandlerOrJavaMethod(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, routePrefix, className string) string {
+	routes := springRoutesFromAnnotations(source, directAnnotations(node), routePrefix)
+	if len(routes) == 0 {
+		return appendLanguageNode(path, source, node, model.NodeKindMethod, model.LanguageJava, result)
+	}
+	return appendSpringHandler(path, source, node, result, model.LanguageJava, className, routes)
+}
+
+func appendSpringHandlerOrKotlinFunction(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, routePrefix, className string) string {
+	routes := springRoutesFromAnnotations(source, directAnnotations(node), routePrefix)
+	if len(routes) == 0 {
+		return appendLanguageNode(path, source, node, model.NodeKindFunction, model.LanguageKotlin, result)
+	}
+	return appendSpringHandler(path, source, node, result, model.LanguageKotlin, className, routes)
+}
+
+func appendSpringHandler(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, language model.Language, className string, routes []springRoute) string {
+	name := declarationName(source, node)
+	if name == "" {
+		return ""
+	}
+	qualifiedName := name
+	if className != "" {
+		qualifiedName = className + "." + name
+	}
+	start := node.StartPosition()
+	end := node.EndPosition()
+	startLine := int(start.Row) + 1
+	handlerID := stableNodeID(path, model.NodeKindHandler, qualifiedName, startLine)
+	result.Nodes = append(result.Nodes, model.GraphNode{
+		ID:            handlerID,
+		Kind:          model.NodeKindHandler,
+		Name:          name,
+		QualifiedName: qualifiedName,
+		FilePath:      path,
+		Language:      language,
+		StartLine:     startLine,
+		EndLine:       int(end.Row) + 1,
+		StartColumn:   int(start.Column),
+		EndColumn:     int(end.Column),
+		Signature:     strings.TrimSpace(nodeText(source, node)),
+	})
+
+	for _, route := range routes {
+		appendSpringRoute(path, result, language, route, handlerID, qualifiedName)
+	}
+	return handlerID
+}
+
+func appendSpringRoute(path string, result *ExtractionResult, language model.Language, route springRoute, handlerID, handlerName string) {
+	name := strings.TrimSpace(route.Method + " " + route.Pattern)
+	id := stableNodeID(path, model.NodeKindRoute, name, route.Line)
+	result.Nodes = append(result.Nodes, model.GraphNode{
+		ID:            id,
+		Kind:          model.NodeKindRoute,
+		Name:          name,
+		QualifiedName: "spring " + name,
+		FilePath:      path,
+		Language:      language,
+		StartLine:     route.Line,
+		EndLine:       route.Line,
+		StartColumn:   route.Column,
+		EndColumn:     route.Column,
+		Signature:     fmt.Sprintf("spring route %s -> %s", name, handlerName),
+	})
+	result.Edges = append(result.Edges, model.GraphEdge{
+		SourceNodeID: id,
+		TargetNodeID: handlerID,
+		Kind:         model.EdgeKindHandles,
+		FilePath:     path,
+		Line:         route.Line,
+		Column:       route.Column,
+		Provenance:   "spring",
+	})
 }
 
 func appendGoCall(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, fromNodeID string) {
@@ -359,6 +478,287 @@ func goCallReferenceName(source []byte, node *tree_sitter.Node) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+type springRoute struct {
+	Method  string
+	Pattern string
+	Line    int
+	Column  int
+}
+
+func springClassRoutePrefix(source []byte, node *tree_sitter.Node) (string, bool) {
+	return springRoutePrefixFromAnnotations(source, directAnnotations(node))
+}
+
+func springRoutePrefixFromAnnotations(source []byte, annotations []*tree_sitter.Node) (string, bool) {
+	for _, annotation := range annotations {
+		name := annotationName(source, annotation)
+		if name != "RequestMapping" {
+			continue
+		}
+		patterns := annotationPathValues(source, annotation)
+		if len(patterns) == 0 {
+			return "", true
+		}
+		return patterns[0], true
+	}
+	return "", false
+}
+
+func springRoutesFromAnnotations(source []byte, annotations []*tree_sitter.Node, routePrefix string) []springRoute {
+	var routes []springRoute
+	for _, annotation := range annotations {
+		method, ok := springHTTPMethod(source, annotation)
+		if !ok {
+			continue
+		}
+		patterns := annotationPathValues(source, annotation)
+		if len(patterns) == 0 {
+			patterns = []string{""}
+		}
+		start := annotation.StartPosition()
+		for _, pattern := range patterns {
+			routes = append(routes, springRoute{
+				Method:  method,
+				Pattern: combineRoutePatterns(routePrefix, pattern),
+				Line:    int(start.Row) + 1,
+				Column:  int(start.Column),
+			})
+		}
+	}
+	return routes
+}
+
+func springHTTPMethod(source []byte, annotation *tree_sitter.Node) (string, bool) {
+	switch annotationName(source, annotation) {
+	case "GetMapping":
+		return "GET", true
+	case "PostMapping":
+		return "POST", true
+	case "PutMapping":
+		return "PUT", true
+	case "DeleteMapping":
+		return "DELETE", true
+	case "PatchMapping":
+		return "PATCH", true
+	case "RequestMapping":
+		method := requestMappingMethod(nodeText(source, annotation))
+		if method == "" {
+			method = "ANY"
+		}
+		return method, true
+	default:
+		return "", false
+	}
+}
+
+func requestMappingMethod(text string) string {
+	upper := strings.ToUpper(text)
+	for _, method := range []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"} {
+		if strings.Contains(upper, "REQUESTMETHOD."+method) || strings.Contains(upper, "METHOD="+method) {
+			return method
+		}
+	}
+	return ""
+}
+
+func annotationPathValues(source []byte, annotation *tree_sitter.Node) []string {
+	values := annotationNamedPathValues(source, annotation)
+	if len(values) > 0 {
+		return values
+	}
+	return annotationPositionalPathValues(source, annotation)
+}
+
+func annotationNamedPathValues(source []byte, node *tree_sitter.Node) []string {
+	var values []string
+	var walk func(*tree_sitter.Node)
+	walk = func(current *tree_sitter.Node) {
+		if current == nil {
+			return
+		}
+		if current.Kind() == "element_value_pair" || current.Kind() == "value_argument" {
+			text := nodeText(source, current)
+			if strings.Contains(text, "=") {
+				key := strings.TrimSpace(strings.SplitN(text, "=", 2)[0])
+				key = strings.Trim(key, " \t\r\n")
+				if key == "path" || key == "value" {
+					values = append(values, stringValues(source, current)...)
+				}
+			}
+		}
+		for i := uint(0); i < current.NamedChildCount(); i++ {
+			walk(current.NamedChild(i))
+		}
+	}
+	walk(node)
+	return uniqueStrings(values)
+}
+
+func annotationPositionalPathValues(source []byte, node *tree_sitter.Node) []string {
+	var values []string
+	var walk func(*tree_sitter.Node)
+	walk = func(current *tree_sitter.Node) {
+		if current == nil {
+			return
+		}
+		switch current.Kind() {
+		case "annotation_argument_list", "value_arguments":
+			for i := uint(0); i < current.NamedChildCount(); i++ {
+				child := current.NamedChild(i)
+				text := nodeText(source, child)
+				if strings.Contains(text, "=") {
+					continue
+				}
+				values = append(values, stringValues(source, child)...)
+			}
+		default:
+			for i := uint(0); i < current.NamedChildCount(); i++ {
+				walk(current.NamedChild(i))
+			}
+		}
+	}
+	walk(node)
+	return uniqueStrings(values)
+}
+
+func stringValues(source []byte, node *tree_sitter.Node) []string {
+	var values []string
+	var walk func(*tree_sitter.Node)
+	walk = func(current *tree_sitter.Node) {
+		if current == nil {
+			return
+		}
+		switch current.Kind() {
+		case "string_fragment", "string_content":
+			value := strings.TrimSpace(nodeText(source, current))
+			if value != "" {
+				values = append(values, value)
+			}
+			return
+		case "string_literal":
+			if current.NamedChildCount() == 0 {
+				value := strings.Trim(nodeText(source, current), "\"")
+				if value != "" {
+					values = append(values, value)
+				}
+				return
+			}
+		}
+		for i := uint(0); i < current.NamedChildCount(); i++ {
+			walk(current.NamedChild(i))
+		}
+	}
+	walk(node)
+	return uniqueStrings(values)
+}
+
+func directAnnotations(node *tree_sitter.Node) []*tree_sitter.Node {
+	var annotations []*tree_sitter.Node
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		switch child.Kind() {
+		case "annotation", "marker_annotation":
+			annotations = append(annotations, child)
+		case "modifiers":
+			for j := uint(0); j < child.NamedChildCount(); j++ {
+				modifier := child.NamedChild(j)
+				if modifier.Kind() == "annotation" || modifier.Kind() == "marker_annotation" {
+					annotations = append(annotations, modifier)
+				}
+			}
+		}
+	}
+	return annotations
+}
+
+func annotationName(source []byte, annotation *tree_sitter.Node) string {
+	for i := uint(0); i < annotation.NamedChildCount(); i++ {
+		if name := firstIdentifier(source, annotation.NamedChild(i)); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+func firstIdentifier(source []byte, node *tree_sitter.Node) string {
+	if node == nil {
+		return ""
+	}
+	if node.Kind() == "identifier" {
+		return strings.TrimSpace(nodeText(source, node))
+	}
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		if name := firstIdentifier(source, node.NamedChild(i)); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+func declarationName(source []byte, node *tree_sitter.Node) string {
+	if nameNode := node.ChildByFieldName("name"); nameNode != nil {
+		return strings.TrimSpace(nodeText(source, nameNode))
+	}
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		if child.Kind() == "identifier" {
+			name := strings.TrimSpace(nodeText(source, child))
+			if name != "" && name != "class" && name != "fun" {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+func kotlinClassLikeName(source []byte, node *tree_sitter.Node) string {
+	seenClassKeyword := false
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		if child.Kind() != "identifier" {
+			continue
+		}
+		text := strings.TrimSpace(nodeText(source, child))
+		if text == "class" || text == "object" {
+			seenClassKeyword = true
+			continue
+		}
+		if seenClassKeyword && text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func combineRoutePatterns(left, right string) string {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" {
+		left = "/"
+	}
+	if right == "" {
+		right = "/"
+	}
+	combined := strings.TrimRight(left, "/") + "/" + strings.TrimLeft(right, "/")
+	if combined == "" || combined == "/" {
+		return "/"
+	}
+	return combined
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func nodeText(source []byte, node *tree_sitter.Node) string {

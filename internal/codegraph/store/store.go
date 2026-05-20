@@ -627,9 +627,9 @@ func callgraphEdgeFromEntity(entity *EdgeEntity, currentID string, depth int, di
 
 func callgraphEdgeKindAllowed(kind codegraph.EdgeKind, direction codegraph.CallgraphDirection) bool {
 	if direction == codegraph.CallgraphDirectionImpact {
-		return kind == codegraph.EdgeKindCalls || kind == codegraph.EdgeKindImports
+		return kind == codegraph.EdgeKindCalls || kind == codegraph.EdgeKindImports || kind == codegraph.EdgeKindHandles || kind == codegraph.EdgeKindRoutesTo || kind == codegraph.EdgeKindMiddleware
 	}
-	return kind == codegraph.EdgeKindCalls
+	return kind == codegraph.EdgeKindCalls || kind == codegraph.EdgeKindHandles || kind == codegraph.EdgeKindRoutesTo
 }
 
 func callgraphEdgeMatchesFilters(edge codegraph.CallgraphEdge, query codegraph.CallgraphQuery) bool {
@@ -643,7 +643,7 @@ func callgraphEdgeMatchesFilters(edge codegraph.CallgraphEdge, query codegraph.C
 	if !matchesAny(string(node.Language), languageStrings(query.Languages), true) {
 		return false
 	}
-	return matchesAny(node.Path, query.PathFilters, false)
+	return graphNodeDetailMatchesPathFilters(node, query.PathFilters)
 }
 
 func unresolvedCallgraphEdge(ref *UnresolvedReferenceEntity, currentID string, depth int, direction codegraph.CallgraphDirection, root codegraph.GraphNodeDetail, nodes map[string]codegraph.GraphNodeDetail) (codegraph.CallgraphEdge, bool) {
@@ -787,7 +787,7 @@ func scoreNode(node *NodeEntity, query codegraph.SearchQuery) (float64, bool) {
 	if !matchesAny(string(codegraph.Language(node.Language)), languageStrings(query.Languages), true) {
 		return 0, false
 	}
-	if !matchesAny(node.FilePath, query.PathFilters, false) {
+	if !matchesPathFilters(node, query.PathFilters) {
 		return 0, false
 	}
 	if !matchesNameFilters(node, query.NameFilters) {
@@ -826,11 +826,61 @@ func scoreNode(node *NodeEntity, query codegraph.SearchQuery) (float64, bool) {
 		}
 	}
 	for _, filter := range query.PathFilters {
-		if strings.Contains(strings.ToLower(node.FilePath), strings.ToLower(filter)) {
+		if routeOrFileMatchesPathFilter(node, filter) {
 			score += 5
 		}
 	}
 	return score, true
+}
+
+func matchesPathFilters(node *NodeEntity, filters []string) bool {
+	if len(filters) == 0 {
+		return true
+	}
+	for _, filter := range filters {
+		if routeOrFileMatchesPathFilter(node, filter) {
+			return true
+		}
+	}
+	return false
+}
+
+func routeOrFileMatchesPathFilter(node *NodeEntity, filter string) bool {
+	filter = strings.ToLower(filter)
+	if strings.Contains(strings.ToLower(node.FilePath), filter) {
+		return true
+	}
+	if codegraph.NodeKind(node.Kind) != codegraph.NodeKindRoute {
+		return false
+	}
+	return strings.Contains(strings.ToLower(node.Name), filter) ||
+		strings.Contains(strings.ToLower(node.QualifiedName), filter) ||
+		strings.Contains(strings.ToLower(node.Signature), filter)
+}
+
+func graphNodeDetailMatchesPathFilters(node codegraph.GraphNodeDetail, filters []string) bool {
+	if len(filters) == 0 {
+		return true
+	}
+	for _, filter := range filters {
+		if graphNodeDetailMatchesPathFilter(node, filter) {
+			return true
+		}
+	}
+	return false
+}
+
+func graphNodeDetailMatchesPathFilter(node codegraph.GraphNodeDetail, filter string) bool {
+	filter = strings.ToLower(filter)
+	if strings.Contains(strings.ToLower(node.Path), filter) {
+		return true
+	}
+	if node.Kind != codegraph.NodeKindRoute {
+		return false
+	}
+	return strings.Contains(strings.ToLower(node.Name), filter) ||
+		strings.Contains(strings.ToLower(node.QualifiedName), filter) ||
+		strings.Contains(strings.ToLower(node.Signature), filter)
 }
 
 func matchesAny(value string, filters []string, exact bool) bool {
