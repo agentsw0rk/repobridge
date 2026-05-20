@@ -24,7 +24,7 @@ For project-local code that is not an external dependency, normal local code too
 ## Workflow
 
 1. **Find the project root.** Use the current working directory unless the user gives another path.
-2. **Ensure RepoBridge is available.** Run `command -v repobridge`. If it is missing, install the pinned GitHub release using the platform-specific asset table below. If AST context is needed, verify `repobridge context --help`, `repobridge explore --help`, and `repobridge search --help`; when unavailable, use a newer RepoBridge build that includes codegraph context/search.
+2. **Ensure RepoBridge is available.** Run `command -v repobridge`. If it is missing, state that RepoBridge is unavailable and use the best local fallback for the task. If AST context is needed, verify `repobridge context --help`, `repobridge explore --help`, and `repobridge search --help`; when unavailable, use the best available RepoBridge command or local fallback.
 3. **Scan dependencies.** Run RepoBridge's project scanner:
 
    ```bash
@@ -59,30 +59,6 @@ For project-local code that is not an external dependency, normal local code too
 9. **Inspect and trace graph evidence before raw text search.** Use `status`, `files`, `node`, `callers`, `callees`, and `impact` when the agent needs exact graph health, source lines, or call-flow evidence.
 10. **Use resolved paths as read-only references when needed.** Open specific files returned by RepoBridge commands, use LSP navigation when available, and use `rg` only as a fallback for text that is not represented in the AST graph.
 11. **State what was fetched and searched.** In the final response, mention which frameworks/libraries were resolved and which RepoBridge queries or paths were used when that matters for the task.
-
-## Installing RepoBridge from GitHub Releases
-
-Use this only when `command -v repobridge` fails. Prefer an existing installed binary when available.
-
-Use the pinned release version `v0.5.0`. Pick the asset for the current platform:
-
-| Platform | Asset |
-| --- | --- |
-| macOS Apple Silicon | `repobridge_v0.5.0_darwin_arm64.tar.gz` |
-| macOS Intel | `repobridge_v0.5.0_darwin_amd64.tar.gz` |
-| Linux x86_64 | `repobridge_v0.5.0_linux_amd64.tar.gz` |
-| Linux arm64 | `repobridge_v0.5.0_linux_arm64.tar.gz` |
-| Windows x86_64 | `repobridge_v0.5.0_windows_amd64.zip` |
-
-Download the selected asset from:
-
-```text
-https://github.com/agentsw0rk/repobridge/releases/download/v0.5.0/<asset>
-```
-
-For macOS/Linux, extract the tarball and keep `repobridge` beside the bundled `libobjectbox.*` file in a directory on `PATH` such as `$HOME/.local/bin/repobridge-v0.5.0`. Make `repobridge` executable and verify with `repobridge --version`.
-
-For Windows, extract the zip file and keep `repobridge.exe` beside the bundled `objectbox.dll`. Add that directory to `PATH` and verify with `repobridge --version`.
 
 ## Codegraph Context and Search
 
@@ -257,8 +233,8 @@ repobridge context --cwd /path/to/service <spec> "POST /login" --budget small
 
 ## Failure Handling
 
-- If `repobridge` is not installed, download the pinned `v0.5.0` asset for the current OS/architecture, install it into a local bin directory, and verify `repobridge --version`.
-- If `repobridge context --help`, `repobridge explore --help`, or `repobridge search --help` is unavailable, install or build a newer RepoBridge version that includes codegraph context/search.
+- If `repobridge` is not installed, state that RepoBridge is unavailable and use the best local fallback for the task.
+- If `repobridge context --help`, `repobridge explore --help`, or `repobridge search --help` is unavailable, use the best available RepoBridge command or local fallback.
 - If a proposed spec fails, continue with the remaining specs and report the failure.
 - If too many dependencies are detected, narrow to the libraries relevant to the user's current task.
 - If private repositories fail, ask the user to provide the appropriate token through `GITHUB_TOKEN`, `GITLAB_TOKEN`, or `BITBUCKET_TOKEN`.

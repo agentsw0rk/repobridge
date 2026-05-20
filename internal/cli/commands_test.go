@@ -1140,6 +1140,63 @@ func TestSubcommandsUseActiveCobraWriters(t *testing.T) {
 	}
 }
 
+func TestInstallAgentPrintConfigDoesNotWrite(t *testing.T) {
+	home := t.TempDir()
+	stdout, stderr, err := executeForTest("install-agent", "--target", "codex", "--home", home, "--print-config", "--version", "v9.9.9")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	for _, want := range []string{"target: codex", "file: ", "SKILL.md", "v9.9.9"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "repobridge", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("print-config wrote destination, stat err = %v", err)
+	}
+}
+
+func TestInstallAgentDryRunReportsActions(t *testing.T) {
+	home := t.TempDir()
+	stdout, stderr, err := executeForTest("install-agent", "--target", "codex", "--home", home, "--dry-run")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if !strings.Contains(stdout, "create") || !strings.Contains(stdout, filepath.Join(".agents", "skills", "repobridge", "SKILL.md")) {
+		t.Fatalf("stdout = %q, want dry-run create action", stdout)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "repobridge", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote destination, stat err = %v", err)
+	}
+}
+
+func TestInstallAgentWritesBundledSkill(t *testing.T) {
+	home := t.TempDir()
+	stdout, stderr, err := executeForTest("install-agent", "--target", "codex", "--home", home, "--version", "v1.2.3")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if !strings.Contains(stdout, "Installed 2 file(s)") {
+		t.Fatalf("stdout = %q, want installed summary", stdout)
+	}
+	content, err := os.ReadFile(filepath.Join(home, ".agents", "skills", "repobridge", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "RepoBridge Project Context") || !strings.Contains(string(content), "v1.2.3") {
+		t.Fatalf("installed skill = %q, want skill content and version", string(content))
+	}
+}
+
 func TestCleanRegistryFilter(t *testing.T) {
 	withHome(t)
 	packages := []cache.PackageEntry{

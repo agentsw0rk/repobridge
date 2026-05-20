@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"repobridge/internal/agentinstall"
 	"repobridge/internal/cache"
 	"repobridge/internal/codegraph"
 	"repobridge/internal/projectscan"
@@ -735,6 +736,77 @@ func printSearchResult(out io.Writer, result codegraph.SearchResult) {
 	}
 	if len(result.Calls) > 0 {
 		fmt.Fprintf(out, "    calls: %s\n", strings.Join(result.Calls, ", "))
+	}
+}
+
+func newInstallAgentCommand(opts Options) *cobra.Command {
+	var target string
+	var version string
+	var dryRun bool
+	var printConfig bool
+	var home string
+
+	cmd := &cobra.Command{
+		Use:   "install-agent",
+		Short: "Install RepoBridge skill files for coding agents",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+			options := agentinstall.Options{
+				Target:  target,
+				Version: version,
+				HomeDir: home,
+				DryRun:  dryRun || printConfig,
+			}
+			if printConfig {
+				result, err := agentinstall.PrintConfig(options)
+				if err != nil {
+					return err
+				}
+				printAgentInstallConfig(out, result)
+				return nil
+			}
+			result, err := agentinstall.Apply(options)
+			if err != nil {
+				return err
+			}
+			printAgentInstallResult(out, result, dryRun)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&target, "target", "", "agent target: codex, claude, cursor, opencode, or all")
+	cmd.Flags().StringVar(&version, "version", "", "pinned RepoBridge version to document in installed skill")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show planned skill installation changes without writing")
+	cmd.Flags().BoolVar(&printConfig, "print-config", false, "print rendered skill files without writing")
+	cmd.Flags().StringVar(&home, "home", "", "override home directory for installation")
+	return cmd
+}
+
+func printAgentInstallResult(out io.Writer, result agentinstall.Result, dryRun bool) {
+	agentinstall.SortFiles(result.Files)
+	prefix := "Installed"
+	if dryRun {
+		prefix = "Would install"
+	}
+	changed := 0
+	for _, file := range result.Files {
+		if file.Action != "unchanged" {
+			changed++
+		}
+		if file.BackupPath != "" {
+			fmt.Fprintf(out, "%s %s %s backup:%s\n", file.Target, file.Action, file.Path, file.BackupPath)
+			continue
+		}
+		fmt.Fprintf(out, "%s %s %s\n", file.Target, file.Action, file.Path)
+	}
+	fmt.Fprintf(out, "%s %d file(s)\n", prefix, changed)
+}
+
+func printAgentInstallConfig(out io.Writer, result agentinstall.Result) {
+	agentinstall.SortFiles(result.Files)
+	for _, file := range result.Files {
+		fmt.Fprintf(out, "---\ntarget: %s\nfile: %s\n", file.Target, file.Path)
+		fmt.Fprintln(out, string(file.Content))
 	}
 }
 

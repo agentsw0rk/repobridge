@@ -659,7 +659,8 @@
         }
 
         .nav-links {
-          overflow-x: auto;
+          flex-wrap: wrap;
+          overflow-x: visible;
           width: 100%;
           padding-bottom: 4px;
         }
@@ -786,6 +787,7 @@
           <a href="#features">Features</a>
           <a href="#inputs">Inputs</a>
           <a href="#cli">CLI</a>
+          <a href="#agents">Agents</a>
           <a href="#codegraph">Codegraph</a>
           <a href="#workflows">Workflows</a>
           <a href="#troubleshooting">Trouble</a>
@@ -854,9 +856,10 @@
             <span>skill-driven agent context workflow</span>
             <button class="copy-button" data-copy="quickstart-code">Copy</button>
           </div>
-          <pre id="quickstart-code"><code>npx skills add agentsw0rk/repobridge
+          <pre id="quickstart-code"><code>repobridge install-agent --target codex --version v0.6.0
+repobridge install-agent --target codex --dry-run
 
-# Used by the $repobridge skill
+# Used by the installed repobridge skill
 repobridge scan --cwd . --json
 repobridge scan --cwd . --fetch --limit 10
 
@@ -984,6 +987,33 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
               <span class="tag">context</span><span class="tag">explore</span><span class="tag">budget</span>
             </div>
           </article>
+          <article class="feature-card">
+            <h3>Install agent skills</h3>
+            <p>Use <code>install-agent</code> to install the bundled RepoBridge skill for Codex, Claude, Cursor, or opencode with dry-run and print-only modes.</p>
+            <div class="tag-row">
+              <span class="tag">install-agent</span><span class="tag">--dry-run</span><span class="tag">--print-config</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="agents" class="shell">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Agent setup</p>
+            <h2>Install the skill before the agent reaches for text search.</h2>
+          </div>
+          <p><code>install-agent</code> writes RepoBridge skill files only. It does not install MCP configuration.</p>
+        </div>
+        <div class="code-panel">
+          <div class="copy-row">
+            <span>skill installation commands</span>
+            <button class="copy-button" data-copy="agent-install-code">Copy</button>
+          </div>
+          <pre id="agent-install-code"><code>repobridge install-agent --target codex --version v0.6.0
+repobridge install-agent --target claude --version v0.6.0
+repobridge install-agent --target all --dry-run
+repobridge install-agent --target codex --print-config</code></pre>
         </div>
       </section>
 
@@ -1085,6 +1115,11 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
               <p>Builds focused or broad task context with entry points, graph relationships, source snippets, related files, warnings, and stats.</p>
               <p><code>--budget</code> · <code>--limit</code> · <code>--depth</code> · <code>--json</code></p>
             </article>
+            <article class="reference-card">
+              <h3><code>install-agent</code></h3>
+              <p>Installs the bundled RepoBridge skill for Codex, Claude, Cursor, opencode, or all targets without writing MCP configuration.</p>
+              <p><code>--target</code> · <code>--version</code> · <code>--dry-run</code> · <code>--print-config</code></p>
+            </article>
           </div>
           <div class="code-panel">
             <div class="copy-row">
@@ -1116,7 +1151,10 @@ repobridge impact react@19.0.0 createRoot --json
 
 repobridge context react@19.0.0 "createRoot render flow" --budget small
 repobridge context github.com/acme/service "POST /login" --budget small
-repobridge explore github.com/vercel/next.js "AppRouter cache invalidation" --budget large --depth 2</code></pre>
+repobridge explore github.com/vercel/next.js "AppRouter cache invalidation" --budget large --depth 2
+
+repobridge install-agent --target codex --version v0.6.0
+repobridge install-agent --target all --dry-run</code></pre>
           </div>
         </div>
       </section>
@@ -1194,26 +1232,33 @@ repobridge explore github.com/vercel/next.js "AppRouter cache invalidation" --bu
           <article class="workflow">
             <span class="step">01</span>
             <div>
+              <h3>Install the agent skill</h3>
+              <p>Run <code>repobridge install-agent --target codex --version v0.6.0</code> so the agent learns to prefer RepoBridge graph commands over broad text search.</p>
+            </div>
+          </article>
+          <article class="workflow">
+            <span class="step">02</span>
+            <div>
               <h3>Scan the project</h3>
               <p>Run <code>repobridge scan --cwd . --json</code> to identify framework and library specs from manifests, lockfiles, and imports.</p>
             </div>
           </article>
           <article class="workflow">
-            <span class="step">02</span>
+            <span class="step">03</span>
             <div>
               <h3>Fetch reference sources</h3>
               <p>Run <code>repobridge scan --cwd . --fetch --limit 10</code> to cache sources and start background AST indexing.</p>
             </div>
           </article>
           <article class="workflow">
-            <span class="step">03</span>
+            <span class="step">04</span>
             <div>
               <h3>Search symbols and routes</h3>
               <p>Run <code>repobridge search &lt;spec&gt; "kind:route path:/login"</code> or <code>"kind:function calls:send"</code> to get compact graph results.</p>
             </div>
           </article>
           <article class="workflow">
-            <span class="step">04</span>
+            <span class="step">05</span>
             <div>
               <h3>Build task context</h3>
               <p>Run <code>repobridge context &lt;spec&gt; "task query"</code> or <code>repobridge explore &lt;spec&gt; "symbol flow"</code> when the agent needs exact evidence with bounded snippets and graph relationships.</p>

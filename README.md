@@ -139,6 +139,16 @@ repobridge context github.com/acme/service "POST /login" --budget small
 repobridge explore github.com/vercel/next.js "AppRouter cache invalidation" --budget large --depth 2
 ```
 
+Install the bundled RepoBridge skill for a coding agent:
+
+```bash
+repobridge install-agent --target codex --version v0.6.0
+repobridge install-agent --target codex --dry-run
+repobridge install-agent --target codex --print-config
+```
+
+`install-agent` writes skill files only. It does not install MCP configuration.
+
 Inspect and clean cached sources:
 
 ```bash
@@ -185,11 +195,12 @@ AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeSc
 | `repobridge impact <spec> <symbol>` | Traverses incoming call/import relationships to estimate change impact. |
 | `repobridge context <spec> <query>` | Returns focused task context with entry points, relationships, snippets, related files, warnings, and stats. |
 | `repobridge explore <spec> <query>` | Returns broader graph exploration context with the same bounded output shape. |
+| `repobridge install-agent` | Installs the bundled RepoBridge skill for Codex, Claude, Cursor, opencode, or all targets. |
 | `repobridge list [--json]` | Lists cached packages and repositories. |
 | `repobridge remove <spec...>` | Removes selected cached sources. |
 | `repobridge clean` | Removes cached sources, optionally scoped by flags. |
 
-Most commands that resolve package versions accept `--cwd` for lockfile detection. `fetch` also accepts `--quiet`; `path` accepts `--verbose`; `scan` accepts `--json`, `--fetch`, `--limit`, and `--no-imports`; `search` accepts `--json`, `--limit`, `--kind`, `--lang`, `--path`, `--calls`, and `--no-sync-index`; `status`, `files`, `node`, `callers`, `callees`, `impact`, `context`, and `explore` accept `--json` and `--no-sync-index`; `files` adds `--path` and `--limit`; `node` adds `--source-lines`; callgraph commands add `--depth`, `--kind`, `--lang`, `--path`, `--limit`, and `--include-unresolved`; `context` and `explore` add `--budget`, `--limit`, and `--depth`; `clean` accepts filters such as `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, and `--nuget`.
+Most commands that resolve package versions accept `--cwd` for lockfile detection. `fetch` also accepts `--quiet`; `path` accepts `--verbose`; `scan` accepts `--json`, `--fetch`, `--limit`, and `--no-imports`; `search` accepts `--json`, `--limit`, `--kind`, `--lang`, `--path`, `--calls`, and `--no-sync-index`; `status`, `files`, `node`, `callers`, `callees`, `impact`, `context`, and `explore` accept `--json` and `--no-sync-index`; `files` adds `--path` and `--limit`; `node` adds `--source-lines`; callgraph commands add `--depth`, `--kind`, `--lang`, `--path`, `--limit`, and `--include-unresolved`; `context` and `explore` add `--budget`, `--limit`, and `--depth`; `install-agent` accepts `--target`, `--version`, `--dry-run`, and `--print-config`; `clean` accepts filters such as `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, and `--nuget`.
 
 Useful search query tokens include `kind:route`, `kind:handler`, `kind:component_route`, `path:/some/route`, `lang:python`, `calls:<symbol>`, and free text such as `POST /login`.
 

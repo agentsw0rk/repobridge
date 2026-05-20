@@ -207,6 +207,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newImpactCommand(opts))
 	cmd.AddCommand(newContextCommand(opts))
 	cmd.AddCommand(newExploreCommand(opts))
+	cmd.AddCommand(newInstallAgentCommand(opts))
 	cmd.AddCommand(newListCommand(opts))
 	cmd.AddCommand(newRemoveCommand(opts))
 	cmd.AddCommand(newCleanCommand(opts))
