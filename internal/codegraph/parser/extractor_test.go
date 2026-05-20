@@ -29,6 +29,8 @@ func (s Service) Run() {
 	assertNode(t, result.Nodes, codegraph.NodeKindMethod, "Run")
 	assertUnresolved(t, result.Unresolved, "helper")
 	assertUnresolved(t, result.Unresolved, "Println")
+	runID := findNodeID(t, result.Nodes, codegraph.NodeKindMethod, "Run")
+	assertUnresolvedFrom(t, result.Unresolved, "helper", runID)
 }
 
 func assertNode(t *testing.T, nodes []codegraph.GraphNode, kind codegraph.NodeKind, name string) {
@@ -41,6 +43,17 @@ func assertNode(t *testing.T, nodes []codegraph.GraphNode, kind codegraph.NodeKi
 	t.Fatalf("node %s %s not found in %#v", kind, name, nodes)
 }
 
+func findNodeID(t *testing.T, nodes []codegraph.GraphNode, kind codegraph.NodeKind, name string) string {
+	t.Helper()
+	for _, node := range nodes {
+		if node.Kind == kind && node.Name == name {
+			return node.ID
+		}
+	}
+	t.Fatalf("node %s %s not found in %#v", kind, name, nodes)
+	return ""
+}
+
 func assertUnresolved(t *testing.T, refs []codegraph.UnresolvedReference, name string) {
 	t.Helper()
 	for _, ref := range refs {
@@ -49,4 +62,14 @@ func assertUnresolved(t *testing.T, refs []codegraph.UnresolvedReference, name s
 		}
 	}
 	t.Fatalf("reference %s not found in %#v", name, refs)
+}
+
+func assertUnresolvedFrom(t *testing.T, refs []codegraph.UnresolvedReference, name string, fromID string) {
+	t.Helper()
+	for _, ref := range refs {
+		if ref.ReferenceName == name && ref.FromNodeID == fromID {
+			return
+		}
+	}
+	t.Fatalf("reference %s from %s not found in %#v", name, fromID, refs)
 }

@@ -9,35 +9,44 @@ import (
 )
 
 func walkGo(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
+	walkGoNode(path, source, node, result, "")
+}
+
+func walkGoNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID string) {
 	if node == nil {
 		return
 	}
 
 	switch node.Kind() {
 	case "function_declaration":
-		appendGoNode(path, source, node, codegraph.NodeKindFunction, result)
+		if id := appendGoNode(path, source, node, codegraph.NodeKindFunction, result); id != "" {
+			currentNodeID = id
+		}
 	case "method_declaration":
-		appendGoNode(path, source, node, codegraph.NodeKindMethod, result)
+		if id := appendGoNode(path, source, node, codegraph.NodeKindMethod, result); id != "" {
+			currentNodeID = id
+		}
 	case "call_expression":
-		appendGoCall(path, source, node, result)
+		appendGoCall(path, source, node, result, currentNodeID)
 	}
 
 	for i := uint(0); i < node.NamedChildCount(); i++ {
-		walkGo(path, source, node.NamedChild(i), result)
+		walkGoNode(path, source, node.NamedChild(i), result, currentNodeID)
 	}
 }
 
-func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind codegraph.NodeKind, result *ExtractionResult) {
+func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind codegraph.NodeKind, result *ExtractionResult) string {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
-		return
+		return ""
 	}
 	name := nodeText(source, nameNode)
 	start := node.StartPosition()
 	end := node.EndPosition()
 	startLine := int(start.Row) + 1
+	id := stableNodeID(path, kind, name, startLine)
 	result.Nodes = append(result.Nodes, codegraph.GraphNode{
-		ID:            stableNodeID(path, kind, name, startLine),
+		ID:            id,
 		Kind:          kind,
 		Name:          name,
 		QualifiedName: name,
@@ -49,9 +58,10 @@ func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind codeg
 		EndColumn:     int(end.Column),
 		Signature:     strings.TrimSpace(nodeText(source, node)),
 	})
+	return id
 }
 
-func appendGoCall(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
+func appendGoCall(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, fromNodeID string) {
 	functionNode := node.ChildByFieldName("function")
 	if functionNode == nil {
 		return
@@ -67,6 +77,7 @@ func appendGoCall(path string, source []byte, node *tree_sitter.Node, result *Ex
 
 	start := functionNode.StartPosition()
 	result.Unresolved = append(result.Unresolved, codegraph.UnresolvedReference{
+		FromNodeID:    fromNodeID,
 		ReferenceName: name,
 		ReferenceKind: codegraph.EdgeKindCalls,
 		FilePath:      path,
