@@ -53,7 +53,13 @@ The E2E Token-Reduction-Benchmark compares `repobridge search` with comparable `
 
 ## Installation
 
-Build or install from the repository root:
+Install the latest CLI binary:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/agentsw0rk/repobridge/main/install.sh | bash
+```
+
+Or build/install from the repository root:
 
 ```bash
 go install ./cmd/repobridge
