@@ -1,0 +1,310 @@
+{
+  "_note1": "KEEP THIS FILE! Check it into a version control system (VCS) like git.",
+  "_note2": "ObjectBox manages crucial IDs for your object model. See docs for details.",
+  "_note3": "If you have VCS merge conflicts, you must resolve them according to ObjectBox docs.",
+  "entities": [
+    {
+      "id": "1:7125977000538646976",
+      "lastPropertyId": "7:1544869711414877580",
+      "name": "MetadataEntity",
+      "properties": [
+        {
+          "id": "1:209618578448051984",
+          "name": "Id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:2348443704100105030",
+          "name": "SchemaVersion",
+          "type": 6
+        },
+        {
+          "id": "3:4696979830662462292",
+          "name": "SourcePath",
+          "indexId": "1:8508792747737138764",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "4:8686702516850592564",
+          "name": "Status",
+          "indexId": "2:145975261485266389",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "5:224521710423946532",
+          "name": "ErrorText",
+          "type": 9
+        },
+        {
+          "id": "6:534355464662901870",
+          "name": "StartedAt",
+          "type": 10
+        },
+        {
+          "id": "7:1544869711414877580",
+          "name": "CompletedAt",
+          "type": 10
+        }
+      ]
+    },
+    {
+      "id": "2:2666698206013856343",
+      "lastPropertyId": "8:5388449931475143195",
+      "name": "FileEntity",
+      "properties": [
+        {
+          "id": "1:744142087116066230",
+          "name": "Id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:1927260822809403345",
+          "name": "Path",
+          "indexId": "3:3286611023313867966",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "3:7749746291397620472",
+          "name": "Language",
+          "indexId": "4:3465057872772624453",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "4:8612910933257049931",
+          "name": "ContentHash",
+          "type": 9
+        },
+        {
+          "id": "5:1584297742594311495",
+          "name": "Size",
+          "type": 6
+        },
+        {
+          "id": "6:1698562881254366377",
+          "name": "ModifiedAt",
+          "type": 10
+        },
+        {
+          "id": "7:6712063835944434879",
+          "name": "IndexedAt",
+          "type": 10
+        },
+        {
+          "id": "8:5388449931475143195",
+          "name": "NodeCount",
+          "type": 6
+        }
+      ]
+    },
+    {
+      "id": "3:7626999044627350868",
+      "lastPropertyId": "12:5864542766874311116",
+      "name": "NodeEntity",
+      "properties": [
+        {
+          "id": "1:4740307672382472985",
+          "name": "Id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:2492544408256570391",
+          "name": "StableID",
+          "indexId": "5:7977339421880462769",
+          "type": 9,
+          "flags": 2080
+        },
+        {
+          "id": "3:5132974246754897061",
+          "name": "Kind",
+          "indexId": "6:3136031450619134525",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "4:3533172239523055308",
+          "name": "Name",
+          "indexId": "7:772691722674290412",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "5:1087706768695451511",
+          "name": "QualifiedName",
+          "indexId": "8:5716309171518507146",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "6:2031295220467762354",
+          "name": "FilePath",
+          "indexId": "9:3661143121977444103",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "7:4052142866617741606",
+          "name": "Language",
+          "indexId": "10:1305682084556776024",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "8:4757806515327280027",
+          "name": "StartLine",
+          "type": 6
+        },
+        {
+          "id": "9:3448556182795927646",
+          "name": "EndLine",
+          "type": 6
+        },
+        {
+          "id": "10:200890707069712958",
+          "name": "StartColumn",
+          "type": 6
+        },
+        {
+          "id": "11:5894384044432350763",
+          "name": "EndColumn",
+          "type": 6
+        },
+        {
+          "id": "12:5864542766874311116",
+          "name": "Signature",
+          "type": 9
+        }
+      ]
+    },
+    {
+      "id": "4:4862423828518506709",
+      "lastPropertyId": "8:4543557479040090025",
+      "name": "EdgeEntity",
+      "properties": [
+        {
+          "id": "1:5200201183198721454",
+          "name": "Id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:6879004711832604345",
+          "name": "SourceStableID",
+          "indexId": "11:2099392463863600710",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "3:2967104119924270555",
+          "name": "TargetStableID",
+          "indexId": "12:9140278198054538349",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "4:1963848408639858949",
+          "name": "Kind",
+          "indexId": "13:1663063142446608740",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "5:1181060633773048674",
+          "name": "FilePath",
+          "indexId": "14:3140560180761939826",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "6:2751853900498146644",
+          "name": "Line",
+          "type": 6
+        },
+        {
+          "id": "7:7980827936999242277",
+          "name": "Column",
+          "type": 6
+        },
+        {
+          "id": "8:4543557479040090025",
+          "name": "Provenance",
+          "type": 9
+        }
+      ]
+    },
+    {
+      "id": "5:8009807915262133108",
+      "lastPropertyId": "8:2068640150242227716",
+      "name": "UnresolvedReferenceEntity",
+      "properties": [
+        {
+          "id": "1:4172527558472329220",
+          "name": "Id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:7322233948351692174",
+          "name": "FromStableID",
+          "indexId": "15:2171323865800745138",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "3:7972036343677783478",
+          "name": "ReferenceName",
+          "indexId": "16:2534133963459598125",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "4:3515345726039362762",
+          "name": "ReferenceKind",
+          "indexId": "17:4351443479712870676",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "5:1521244803568825085",
+          "name": "FilePath",
+          "indexId": "18:6266699770799151718",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "6:1275514527372146217",
+          "name": "Language",
+          "indexId": "19:8544295943047035425",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "7:5760036363277584253",
+          "name": "Line",
+          "type": 6
+        },
+        {
+          "id": "8:2068640150242227716",
+          "name": "Column",
+          "type": 6
+        }
+      ]
+    }
+  ],
+  "lastEntityId": "5:8009807915262133108",
+  "lastIndexId": "19:8544295943047035425",
+  "lastRelationId": "",
+  "modelVersion": 5,
+  "modelVersionParserMinimum": 5,
+  "retiredEntityUids": [],
+  "retiredIndexUids": [],
+  "retiredPropertyUids": [],
+  "retiredRelationUids": [],
+  "version": 1
+}

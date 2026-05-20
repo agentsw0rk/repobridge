@@ -3,6 +3,8 @@ module repobridge
 go 1.22.0
 
 require (
+	github.com/google/flatbuffers v23.5.26+incompatible
+	github.com/objectbox/objectbox-go v1.9.0
 	github.com/spf13/cobra v1.9.1
 	github.com/tree-sitter/go-tree-sitter v0.24.0
 	github.com/tree-sitter/tree-sitter-c-sharp v0.23.1
@@ -17,5 +19,6 @@ require (
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
+	github.com/objectbox/objectbox-generator/v4 v4.0.0 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 )
