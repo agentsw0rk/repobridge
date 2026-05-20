@@ -6,6 +6,7 @@ require (
 	github.com/google/flatbuffers v23.5.26+incompatible
 	github.com/objectbox/objectbox-go v1.9.0
 	github.com/spf13/cobra v1.9.1
+	github.com/tree-sitter-grammars/tree-sitter-kotlin v1.1.0
 	github.com/tree-sitter/go-tree-sitter v0.24.0
 	github.com/tree-sitter/tree-sitter-c-sharp v0.23.1
 	github.com/tree-sitter/tree-sitter-go v0.23.4

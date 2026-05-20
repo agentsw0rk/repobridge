@@ -6,7 +6,6 @@ RepoBridge now starts asynchronous AST codegraph indexing after successful `path
 
 ## Deviations
 
-- Kotlin extraction is warning-only if the available Kotlin Tree-sitter Go binding is incompatible with the selected `go-tree-sitter` version.
 - Search filtering is implemented through the store API with deterministic in-process scoring before deeper ObjectBox query optimization.
 
 ## Open Follow-ups

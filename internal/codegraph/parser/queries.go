@@ -25,6 +25,8 @@ func walkByLanguage(path string, source []byte, node *tree_sitter.Node, language
 		walkRust(path, source, node, result)
 	case model.LanguageJava:
 		walkJava(path, source, node, result)
+	case model.LanguageKotlin:
+		walkKotlin(path, source, node, result)
 	case model.LanguageCSharp:
 		walkCSharp(path, source, node, result)
 	}
@@ -112,6 +114,22 @@ func walkJava(path string, source []byte, node *tree_sitter.Node, result *Extrac
 		},
 		anonymousKinds: map[string]bool{
 			"lambda_expression": true,
+		},
+	})
+}
+
+func walkKotlin(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
+	walkConfiguredNode(path, source, node, result, "", extractionConfig{
+		language: model.LanguageKotlin,
+		nodeKinds: map[string]model.NodeKind{
+			"function_declaration": model.NodeKindFunction,
+		},
+		callKinds: map[string]bool{
+			"call_expression": true,
+		},
+		anonymousKinds: map[string]bool{
+			"anonymous_function": true,
+			"lambda_literal":     true,
 		},
 	})
 }
@@ -284,6 +302,12 @@ func callReference(source []byte, node *tree_sitter.Node) (*tree_sitter.Node, st
 			return nameNode, name, true
 		}
 	}
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		nameNode, name, ok := referenceName(source, node.NamedChild(i))
+		if ok {
+			return nameNode, name, true
+		}
+	}
 	return nil, "", false
 }
 
@@ -311,6 +335,11 @@ func referenceName(source []byte, node *tree_sitter.Node) (*tree_sitter.Node, st
 			return nil, "", false
 		}
 		return node, name, true
+	case "expression":
+		if node.NamedChildCount() == 1 {
+			return referenceName(source, node.NamedChild(0))
+		}
+		return nil, "", false
 	default:
 		return nil, "", false
 	}

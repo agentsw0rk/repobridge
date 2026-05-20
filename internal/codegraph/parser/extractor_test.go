@@ -144,18 +144,15 @@ func TestExtractFromSourceFindsCSharpMethodAndCall(t *testing.T) {
 	assertUnresolvedFrom(t, result.Unresolved, "Helper", runID)
 }
 
-func TestExtractFromSourceHandlesKotlinSupportStatus(t *testing.T) {
+func TestExtractFromSourceFindsKotlinFunctionAndCall(t *testing.T) {
 	result, err := ExtractFromSource("App.kt", []byte(`fun run() { helper() }`), model.LanguageKotlin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertWarning(t, result.Warnings, "unsupported language: kotlin")
-	if len(result.Nodes) != 0 {
-		t.Fatalf("expected no nodes, got %#v", result.Nodes)
-	}
-	if len(result.Unresolved) != 0 {
-		t.Fatalf("expected no unresolved references, got %#v", result.Unresolved)
-	}
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindFunction, "run", model.LanguageKotlin)
+	runID := findNodeID(t, result.Nodes, model.NodeKindFunction, "run")
+	assertUnresolvedWithLanguage(t, result.Unresolved, "helper", model.LanguageKotlin)
+	assertUnresolvedFrom(t, result.Unresolved, "helper", runID)
 }
 
 func TestExtractFromSourceWarnsForUnsupportedLanguage(t *testing.T) {
