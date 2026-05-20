@@ -33,7 +33,10 @@ func helper() {}
 	resolver := &fakeSourceResolver{
 		outcome: source.Outcome{Path: sourceDir, Name: "demo", Version: "v1", SourceLabel: "repo"},
 	}
-	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{Resolver: resolver})
+	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{
+		Resolver:    resolver,
+		StoreOpener: openGraphStore,
+	})
 
 	results, err := service.Search("demo@v1", `calls:helper`, codegraph.SearchOptions{SyncIndex: true, Limit: 10})
 	if err != nil {
@@ -56,7 +59,10 @@ func main() {}
 	resolver := &fakeSourceResolver{
 		outcome: source.Outcome{Path: sourceDir, Name: "demo", Version: "v1", SourceLabel: "repo"},
 	}
-	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{Resolver: resolver})
+	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{
+		Resolver:    resolver,
+		StoreOpener: openGraphStore,
+	})
 
 	_, err := service.Search("demo@v1", `main`, codegraph.SearchOptions{SyncIndex: false, Limit: 10})
 	if err == nil {
@@ -68,6 +74,26 @@ func main() {}
 	}
 	if !strings.Contains(message, "sync") {
 		t.Fatalf("Search() error = %q, want sync index guidance", err)
+	}
+}
+
+func TestSearchServiceRequiresExplicitStoreOpener(t *testing.T) {
+	sourceDir := t.TempDir()
+	writeCodegraphFixture(t, sourceDir, "main.go", `package main
+func main() {}
+`)
+
+	resolver := &fakeSourceResolver{
+		outcome: source.Outcome{Path: sourceDir, Name: "demo", Version: "v1", SourceLabel: "repo"},
+	}
+	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{Resolver: resolver})
+
+	_, err := service.Search("demo@v1", `main`, codegraph.SearchOptions{SyncIndex: false, Limit: 10})
+	if err == nil {
+		t.Fatal("Search() error = nil, want store opener required error")
+	}
+	if got, want := err.Error(), "codegraph store opener is required"; got != want {
+		t.Fatalf("Search() error = %q, want %q", got, want)
 	}
 }
 
@@ -95,7 +121,10 @@ func Different() {}
 	resolver := &fakeSourceResolver{
 		outcome: source.Outcome{Path: sourceDir, Name: "demo", Version: "v1", SourceLabel: "repo"},
 	}
-	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{Resolver: resolver})
+	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{
+		Resolver:    resolver,
+		StoreOpener: openGraphStore,
+	})
 
 	results, err := service.Search("demo@v1", `name:StoredFunction`, codegraph.SearchOptions{SyncIndex: true, Limit: 10})
 	if err != nil {
@@ -118,7 +147,10 @@ func main() {}
 	resolver := &fakeSourceResolver{
 		outcome: source.Outcome{Path: sourceDir, Name: "demo", Version: "v1"},
 	}
-	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{Resolver: resolver})
+	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{
+		Resolver:    resolver,
+		StoreOpener: openGraphStore,
+	})
 
 	_, err := service.Search("demo@v1", `main`, codegraph.SearchOptions{CWD: "/workspace/project", SyncIndex: true, Limit: 10})
 	if err != nil {
@@ -148,6 +180,10 @@ func replaceStoredGraph(t *testing.T, sourceDir string, result codegraph.IndexRe
 		t.Fatal(err)
 	}
 	graph.Close()
+}
+
+func openGraphStore(dir string) (codegraph.GraphStore, error) {
+	return store.Open(dir)
 }
 
 func writeCodegraphFixture(t *testing.T, root, rel, content string) {

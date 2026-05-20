@@ -13,9 +13,12 @@ type SourceResolver interface {
 	EnsureCached(spec string, opts source.Options) (source.Outcome, error)
 }
 
+type StoreOpener func(string) (GraphStore, error)
+
 type SearchServiceOptions struct {
-	Resolver SourceResolver
-	Indexer  *Indexer
+	Resolver    SourceResolver
+	Indexer     *Indexer
+	StoreOpener StoreOpener
 }
 
 type SearchOptions struct {
@@ -41,14 +44,9 @@ type GraphStore interface {
 }
 
 type SearchService struct {
-	resolver SourceResolver
-	indexer  *Indexer
-}
-
-var graphStoreOpener func(string) (GraphStore, error)
-
-func RegisterGraphStoreOpener(opener func(string) (GraphStore, error)) {
-	graphStoreOpener = opener
+	resolver    SourceResolver
+	indexer     *Indexer
+	storeOpener StoreOpener
 }
 
 func NewSearchService(opts SearchServiceOptions) *SearchService {
@@ -62,9 +60,15 @@ func NewSearchService(opts SearchServiceOptions) *SearchService {
 		indexer = NewIndexer(IndexOptions{})
 	}
 
+	storeOpener := opts.StoreOpener
+	if storeOpener == nil {
+		storeOpener = defaultStoreOpener
+	}
+
 	return &SearchService{
-		resolver: resolver,
-		indexer:  indexer,
+		resolver:    resolver,
+		indexer:     indexer,
+		storeOpener: storeOpener,
 	}
 }
 
@@ -84,10 +88,7 @@ func (s *SearchService) Search(spec, rawQuery string, opts SearchOptions) ([]Sea
 		return nil, err
 	}
 
-	if graphStoreOpener == nil {
-		return nil, fmt.Errorf("codegraph store is unavailable")
-	}
-	graph, err := graphStoreOpener(graphDir)
+	graph, err := s.storeOpener(graphDir)
 	if err != nil {
 		return nil, err
 	}
@@ -158,4 +159,8 @@ type defaultSourceResolver struct{}
 
 func (defaultSourceResolver) EnsureCached(spec string, opts source.Options) (source.Outcome, error) {
 	return source.EnsureCached(spec, opts)
+}
+
+func defaultStoreOpener(string) (GraphStore, error) {
+	return nil, fmt.Errorf("codegraph store opener is required")
 }

@@ -16,12 +16,6 @@ type Store struct {
 
 type Status = codegraph.GraphStatus
 
-func init() {
-	codegraph.RegisterGraphStoreOpener(func(dir string) (codegraph.GraphStore, error) {
-		return Open(dir)
-	})
-}
-
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
