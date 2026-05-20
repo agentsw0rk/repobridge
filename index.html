@@ -201,7 +201,8 @@
       }
 
       .install-callout {
-        display: inline-flex;
+        display: inline-grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
         align-items: center;
         max-width: 100%;
         border: 1px solid rgba(114, 228, 255, 0.22);
@@ -215,6 +216,8 @@
         align-self: stretch;
         display: inline-flex;
         align-items: center;
+        box-sizing: border-box;
+        width: 124px;
         border-right: 1px solid rgba(114, 228, 255, 0.16);
         padding: 0 13px;
         color: var(--green);
@@ -228,6 +231,7 @@
       .install-callout code {
         display: block;
         min-width: 0;
+        width: 100%;
         padding: 12px 14px;
         color: var(--text);
         font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -238,6 +242,10 @@
 
       .install-copy {
         align-self: stretch;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 64px;
         border-width: 0 0 0 1px;
         border-color: rgba(114, 228, 255, 0.16);
         border-radius: 0;
@@ -673,7 +681,7 @@
         }
 
         .install-callout {
-          display: flex;
+          display: grid;
           width: 100%;
         }
 
