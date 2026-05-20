@@ -800,6 +800,7 @@ repobridge search react@19.0.0 "kind:function calls:createRoot"
 repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
 repobridge search github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 "lang:kotlin calls:exec"
 repobridge search github.com/acme/service "kind:route path:/login"
+repobridge search github.com/acme/web "kind:component_route path:/settings"
 
 repobridge status github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8
 repobridge files github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 --path src --limit 10
@@ -900,7 +901,7 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
           </article>
           <article class="feature-card">
             <h3>Trace call relationships</h3>
-            <p>Use <code>callers</code>, <code>callees</code>, and <code>impact</code> to follow stored graph edges instead of asking the agent to rediscover call flow.</p>
+            <p>Use <code>callers</code>, <code>callees</code>, and <code>impact</code> to follow call, route handler, import, and middleware edges.</p>
             <div class="tag-row">
               <span class="tag">callers</span><span class="tag">callees</span><span class="tag">impact</span>
             </div>
@@ -1031,6 +1032,7 @@ repobridge search pypi:requests==2.32.3 "calls:send lang:python"
 repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
 repobridge search github.com/acme/service "kind:route path:/login"
 repobridge search github.com/acme/web "kind:component_route path:/settings"
+repobridge search github.com/acme/api "kind:route lang:go path:/api/users"
 
 repobridge status react@19.0.0
 repobridge files react@19.0.0 --path packages/react-dom --limit 10
@@ -1135,8 +1137,8 @@ repobridge explore github.com/vercel/next.js "AppRouter cache invalidation" --bu
           <article class="workflow">
             <span class="step">03</span>
             <div>
-              <h3>Search symbols and calls</h3>
-              <p>Run <code>repobridge search &lt;spec&gt; "kind:function calls:send"</code> to get compact, structured results for the agent context.</p>
+              <h3>Search symbols and routes</h3>
+              <p>Run <code>repobridge search &lt;spec&gt; "kind:route path:/login"</code> or <code>"kind:function calls:send"</code> to get compact graph results.</p>
             </div>
           </article>
           <article class="workflow">

@@ -102,6 +102,18 @@ repobridge search github.com/acme/service "kind:route path:/login"
 repobridge search github.com/acme/web "kind:component_route path:/settings"
 ```
 
+Search framework entry points directly:
+
+```bash
+repobridge search github.com/acme/service "kind:route path:/api/users"
+repobridge search github.com/acme/service "kind:route lang:python path:/items"
+repobridge search github.com/acme/web "kind:component_route path:/dashboard"
+repobridge callers github.com/acme/service UsersController.Get --depth 1
+repobridge context github.com/acme/service "GET /api/users" --budget small
+```
+
+Route indexing covers Spring Java/Kotlin annotations, Express and React Router routes, FastAPI/Flask/Django routes, Gin/chi/gorilla/mux registrations, ASP.NET controller and Minimal API routes, and Rust Axum/actix/Rocket-style route shapes.
+
 Inspect graph health, indexed files, and exact nodes:
 
 ```bash
@@ -178,6 +190,8 @@ AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeSc
 | `repobridge clean` | Removes cached sources, optionally scoped by flags. |
 
 Most commands that resolve package versions accept `--cwd` for lockfile detection. `fetch` also accepts `--quiet`; `path` accepts `--verbose`; `scan` accepts `--json`, `--fetch`, `--limit`, and `--no-imports`; `search` accepts `--json`, `--limit`, `--kind`, `--lang`, `--path`, `--calls`, and `--no-sync-index`; `status`, `files`, `node`, `callers`, `callees`, `impact`, `context`, and `explore` accept `--json` and `--no-sync-index`; `files` adds `--path` and `--limit`; `node` adds `--source-lines`; callgraph commands add `--depth`, `--kind`, `--lang`, `--path`, `--limit`, and `--include-unresolved`; `context` and `explore` add `--budget`, `--limit`, and `--depth`; `clean` accepts filters such as `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, and `--nuget`.
+
+Useful search query tokens include `kind:route`, `kind:handler`, `kind:component_route`, `path:/some/route`, `lang:python`, `calls:<symbol>`, and free text such as `POST /login`.
 
 ## Configuration
 
