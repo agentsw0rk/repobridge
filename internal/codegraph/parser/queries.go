@@ -26,6 +26,8 @@ func walkGoNode(path string, source []byte, node *tree_sitter.Node, result *Extr
 		if id := appendGoNode(path, source, node, codegraph.NodeKindMethod, result); id != "" {
 			currentNodeID = id
 		}
+	case "func_literal":
+		currentNodeID = ""
 	case "call_expression":
 		if currentNodeID != "" {
 			appendGoCall(path, source, node, result, currentNodeID)
@@ -68,12 +70,9 @@ func appendGoCall(path string, source []byte, node *tree_sitter.Node, result *Ex
 	if functionNode == nil {
 		return
 	}
-	name := nodeText(source, functionNode)
-	if lastDot := strings.LastIndex(name, "."); lastDot >= 0 {
-		name = name[lastDot+1:]
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
+
+	name, ok := goCallReferenceName(source, functionNode)
+	if !ok {
 		return
 	}
 
@@ -87,6 +86,22 @@ func appendGoCall(path string, source []byte, node *tree_sitter.Node, result *Ex
 		Line:          int(start.Row) + 1,
 		Column:        int(start.Column),
 	})
+}
+
+func goCallReferenceName(source []byte, node *tree_sitter.Node) (string, bool) {
+	switch node.Kind() {
+	case "identifier":
+		name := strings.TrimSpace(nodeText(source, node))
+		return name, name != ""
+	case "selector_expression":
+		name := strings.TrimSpace(nodeText(source, node))
+		if lastDot := strings.LastIndex(name, "."); lastDot >= 0 {
+			name = name[lastDot+1:]
+		}
+		return name, name != ""
+	default:
+		return "", false
+	}
 }
 
 func nodeText(source []byte, node *tree_sitter.Node) string {

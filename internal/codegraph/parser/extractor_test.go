@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"repobridge/internal/codegraph"
@@ -41,6 +42,28 @@ func TestExtractFromSourceSkipsGoCallsWithoutOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertNoUnresolved(t, result.Unresolved, "helper")
+}
+
+func TestExtractFromSourceSkipsGoCallsInsideFunctionLiterals(t *testing.T) {
+	source := []byte("package demo\nfunc outer() func() { return func() { helper() } }\nfunc helper() {}\n")
+
+	result, err := ExtractFromSource("service.go", source, codegraph.LanguageGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outerID := findNodeID(t, result.Nodes, codegraph.NodeKindFunction, "outer")
+	assertNoUnresolvedFrom(t, result.Unresolved, "helper", outerID)
+	assertNoUnresolved(t, result.Unresolved, "helper")
+}
+
+func TestExtractFromSourceSkipsGoComplexCallTargets(t *testing.T) {
+	source := []byte("package demo\nfunc outer() { func() {}() }\n")
+
+	result, err := ExtractFromSource("service.go", source, codegraph.LanguageGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoUnresolvedContaining(t, result.Unresolved, "func")
 }
 
 func assertNode(t *testing.T, nodes []codegraph.GraphNode, kind codegraph.NodeKind, name string) {
@@ -84,11 +107,29 @@ func assertUnresolvedFrom(t *testing.T, refs []codegraph.UnresolvedReference, na
 	t.Fatalf("reference %s from %s not found in %#v", name, fromID, refs)
 }
 
+func assertNoUnresolvedFrom(t *testing.T, refs []codegraph.UnresolvedReference, name string, fromID string) {
+	t.Helper()
+	for _, ref := range refs {
+		if ref.ReferenceName == name && ref.FromNodeID == fromID {
+			t.Fatalf("unexpected reference %s from %s found in %#v", name, fromID, refs)
+		}
+	}
+}
+
 func assertNoUnresolved(t *testing.T, refs []codegraph.UnresolvedReference, name string) {
 	t.Helper()
 	for _, ref := range refs {
 		if ref.ReferenceName == name {
 			t.Fatalf("unexpected reference %s found in %#v", name, refs)
+		}
+	}
+}
+
+func assertNoUnresolvedContaining(t *testing.T, refs []codegraph.UnresolvedReference, text string) {
+	t.Helper()
+	for _, ref := range refs {
+		if strings.Contains(ref.ReferenceName, text) {
+			t.Fatalf("unexpected reference containing %q found in %#v", text, refs)
 		}
 	}
 }
