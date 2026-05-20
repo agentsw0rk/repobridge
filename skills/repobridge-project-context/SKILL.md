@@ -56,9 +56,9 @@ Download the selected asset from:
 https://github.com/agentsw0rk/repobridge/releases/download/v0.3.0/<asset>
 ```
 
-For macOS/Linux, extract the tarball, copy `repobridge` to a directory on `PATH` such as `$HOME/.local/bin`, make it executable, and verify with `repobridge --version`.
+For macOS/Linux, extract the tarball and keep `repobridge` beside the bundled `libobjectbox.*` file in a directory on `PATH` such as `$HOME/.local/bin/repobridge-v0.3.0`. Make `repobridge` executable and verify with `repobridge --version`.
 
-For Windows, extract `repobridge.exe` from the zip file, add its directory to `PATH`, and verify with `repobridge --version`.
+For Windows, extract the zip file and keep `repobridge.exe` beside the bundled `objectbox.dll`. Add that directory to `PATH` and verify with `repobridge --version`.
 
 ## Codegraph Search
 

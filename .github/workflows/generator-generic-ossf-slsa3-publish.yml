@@ -30,18 +30,23 @@ jobs:
           - goos: linux
             goarch: amd64
             runner: ubuntu-latest
+            objectbox-config: linux-x64
           - goos: linux
             goarch: arm64
             runner: ubuntu-24.04-arm
+            objectbox-config: linux-aarch64
           - goos: darwin
             goarch: amd64
             runner: macos-13
+            objectbox-config: macos-universal
           - goos: darwin
             goarch: arm64
             runner: macos-14
+            objectbox-config: macos-universal
           - goos: windows
             goarch: amd64
             runner: windows-latest
+            objectbox-config: windows-x64
     permissions:
       contents: read
 
@@ -53,33 +58,45 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: Install ObjectBox native library
+      - name: Download ObjectBox native library
         if: runner.os != 'Windows'
+        env:
+          OBJECTBOX_CONFIG: ${{ matrix.objectbox-config }}
         run: |
           set -euo pipefail
-          tmpdir="$(mktemp -d)"
-          pushd "$tmpdir"
-          go mod init objectbox-install
-          bash <(curl -s https://raw.githubusercontent.com/objectbox/objectbox-go/v1.9.0/install.sh)
+          objectbox_dir="${RUNNER_TEMP}/objectbox"
+          mkdir -p "${objectbox_dir}"
+          pushd "${objectbox_dir}"
+          bash <(curl -s https://raw.githubusercontent.com/objectbox/objectbox-c/main/download.sh) --quiet "${OBJECTBOX_CONFIG}" 4.2.0
+          echo "CGO_CFLAGS=-I${objectbox_dir}/include" >> "${GITHUB_ENV}"
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            echo "CGO_LDFLAGS=-L${objectbox_dir}/lib -Wl,-rpath,@executable_path" >> "${GITHUB_ENV}"
+            echo "DYLD_LIBRARY_PATH=${objectbox_dir}/lib:${DYLD_LIBRARY_PATH:-}" >> "${GITHUB_ENV}"
+          else
+            echo "CGO_LDFLAGS=-L${objectbox_dir}/lib -Wl,-rpath,\$ORIGIN" >> "${GITHUB_ENV}"
+            echo "LD_LIBRARY_PATH=${objectbox_dir}/lib:${LD_LIBRARY_PATH:-}" >> "${GITHUB_ENV}"
+          fi
+          echo "OBJECTBOX_LIB_DIR=${objectbox_dir}/lib" >> "${GITHUB_ENV}"
           popd
-          rm -rf "$tmpdir"
 
-      - name: Install ObjectBox native library on Windows
+      - name: Download ObjectBox native library on Windows
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $tmpdir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
-          New-Item -ItemType Directory -Path $tmpdir | Out-Null
-          Push-Location $tmpdir
-          go mod init objectbox-install
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/objectbox/objectbox-go/v1.9.0/install.ps1" -OutFile "install.ps1"
-          ./install.ps1
-          Pop-Location
-          Remove-Item -Recurse -Force $tmpdir
+          $objectboxDir = Join-Path $env:RUNNER_TEMP "objectbox"
+          $archive = Join-Path $env:RUNNER_TEMP "objectbox-windows-x64.zip"
+          New-Item -ItemType Directory -Path $objectboxDir -Force | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/objectbox/objectbox-c/releases/download/v4.2.0/objectbox-windows-x64.zip" -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $objectboxDir -Force
+          "CGO_CFLAGS=-I$objectboxDir\include" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CGO_LDFLAGS=-L$objectboxDir\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "OBJECTBOX_LIB_DIR=$objectboxDir\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "PATH=$objectboxDir\lib;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Resolve release tag
         id: release
+        shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -110,6 +127,7 @@ jobs:
           name="repobridge_${VERSION}_${GOOS}_${GOARCH}"
           out_dir="dist/${name}"
           mkdir -p "${out_dir}"
+          cp "${OBJECTBOX_LIB_DIR}"/libobjectbox.* "${out_dir}/"
           go build \
             -trimpath \
             -ldflags="-s -w -X main.version=${version}" \
@@ -132,6 +150,7 @@ jobs:
           $name = "repobridge_${env:VERSION}_${env:GOOS}_${env:GOARCH}"
           $outDir = Join-Path "dist" $name
           New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+          Copy-Item (Join-Path $env:OBJECTBOX_LIB_DIR "objectbox.dll") $outDir
           go build `
             -trimpath `
             -ldflags="-s -w -X main.version=$version" `
