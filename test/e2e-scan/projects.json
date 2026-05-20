@@ -1,0 +1,185 @@
+[
+  {
+    "name": "maven-gs-maven",
+    "ecosystem": "maven",
+    "repo": "https://github.com/spring-guides/gs-maven.git",
+    "commit": "c65883f80b35bac86bb2580944de9146e2c6a55a",
+    "sparse_paths": ["complete/pom.xml"],
+    "expected": [
+      "maven:joda-time:joda-time@2.9.2",
+      "maven:junit:junit@4.12"
+    ]
+  },
+  {
+    "name": "maven-portable-mvn-repo",
+    "ecosystem": "maven",
+    "repo": "https://github.com/artursouza/portable-mvn-repo.git",
+    "commit": "fd9254602233b85ada6b857e8aace0a10f9e6869",
+    "sparse_paths": ["pom.xml"],
+    "expected": ["maven:junit:junit@4.12"]
+  },
+  {
+    "name": "maven-mongobee",
+    "ecosystem": "maven",
+    "repo": "https://github.com/mongobee/mongobee.git",
+    "commit": "4e1ec5e381121fc9e5ad54881c84029114bafa52",
+    "sparse_paths": ["pom.xml"],
+    "expected": ["maven:org.slf4j:slf4j-api@1.7.7"]
+  },
+  {
+    "name": "gradle-kotlin-compose",
+    "ecosystem": "gradle",
+    "repo": "https://github.com/meltwater/kotlin-compose.git",
+    "commit": "953e574e6fb15018ba3be02afdc6cbfe068601d8",
+    "sparse_paths": ["build.gradle.kts"],
+    "expected": [
+      "maven:org.slf4j:slf4j-api@2.0.16",
+      "maven:com.fasterxml.jackson.core:jackson-databind@2.15.4"
+    ]
+  },
+  {
+    "name": "gradle-jira-software-actions",
+    "ecosystem": "gradle",
+    "repo": "https://github.com/atlassian/jira-software-actions.git",
+    "commit": "13f7df03e5a37bd28532a1477961ae835fc6dfd6",
+    "sparse_paths": ["build.gradle.kts"],
+    "expected": ["maven:org.glassfish:javax.json@1.1"]
+  },
+  {
+    "name": "gradle-gcp-pubsub",
+    "ecosystem": "gradle",
+    "repo": "https://github.com/spring-guides/gs-messaging-gcp-pubsub.git",
+    "commit": "35530b5ffdc5085d35b9f957d98897fe5ec5519b",
+    "sparse_paths": ["complete/build.gradle"],
+    "expected": ["maven:com.google.cloud:spring-cloud-gcp-dependencies@5.9.0"]
+  },
+  {
+    "name": "nuget-octokit",
+    "ecosystem": "nuget",
+    "repo": "https://github.com/octokit/octokit.net.git",
+    "commit": "7fa5b0fe4a18c9b981b21290c3ca9320b2d6415b",
+    "sparse_paths": ["Octokit/Octokit.csproj"],
+    "expected": ["nuget:Microsoft.SourceLink.GitHub@8.0.0"]
+  },
+  {
+    "name": "nuget-xunit-demo",
+    "ecosystem": "nuget",
+    "repo": "https://github.com/qase-tms/xunit-demo.git",
+    "commit": "6d63257eb03ef51a0336c811d776bec3e1fbc30d",
+    "sparse_paths": ["xunit-demo.csproj"],
+    "expected": [
+      "nuget:coverlet.collector@6.0.2",
+      "nuget:xunit@2.9.2"
+    ]
+  },
+  {
+    "name": "nuget-jwe-samples",
+    "ecosystem": "nuget",
+    "repo": "https://github.com/scottbrady91/samples.git",
+    "commit": "be0e230f5da609d4d153358ccb5bcfa19e1d93f2",
+    "sparse_paths": ["Jwe/Jwe.csproj"],
+    "expected": [
+      "nuget:Microsoft.IdentityModel.JsonWebTokens@6.21.0",
+      "nuget:xunit@2.4.1"
+    ]
+  },
+  {
+    "name": "javascript-express",
+    "ecosystem": "javascript",
+    "repo": "https://github.com/expressjs/express.git",
+    "commit": "dae209ae6559c29cfca2a1f4414c51d89ea643d5",
+    "sparse_paths": ["package.json"],
+    "expected": [
+      "accepts@2.0.0",
+      "body-parser@2.2.1"
+    ]
+  },
+  {
+    "name": "javascript-axios",
+    "ecosystem": "javascript",
+    "repo": "https://github.com/axios/axios.git",
+    "commit": "979918445324cb9150134d068ba06f8cc9723346",
+    "sparse_paths": ["package.json"],
+    "expected": [
+      "follow-redirects@1.16.0",
+      "form-data@4.0.5"
+    ]
+  },
+  {
+    "name": "javascript-vite",
+    "ecosystem": "javascript",
+    "repo": "https://github.com/vitejs/vite.git",
+    "commit": "ebf39a04329ddc6ba765e006a5d463680a952270",
+    "sparse_paths": ["package.json"],
+    "expected": [
+      "@eslint/js@9.39.4",
+      "typescript@6.0.2"
+    ]
+  },
+  {
+    "name": "pypi-xteam",
+    "ecosystem": "pypi",
+    "repo": "https://github.com/xploitstech/Xteam.git",
+    "commit": "1aa5451227dca70ff3b218c300493576b1c76acb",
+    "sparse_paths": ["requirements.txt"],
+    "expected": [
+      "pypi:requests==2.25.1",
+      "pypi:urllib3==1.26.5"
+    ]
+  },
+  {
+    "name": "pypi-facebookbot",
+    "ecosystem": "pypi",
+    "repo": "https://github.com/hungtraan/FacebookBot.git",
+    "commit": "40a4fdc8e2599b423a91a23765f126d2dfd4889c",
+    "sparse_paths": ["requirements.txt"],
+    "expected": [
+      "pypi:Flask==0.10.1",
+      "pypi:Werkzeug==0.11.2"
+    ]
+  },
+  {
+    "name": "pypi-pymessager",
+    "ecosystem": "pypi",
+    "repo": "https://github.com/enginebai/PyMessager.git",
+    "commit": "fe5ad619f56194e777d1c8bc1b62391b6359541e",
+    "sparse_paths": ["requirements.txt"],
+    "expected": [
+      "pypi:Flask==0.12.1",
+      "pypi:requests==2.13.0"
+    ]
+  },
+  {
+    "name": "crates-fd",
+    "ecosystem": "crates",
+    "repo": "https://github.com/sharkdp/fd.git",
+    "commit": "febc1b692f5521c4a5e0ddaf926700954ce4d035",
+    "sparse_paths": ["Cargo.toml"],
+    "expected": [
+      "crates:aho-corasick@1.1",
+      "crates:anyhow@1.0"
+    ]
+  },
+  {
+    "name": "crates-bat",
+    "ecosystem": "crates",
+    "repo": "https://github.com/sharkdp/bat.git",
+    "commit": "f3d077346824eae07fbac4b56466d27049b9616e",
+    "sparse_paths": ["Cargo.toml"],
+    "expected": [
+      "crates:bincode@1.0",
+      "crates:serde@1.0"
+    ]
+  },
+  {
+    "name": "crates-ripgrep",
+    "ecosystem": "crates",
+    "repo": "https://github.com/BurntSushi/ripgrep.git",
+    "commit": "4519153e5e461527f4bca45b042fff45c4ec6fb9",
+    "sparse_paths": ["Cargo.toml"],
+    "expected": [
+      "crates:anyhow@1.0.75",
+      "crates:bstr@1.7.0"
+    ]
+  }
+]
