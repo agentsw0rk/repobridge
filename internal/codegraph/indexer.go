@@ -10,7 +10,7 @@ import (
 	"repobridge/internal/codegraph/parser"
 )
 
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 type IndexOptions struct {
 	MaxFileSize int64

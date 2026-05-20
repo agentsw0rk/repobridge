@@ -9,7 +9,7 @@ import (
 )
 
 func walkGo(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
-	walkGoNode(path, source, node, result, "")
+	walkGoNode(path, source, node, result, "", map[string]string{})
 }
 
 func walkByLanguage(path string, source []byte, node *tree_sitter.Node, language model.Language, result *ExtractionResult) {
@@ -41,67 +41,20 @@ type extractionConfig struct {
 }
 
 func walkJavaScript(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
-	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: model.LanguageJavaScript,
-		nodeKinds: map[string]model.NodeKind{
-			"function_declaration": model.NodeKindFunction,
-			"method_definition":    model.NodeKindMethod,
-		},
-		callKinds: map[string]bool{
-			"call_expression": true,
-		},
-		anonymousKinds: map[string]bool{
-			"arrow_function": true,
-			"function":       true,
-		},
-	})
+	walkJavaScriptRouteAwareNode(path, source, node, result, "", model.LanguageJavaScript)
 }
 
 func walkTypeScript(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
-	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: model.LanguageTypeScript,
-		nodeKinds: map[string]model.NodeKind{
-			"function_declaration": model.NodeKindFunction,
-			"method_definition":    model.NodeKindMethod,
-		},
-		callKinds: map[string]bool{
-			"call_expression": true,
-		},
-		anonymousKinds: map[string]bool{
-			"arrow_function": true,
-			"function":       true,
-		},
-	})
+	walkJavaScriptRouteAwareNode(path, source, node, result, "", model.LanguageTypeScript)
 }
 
 func walkPython(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
-	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: model.LanguagePython,
-		nodeKinds: map[string]model.NodeKind{
-			"function_definition": model.NodeKindFunction,
-		},
-		callKinds: map[string]bool{
-			"call": true,
-		},
-		anonymousKinds: map[string]bool{
-			"lambda": true,
-		},
-	})
+	walkPythonNode(path, source, node, result, "", false)
 }
 
 func walkRust(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
-	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: model.LanguageRust,
-		nodeKinds: map[string]model.NodeKind{
-			"function_item": model.NodeKindFunction,
-		},
-		callKinds: map[string]bool{
-			"call_expression": true,
-		},
-		anonymousKinds: map[string]bool{
-			"closure_expression": true,
-		},
-	})
+	pending := []frameworkRoute{}
+	walkRustNode(path, source, node, result, "", &pending)
 }
 
 func walkJava(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
@@ -113,19 +66,7 @@ func walkKotlin(path string, source []byte, node *tree_sitter.Node, result *Extr
 }
 
 func walkCSharp(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
-	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: model.LanguageCSharp,
-		nodeKinds: map[string]model.NodeKind{
-			"method_declaration": model.NodeKindMethod,
-		},
-		callKinds: map[string]bool{
-			"invocation_expression": true,
-		},
-		anonymousKinds: map[string]bool{
-			"anonymous_method_expression": true,
-			"lambda_expression":           true,
-		},
-	})
+	walkCSharpNode(path, source, node, result, "", "", "")
 }
 
 func walkConfiguredNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID string, config extractionConfig) {
@@ -146,6 +87,102 @@ func walkConfiguredNode(path string, source []byte, node *tree_sitter.Node, resu
 
 	for i := uint(0); i < node.NamedChildCount(); i++ {
 		walkConfiguredNode(path, source, node.NamedChild(i), result, currentNodeID, config)
+	}
+}
+
+func walkJavaScriptRouteAwareNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID string, language model.Language) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind() {
+	case "function_declaration":
+		if id := appendLanguageNode(path, source, node, model.NodeKindFunction, language, result); id != "" {
+			currentNodeID = id
+		}
+	case "method_definition":
+		if id := appendLanguageNode(path, source, node, model.NodeKindMethod, language, result); id != "" {
+			currentNodeID = id
+		}
+	case "arrow_function", "function":
+		currentNodeID = ""
+	case "call_expression":
+		if !appendJavaScriptRoute(path, source, node, result, language) && currentNodeID != "" {
+			appendLanguageCall(path, source, node, language, result, currentNodeID)
+		}
+	case "jsx_self_closing_element", "jsx_opening_element":
+		appendReactRouterJSXRoute(path, source, node, result, language)
+	case "object":
+		appendReactRouterObjectRoute(path, source, node, result, language)
+	}
+
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		walkJavaScriptRouteAwareNode(path, source, node.NamedChild(i), result, currentNodeID, language)
+	}
+}
+
+func walkPythonNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID string, suppressDefinition bool) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind() {
+	case "decorated_definition":
+		if id, handled := appendPythonDecoratedRoute(path, source, node, result); handled {
+			currentNodeID = id
+			suppressDefinition = true
+		}
+	case "function_definition":
+		if !suppressDefinition {
+			if id := appendLanguageNode(path, source, node, model.NodeKindFunction, model.LanguagePython, result); id != "" {
+				currentNodeID = id
+			}
+		}
+	case "lambda":
+		currentNodeID = ""
+	case "call":
+		if !appendDjangoRoute(path, source, node, result) && currentNodeID != "" {
+			appendLanguageCall(path, source, node, model.LanguagePython, result, currentNodeID)
+		}
+	}
+
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		childSuppress := suppressDefinition && child.Kind() == "function_definition"
+		walkPythonNode(path, source, child, result, currentNodeID, childSuppress)
+	}
+}
+
+func walkRustNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID string, pendingRoutes *[]frameworkRoute) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind() {
+	case "attribute_item":
+		if route, ok := rustAttributeRoute(source, node); ok {
+			*pendingRoutes = append(*pendingRoutes, route)
+		}
+		return
+	case "function_item":
+		if len(*pendingRoutes) > 0 {
+			if id := appendRustAttributedHandler(path, source, node, result, *pendingRoutes); id != "" {
+				currentNodeID = id
+			}
+			*pendingRoutes = nil
+		} else if id := appendLanguageNode(path, source, node, model.NodeKindFunction, model.LanguageRust, result); id != "" {
+			currentNodeID = id
+		}
+	case "closure_expression":
+		currentNodeID = ""
+	case "call_expression":
+		if !appendRustRouterRoute(path, source, node, result) && currentNodeID != "" {
+			appendLanguageCall(path, source, node, model.LanguageRust, result, currentNodeID)
+		}
+	}
+
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		walkRustNode(path, source, node.NamedChild(i), result, currentNodeID, pendingRoutes)
 	}
 }
 
@@ -214,7 +251,37 @@ func walkKotlinNode(path string, source []byte, node *tree_sitter.Node, result *
 	}
 }
 
-func walkGoNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID string) {
+func walkCSharpNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID, routePrefix, className string) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind() {
+	case "class_declaration":
+		if name := declarationName(source, node); name != "" {
+			className = name
+		}
+		if prefix, ok := csharpRoutePrefix(source, node, className); ok {
+			routePrefix = combineRoutePatterns(routePrefix, prefix)
+		}
+	case "method_declaration":
+		if id := appendCSharpHandlerOrMethod(path, source, node, result, routePrefix, className); id != "" {
+			currentNodeID = id
+		}
+	case "anonymous_method_expression", "lambda_expression":
+		currentNodeID = ""
+	case "invocation_expression":
+		if !appendCSharpMinimalAPIRoute(path, source, node, result) && currentNodeID != "" {
+			appendLanguageCall(path, source, node, model.LanguageCSharp, result, currentNodeID)
+		}
+	}
+
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		walkCSharpNode(path, source, node.NamedChild(i), result, currentNodeID, routePrefix, className)
+	}
+}
+
+func walkGoNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID string, routePrefixes map[string]string) {
 	if node == nil {
 		return
 	}
@@ -230,14 +297,16 @@ func walkGoNode(path string, source []byte, node *tree_sitter.Node, result *Extr
 		}
 	case "func_literal":
 		currentNodeID = ""
+	case "short_var_declaration":
+		recordGoRoutePrefix(source, node, routePrefixes)
 	case "call_expression":
-		if currentNodeID != "" {
+		if !appendGoRoute(path, source, node, result, routePrefixes) && currentNodeID != "" {
 			appendGoCall(path, source, node, result, currentNodeID)
 		}
 	}
 
 	for i := uint(0); i < node.NamedChildCount(); i++ {
-		walkGoNode(path, source, node.NamedChild(i), result, currentNodeID)
+		walkGoNode(path, source, node.NamedChild(i), result, currentNodeID, routePrefixes)
 	}
 }
 
@@ -631,15 +700,21 @@ func stringValues(source []byte, node *tree_sitter.Node) []string {
 			return
 		}
 		switch current.Kind() {
-		case "string_fragment", "string_content":
+		case "string_fragment", "string_content", "string_literal_content":
 			value := strings.TrimSpace(nodeText(source, current))
 			if value != "" {
 				values = append(values, value)
 			}
 			return
-		case "string_literal":
+		case "interpreted_string_literal", "raw_string_literal":
+			value := strings.Trim(nodeText(source, current), "\"`")
+			if value != "" {
+				values = append(values, value)
+			}
+			return
+		case "string", "string_literal":
 			if current.NamedChildCount() == 0 {
-				value := strings.Trim(nodeText(source, current), "\"")
+				value := strings.Trim(nodeText(source, current), "\"'`")
 				if value != "" {
 					values = append(values, value)
 				}

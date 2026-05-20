@@ -26,7 +26,7 @@
 - Fetch Git repositories from GitHub, GitLab, and Bitbucket.
 - Scan a project for dependency source specs from manifests, lockfiles, and imports.
 - Build local Tree-sitter AST graphs for cached sources and search them by symbol, kind, path, language, and calls.
-- Index Spring Java/Kotlin routes and handlers as graph nodes, including HTTP method, route pattern, file, and line.
+- Index framework routes and handlers as graph nodes, including HTTP method, route pattern, file, and line.
 - Inspect cached code graphs with `status`, `files`, and `node` without scanning source trees again.
 - Traverse call graphs with `callers`, `callees`, and `impact` for focused agent investigations.
 - Build task-oriented agent context with `context` and broader graph explanations with `explore`.
@@ -99,6 +99,7 @@ repobridge search pypi:requests==2.32.3 "calls:send lang:python"
 repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
 repobridge search github.com/vercel/next.js "path:packages kind:method"
 repobridge search github.com/acme/service "kind:route path:/login"
+repobridge search github.com/acme/web "kind:component_route path:/settings"
 ```
 
 Inspect graph health, indexed files, and exact nodes:
@@ -154,7 +155,7 @@ Maven inputs use explicit `groupId:artifactId@version` coordinates. RepoBridge d
 
 NuGet inputs use package IDs with an optional explicit version. Without a version, RepoBridge selects the latest stable NuGet version. RepoBridge downloads the `.nupkg` only to read `.nuspec` repository metadata, then fetches the matching Git repository by commit or version tag. It does not cache package binaries as source.
 
-AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust sources with Tree-sitter. Java and Kotlin parsing also recognizes Spring `@RequestMapping`, `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`, and `@PatchMapping` routes, stores `route` and `handler` nodes, and links them with `handles` edges. Indexing runs in the background after successful `path`, `fetch`, and `scan --fetch` commands. `search`, graph inspection, callgraph, `context`, and `explore` rebuild a missing or stale graph synchronously before returning results unless `--no-sync-index` is set.
+AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust sources with Tree-sitter. Route indexing recognizes Spring Java/Kotlin annotations, Express and React Router routes, FastAPI/Flask/Django routes, Gin/chi/gorilla/mux registrations, ASP.NET controller and Minimal API routes, and Rust Axum/actix/Rocket-style route shapes. Route entries are stored as `route`, `handler`, or `component_route` nodes and linked with `handles`, `routes_to`, or `middleware` edges. Indexing runs in the background after successful `path`, `fetch`, and `scan --fetch` commands. `search`, graph inspection, callgraph, `context`, and `explore` rebuild a missing or stale graph synchronously before returning results unless `--no-sync-index` is set.
 
 ## Commands
 

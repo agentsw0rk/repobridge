@@ -881,14 +881,14 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
             <h3>Search AST code graphs</h3>
             <p>Query cached source graphs by symbol name, node kind, path, language, framework route, and function calls without touching dependency code.</p>
             <div class="tag-row">
-              <span class="tag">search</span><span class="tag">kind:route</span><span class="tag">lang:kotlin</span>
+              <span class="tag">search</span><span class="tag">kind:route</span><span class="tag">component_route</span>
             </div>
           </article>
           <article class="feature-card">
-            <h3>Index Spring routes</h3>
-            <p>Store Java and Kotlin Spring route mappings as graph evidence with HTTP method, route pattern, handler, file, and line.</p>
+            <h3>Index framework routes</h3>
+            <p>Store server and client routes from Spring, Express, React Router, FastAPI, Flask, Django, Gin, chi, gorilla/mux, ASP.NET, Axum, actix, and Rocket.</p>
             <div class="tag-row">
-              <span class="tag">@GetMapping</span><span class="tag">@PostMapping</span><span class="tag">handles</span>
+              <span class="tag">handles</span><span class="tag">routes_to</span><span class="tag">middleware</span>
             </div>
           </article>
           <article class="feature-card">
@@ -995,7 +995,7 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
             </article>
             <article class="reference-card">
               <h3><code>search &lt;spec&gt; &lt;query&gt;</code></h3>
-              <p>Searches the local AST graph, including Spring Java/Kotlin route and handler nodes, rebuilding missing or stale graph data when needed.</p>
+              <p>Searches the local AST graph, including framework route, handler, and component route nodes, rebuilding missing or stale graph data when needed.</p>
               <p><code>--json</code> · <code>--limit</code> · <code>--kind</code> · <code>--lang</code> · <code>--calls</code></p>
             </article>
             <article class="reference-card">
@@ -1030,6 +1030,7 @@ repobridge search react@19.0.0 "kind:function calls:createRoot"
 repobridge search pypi:requests==2.32.3 "calls:send lang:python"
 repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
 repobridge search github.com/acme/service "kind:route path:/login"
+repobridge search github.com/acme/web "kind:component_route path:/settings"
 
 repobridge status react@19.0.0
 repobridge files react@19.0.0 --path packages/react-dom --limit 10
@@ -1065,14 +1066,14 @@ repobridge explore github.com/vercel/next.js "AppRouter cache invalidation" --bu
           </article>
           <article class="feature-card">
             <h3>Language coverage</h3>
-            <p>Tree-sitter parsers extract functions, methods, call references, and Spring Java/Kotlin route handlers across Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust.</p>
+            <p>Tree-sitter parsers extract functions, methods, call references, and framework routes across Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust.</p>
             <div class="tag-row">
               <span class="tag">go</span><span class="tag">kotlin</span><span class="tag">python</span><span class="tag">rust</span>
             </div>
           </article>
           <article class="feature-card">
             <h3>Framework routes</h3>
-            <p>Spring annotations create <code>route</code> and <code>handler</code> nodes linked by <code>handles</code> edges, so <code>POST /login</code> can lead straight to the controller method.</p>
+            <p>Route annotations, router calls, JSX routes, URL patterns, and builder APIs create graph evidence so <code>POST /login</code> can lead straight to the handler.</p>
             <div class="tag-row">
               <span class="tag">route</span><span class="tag">handler</span><span class="tag">handles</span>
             </div>
