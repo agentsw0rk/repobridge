@@ -143,6 +143,20 @@ go vet ./...
 
 Tests are colocated with implementation files as `*_test.go`. Lockfile fixtures live in `internal/lockfile/testdata/`.
 
+Project scanning also has an opt-in end-to-end test that clones pinned public GitHub projects into the ignored `e2e/` directory and verifies scanner output across Maven, Gradle, NuGet, JavaScript, PyPI, and crates projects:
+
+```bash
+go test -tags=e2e ./test/e2e-scan -count=1
+```
+
+Use verbose mode to see each repository, commit, sparse checkout path, expected specs, and scanner results:
+
+```bash
+go test -tags=e2e ./test/e2e-scan -count=1 -v
+```
+
+Set `REPOBRIDGE_E2E_REFRESH=1` to delete and re-fetch the local E2E checkouts.
+
 ## License
 
 Licensed under the Apache License 2.0. See [LICENSE](LICENSE).
