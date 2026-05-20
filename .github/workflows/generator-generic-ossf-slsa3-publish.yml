@@ -21,12 +21,29 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: build ${{ matrix.goos }} ${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-24.04-arm
+          - goos: darwin
+            goarch: amd64
+            runner: macos-13
+          - goos: darwin
+            goarch: arm64
+            runner: macos-14
+          - goos: windows
+            goarch: amd64
+            runner: windows-latest
     permissions:
-      contents: write
-    outputs:
-      digests: ${{ steps.hash.outputs.digests }}
-      release-tag: ${{ steps.release.outputs.tag }}
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +52,31 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: "1.22"
+
+      - name: Install ObjectBox native library
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          pushd "$tmpdir"
+          go mod init objectbox-install
+          bash <(curl -s https://raw.githubusercontent.com/objectbox/objectbox-go/v1.9.0/install.sh)
+          popd
+          rm -rf "$tmpdir"
+
+      - name: Install ObjectBox native library on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tmpdir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
+          New-Item -ItemType Directory -Path $tmpdir | Out-Null
+          Push-Location $tmpdir
+          go mod init objectbox-install
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/objectbox/objectbox-go/v1.9.0/install.ps1" -OutFile "install.ps1"
+          ./install.ps1
+          Pop-Location
+          Remove-Item -Recurse -Force $tmpdir
 
       - name: Resolve release tag
         id: release
@@ -55,41 +97,93 @@ jobs:
           fi
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
-      - name: Build release artifacts
+      - name: Build release artifact
+        if: runner.os != 'Windows'
         env:
           VERSION: ${{ steps.release.outputs.tag }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
           set -euo pipefail
           mkdir -p dist
           version="${VERSION#v}"
-          targets=(
-            "linux amd64"
-            "linux arm64"
-            "darwin amd64"
-            "darwin arm64"
-            "windows amd64"
-          )
-          for target in "${targets[@]}"; do
-            read -r goos goarch <<< "${target}"
-            name="repobridge_${VERSION}_${goos}_${goarch}"
-            out_dir="dist/${name}"
-            mkdir -p "${out_dir}"
-            binary="${out_dir}/repobridge"
-            if [[ "${goos}" == "windows" ]]; then
-              binary="${binary}.exe"
-            fi
-            GOOS="${goos}" GOARCH="${goarch}" go build \
-              -trimpath \
-              -ldflags="-s -w -X main.version=${version}" \
-              -o "${binary}" \
-              ./cmd/repobridge
-            if [[ "${goos}" == "windows" ]]; then
-              (cd dist && zip -qr "${name}.zip" "${name}")
-            else
-              (cd dist && tar -czf "${name}.tar.gz" "${name}")
-            fi
-            rm -rf "${out_dir}"
-          done
+          name="repobridge_${VERSION}_${GOOS}_${GOARCH}"
+          out_dir="dist/${name}"
+          mkdir -p "${out_dir}"
+          go build \
+            -trimpath \
+            -ldflags="-s -w -X main.version=${version}" \
+            -o "${out_dir}/repobridge" \
+            ./cmd/repobridge
+          (cd dist && tar -czf "${name}.tar.gz" "${name}")
+          rm -rf "${out_dir}"
+
+      - name: Build release artifact on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.release.outputs.tag }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path "dist" -Force | Out-Null
+          $version = $env:VERSION.TrimStart("v")
+          $name = "repobridge_${env:VERSION}_${env:GOOS}_${env:GOARCH}"
+          $outDir = Join-Path "dist" $name
+          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+          go build `
+            -trimpath `
+            -ldflags="-s -w -X main.version=$version" `
+            -o (Join-Path $outDir "repobridge.exe") `
+            ./cmd/repobridge
+          Compress-Archive -Path $outDir -DestinationPath (Join-Path "dist" "$name.zip") -Force
+          Remove-Item -Recurse -Force $outDir
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [build]
+    permissions:
+      contents: write
+    outputs:
+      digests: ${{ steps.hash.outputs.digests }}
+      release-tag: ${{ steps.release.outputs.tag }}
+
+    steps:
+      - name: Resolve release tag
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${INPUT_TAG}"
+          else
+            tag="${RELEASE_TAG}"
+          fi
+          if [[ -z "${tag}" ]]; then
+            echo "release tag is required" >&2
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
 
       - name: Generate checksums
         run: |
@@ -113,13 +207,13 @@ jobs:
             --clobber
 
   provenance:
-    needs: [build]
+    needs: [publish]
     permissions:
       actions: read   # To read the workflow path.
       id-token: write # To sign the provenance.
       contents: write # To add assets to a release.
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
-      base64-subjects: "${{ needs.build.outputs.digests }}"
-      upload-tag-name: "${{ needs.build.outputs.release-tag }}"
+      base64-subjects: "${{ needs.publish.outputs.digests }}"
+      upload-tag-name: "${{ needs.publish.outputs.release-tag }}"
       upload-assets: true

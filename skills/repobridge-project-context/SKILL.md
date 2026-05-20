@@ -40,20 +40,20 @@ Use this skill to enrich an agent's local context with source code for the frame
 
 Use this only when `command -v repobridge` fails. Prefer an existing installed binary when available.
 
-Use the pinned release version `v0.2.1`. Pick the asset for the current platform:
+Use the pinned release version `v0.3.0`. Pick the asset for the current platform:
 
 | Platform | Asset |
 | --- | --- |
-| macOS Apple Silicon | `repobridge_v0.2.1_darwin_arm64.tar.gz` |
-| macOS Intel | `repobridge_v0.2.1_darwin_amd64.tar.gz` |
-| Linux x86_64 | `repobridge_v0.2.1_linux_amd64.tar.gz` |
-| Linux arm64 | `repobridge_v0.2.1_linux_arm64.tar.gz` |
-| Windows x86_64 | `repobridge_v0.2.1_windows_amd64.zip` |
+| macOS Apple Silicon | `repobridge_v0.3.0_darwin_arm64.tar.gz` |
+| macOS Intel | `repobridge_v0.3.0_darwin_amd64.tar.gz` |
+| Linux x86_64 | `repobridge_v0.3.0_linux_amd64.tar.gz` |
+| Linux arm64 | `repobridge_v0.3.0_linux_arm64.tar.gz` |
+| Windows x86_64 | `repobridge_v0.3.0_windows_amd64.zip` |
 
 Download the selected asset from:
 
 ```text
-https://github.com/agentsw0rk/repobridge/releases/download/v0.2.1/<asset>
+https://github.com/agentsw0rk/repobridge/releases/download/v0.3.0/<asset>
 ```
 
 For macOS/Linux, extract the tarball, copy `repobridge` to a directory on `PATH` such as `$HOME/.local/bin`, make it executable, and verify with `repobridge --version`.
@@ -158,7 +158,7 @@ repobridge search --cwd /path/to/service maven:org.springframework:spring-core@6
 
 ## Failure Handling
 
-- If `repobridge` is not installed, download the pinned `v0.2.1` asset for the current OS/architecture, install it into a local bin directory, and verify `repobridge --version`.
+- If `repobridge` is not installed, download the pinned `v0.3.0` asset for the current OS/architecture, install it into a local bin directory, and verify `repobridge --version`.
 - If `repobridge search --help` is unavailable, install or build a newer RepoBridge version that includes codegraph search.
 - If a proposed spec fails, continue with the remaining specs and report the failure.
 - If too many dependencies are detected, narrow to the libraries relevant to the user's current task.
