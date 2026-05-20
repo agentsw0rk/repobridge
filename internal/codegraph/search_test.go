@@ -305,6 +305,44 @@ func main() {}
 	}
 }
 
+func TestSearchServiceUsesSnapshotQueryEngine(t *testing.T) {
+	sourceDir := t.TempDir()
+	writeCodegraphFixture(t, sourceDir, "app.go", `package main
+func Run() {}
+`)
+	files, err := codegraph.NewIndexer(codegraph.IndexOptions{}).Index(sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &lifecycleStore{
+		status: codegraph.GraphStatus{Status: "complete", SchemaVersion: codegraph.SchemaVersion},
+		files:  files.Files,
+		snapshot: codegraph.GraphSnapshot{
+			SourcePath: sourceDir,
+			Nodes: []codegraph.GraphNode{
+				{ID: "run", Kind: codegraph.NodeKindFunction, Name: "Run", QualifiedName: "app.Run", FilePath: "app.go", Language: codegraph.LanguageGo, StartLine: 2, EndLine: 2},
+				{ID: "save", Kind: codegraph.NodeKindFunction, Name: "Save", QualifiedName: "store.Save", FilePath: "store.go", Language: codegraph.LanguageGo, StartLine: 1, EndLine: 1},
+			},
+			Edges: []codegraph.GraphEdge{
+				{SourceNodeID: "run", TargetNodeID: "save", Kind: codegraph.EdgeKindCalls},
+			},
+			Unresolved: []codegraph.UnresolvedReference{
+				{FromNodeID: "run", ReferenceName: "fmt.Println", ReferenceKind: codegraph.EdgeKindCalls},
+			},
+		},
+	}
+	lifecycle := newTestLifecycle(sourceDir, store, files.Files)
+	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{Lifecycle: lifecycle})
+
+	results, err := service.Search("demo@v1", `calls:println`, codegraph.SearchOptions{SyncIndex: false, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Name != "Run" {
+		t.Fatalf("results = %#v, want Run from snapshot query engine", results)
+	}
+}
+
 func replaceStoredGraph(t *testing.T, sourceDir string, result codegraph.IndexResult) {
 	t.Helper()
 

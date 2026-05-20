@@ -218,6 +218,56 @@ func (s *Store) Counts() (codegraph.GraphCounts, error) {
 	return counts, err
 }
 
+func (s *Store) Snapshot() (codegraph.GraphSnapshot, error) {
+	var snapshot codegraph.GraphSnapshot
+	err := s.ob.RunInReadTx(func() error {
+		status, err := s.statusInTx()
+		if err != nil {
+			return err
+		}
+		snapshot.SourcePath = status.SourcePath
+
+		fileEntities, err := BoxForFileEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+		snapshot.Files = make([]codegraph.GraphFile, 0, len(fileEntities))
+		for _, entity := range fileEntities {
+			snapshot.Files = append(snapshot.Files, graphFileFromEntity(entity))
+		}
+		sort.Slice(snapshot.Files, func(i, j int) bool { return snapshot.Files[i].Path < snapshot.Files[j].Path })
+
+		nodeEntities, err := BoxForNodeEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+		snapshot.Nodes = make([]codegraph.GraphNode, 0, len(nodeEntities))
+		for _, entity := range nodeEntities {
+			snapshot.Nodes = append(snapshot.Nodes, graphNodeFromEntity(entity))
+		}
+
+		edgeEntities, err := BoxForEdgeEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+		snapshot.Edges = make([]codegraph.GraphEdge, 0, len(edgeEntities))
+		for _, entity := range edgeEntities {
+			snapshot.Edges = append(snapshot.Edges, graphEdgeFromEntity(entity))
+		}
+
+		unresolvedEntities, err := BoxForUnresolvedReferenceEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+		snapshot.Unresolved = make([]codegraph.UnresolvedReference, 0, len(unresolvedEntities))
+		for _, entity := range unresolvedEntities {
+			snapshot.Unresolved = append(snapshot.Unresolved, unresolvedReferenceFromEntity(entity))
+		}
+		return nil
+	})
+	return snapshot, err
+}
+
 func (s *Store) Nodes(query codegraph.GraphNodeQuery) ([]codegraph.GraphNode, error) {
 	var nodes []codegraph.GraphNode
 	err := s.ob.RunInReadTx(func() error {
@@ -764,6 +814,18 @@ func edgeEntities(edges []codegraph.GraphEdge) []*EdgeEntity {
 	return entities
 }
 
+func graphEdgeFromEntity(edge *EdgeEntity) codegraph.GraphEdge {
+	return codegraph.GraphEdge{
+		SourceNodeID: edge.SourceStableID,
+		TargetNodeID: edge.TargetStableID,
+		Kind:         codegraph.EdgeKind(edge.Kind),
+		FilePath:     edge.FilePath,
+		Line:         edge.Line,
+		Column:       edge.Column,
+		Provenance:   edge.Provenance,
+	}
+}
+
 func unresolvedReferenceEntities(refs []codegraph.UnresolvedReference) []*UnresolvedReferenceEntity {
 	entities := make([]*UnresolvedReferenceEntity, 0, len(refs))
 	for _, ref := range refs {
@@ -778,6 +840,18 @@ func unresolvedReferenceEntities(refs []codegraph.UnresolvedReference) []*Unreso
 		})
 	}
 	return entities
+}
+
+func unresolvedReferenceFromEntity(ref *UnresolvedReferenceEntity) codegraph.UnresolvedReference {
+	return codegraph.UnresolvedReference{
+		FromNodeID:    ref.FromStableID,
+		ReferenceName: ref.ReferenceName,
+		ReferenceKind: codegraph.EdgeKind(ref.ReferenceKind),
+		FilePath:      ref.FilePath,
+		Language:      codegraph.Language(ref.Language),
+		Line:          ref.Line,
+		Column:        ref.Column,
+	}
 }
 
 func scoreNode(node *NodeEntity, query codegraph.SearchQuery) (float64, bool) {

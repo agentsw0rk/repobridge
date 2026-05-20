@@ -1,6 +1,7 @@
 package source
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"repobridge/internal/cache"
 	"repobridge/internal/git"
 	"repobridge/internal/registry"
+	"repobridge/internal/registry/repo"
 	"repobridge/internal/repobridge"
 )
 
@@ -35,6 +37,59 @@ func (f *fakeFetcher) FetchRepo(displayName, repoURL, gitRef string) FetchResult
 		return f.repoResult
 	}
 	return FetchResult{Error: errors.New("unexpected repo fetch")}
+}
+
+type fakeResolver struct {
+	packageResult registry.ResolvedPackage
+	packageErr    error
+	packageCalls  int
+	packageSpecs  []registry.PackageSpec
+	repoResult    repo.Resolved
+	repoErr       error
+	repoCalls     int
+}
+
+func (f *fakeResolver) ResolvePackage(ctx context.Context, spec registry.PackageSpec, client *http.Client) (registry.ResolvedPackage, error) {
+	f.packageCalls++
+	f.packageSpecs = append(f.packageSpecs, spec)
+	if f.packageErr != nil {
+		return registry.ResolvedPackage{}, f.packageErr
+	}
+	result := f.packageResult
+	if result.Name == "" {
+		result.Name = spec.Name
+	}
+	if result.Version == "" {
+		result.Version = spec.Version
+	}
+	if result.Registry == "" {
+		result.Registry = spec.Registry
+	}
+	return result, nil
+}
+
+func (f *fakeResolver) ResolveRepo(ctx context.Context, spec repo.Spec, client *http.Client) (repo.Resolved, error) {
+	f.repoCalls++
+	if f.repoErr != nil {
+		return repo.Resolved{}, f.repoErr
+	}
+	return f.repoResult, nil
+}
+
+type fakeInstalledVersions struct {
+	version string
+	calls   int
+	reg     registry.Registry
+	name    string
+	cwd     string
+}
+
+func (f *fakeInstalledVersions) InstalledVersion(reg registry.Registry, name, cwd string) string {
+	f.calls++
+	f.reg = reg
+	f.name = name
+	f.cwd = cwd
+	return f.version
 }
 
 func TestEnsureCachedReturnsExistingPackageCacheEntry(t *testing.T) {
@@ -894,6 +949,93 @@ func TestFetchRepoWithGitClonesWhenTargetOnlyContainsGitDir(t *testing.T) {
 	}
 }
 
+func TestAcquirerEnsureUsesInjectedPackageResolver(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+	if err := cache.WriteSources([]cache.PackageEntry{{
+		Name:      "pkg",
+		Version:   "1.2.3",
+		Registry:  string(registry.NPM),
+		Path:      "repos/github.com/owner/repo/1.2.3",
+		FetchedAt: "2026-05-18T12:00:00Z",
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	resolver := &fakeResolver{
+		packageResult: registry.ResolvedPackage{
+			Registry: registry.NPM,
+			Name:     "pkg",
+			Version:  "1.2.3",
+			RepoURL:  "https://github.com/owner/repo",
+		},
+	}
+	fetcher := &fakeFetcher{
+		packageResult: FetchResult{
+			Package:  "pkg",
+			Version:  "1.2.3",
+			Registry: registry.NPM,
+			Path:     "repos/github.com/owner/repo/1.2.3",
+			Success:  true,
+		},
+	}
+
+	got, err := NewAcquirer(WithResolver(resolver), WithFetcher(fetcher)).Ensure(context.Background(), Request{Spec: "pkg@1.2.3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolver.packageCalls != 1 {
+		t.Fatalf("resolver package calls = %d, want 1", resolver.packageCalls)
+	}
+	if fetcher.packageCalls != 1 {
+		t.Fatalf("package fetch calls = %d, want 1", fetcher.packageCalls)
+	}
+	if got.FromCache {
+		t.Fatal("FromCache = true, want false")
+	}
+}
+
+func TestAcquirerEnsureUsesInjectedInstalledVersionDetector(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+	relativePath := "repos/github.com/owner/repo/1.2.3"
+	if err := os.MkdirAll(filepath.Join(home, filepath.FromSlash(relativePath)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, filepath.FromSlash(relativePath), "package.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.WriteSources([]cache.PackageEntry{{
+		Name:      "pkg",
+		Version:   "1.2.3",
+		Registry:  string(registry.NPM),
+		Path:      relativePath,
+		FetchedAt: "2026-05-18T12:00:00Z",
+	}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	resolver := &fakeResolver{}
+	fetcher := &fakeFetcher{}
+	versions := &fakeInstalledVersions{version: "1.2.3"}
+
+	got, err := NewAcquirer(
+		WithInstalledVersionDetector(versions),
+		WithResolver(resolver),
+		WithFetcher(fetcher),
+	).Ensure(context.Background(), Request{Spec: "pkg", CWD: "/work/project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if versions.calls != 1 || versions.reg != registry.NPM || versions.name != "pkg" || versions.cwd != "/work/project" {
+		t.Fatalf("installed version lookup = calls:%d registry:%q name:%q cwd:%q", versions.calls, versions.reg, versions.name, versions.cwd)
+	}
+	if resolver.packageCalls != 0 || fetcher.packageCalls != 0 {
+		t.Fatalf("package resolver/fetcher calls = %d/%d, want none", resolver.packageCalls, fetcher.packageCalls)
+	}
+	if !got.FromCache {
+		t.Fatal("FromCache = false, want true")
+	}
+}
+
 func TestEnsureCachedIgnoresStalePackageCacheEntry(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("REPOBRIDGE_HOME", home)
@@ -906,16 +1048,14 @@ func TestEnsureCachedIgnoresStalePackageCacheEntry(t *testing.T) {
 	}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	oldResolvePackage := resolvePackage
-	resolvePackage = func(spec registry.PackageSpec, client *http.Client) (registry.ResolvedPackage, error) {
-		return registry.ResolvedPackage{
+	resolver := &fakeResolver{
+		packageResult: registry.ResolvedPackage{
 			Registry: registry.NPM,
-			Name:     spec.Name,
-			Version:  spec.Version,
+			Name:     "pkg",
+			Version:  "1.2.3",
 			RepoURL:  "https://github.com/owner/repo",
-		}, nil
+		},
 	}
-	t.Cleanup(func() { resolvePackage = oldResolvePackage })
 	fetcher := &fakeFetcher{
 		packageResult: FetchResult{
 			Package:  "pkg",
@@ -926,7 +1066,7 @@ func TestEnsureCachedIgnoresStalePackageCacheEntry(t *testing.T) {
 		},
 	}
 
-	got, err := EnsureCached("pkg@1.2.3", Options{Fetcher: fetcher})
+	got, err := NewAcquirer(WithResolver(resolver), WithFetcher(fetcher)).Ensure(context.Background(), Request{Spec: "pkg@1.2.3"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -954,16 +1094,14 @@ func TestEnsureCachedIgnoresEmptyPackageCacheEntry(t *testing.T) {
 	}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	oldResolvePackage := resolvePackage
-	resolvePackage = func(spec registry.PackageSpec, client *http.Client) (registry.ResolvedPackage, error) {
-		return registry.ResolvedPackage{
+	resolver := &fakeResolver{
+		packageResult: registry.ResolvedPackage{
 			Registry: registry.NPM,
-			Name:     spec.Name,
-			Version:  spec.Version,
+			Name:     "pkg",
+			Version:  "1.2.3",
 			RepoURL:  "https://github.com/owner/repo",
-		}, nil
+		},
 	}
-	t.Cleanup(func() { resolvePackage = oldResolvePackage })
 	fetcher := &fakeFetcher{
 		packageResult: FetchResult{
 			Package:  "pkg",
@@ -974,7 +1112,7 @@ func TestEnsureCachedIgnoresEmptyPackageCacheEntry(t *testing.T) {
 		},
 	}
 
-	got, err := EnsureCached("pkg@1.2.3", Options{Fetcher: fetcher})
+	got, err := NewAcquirer(WithResolver(resolver), WithFetcher(fetcher)).Ensure(context.Background(), Request{Spec: "pkg@1.2.3"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1002,16 +1140,14 @@ func TestEnsureCachedIgnoresGitOnlyPackageCacheEntry(t *testing.T) {
 	}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	oldResolvePackage := resolvePackage
-	resolvePackage = func(spec registry.PackageSpec, client *http.Client) (registry.ResolvedPackage, error) {
-		return registry.ResolvedPackage{
+	resolver := &fakeResolver{
+		packageResult: registry.ResolvedPackage{
 			Registry: registry.NPM,
-			Name:     spec.Name,
-			Version:  spec.Version,
+			Name:     "pkg",
+			Version:  "1.2.3",
 			RepoURL:  "https://github.com/owner/repo",
-		}, nil
+		},
 	}
-	t.Cleanup(func() { resolvePackage = oldResolvePackage })
 	fetcher := &fakeFetcher{
 		packageResult: FetchResult{
 			Package:  "pkg",
@@ -1022,7 +1158,7 @@ func TestEnsureCachedIgnoresGitOnlyPackageCacheEntry(t *testing.T) {
 		},
 	}
 
-	got, err := EnsureCached("pkg@1.2.3", Options{Fetcher: fetcher})
+	got, err := NewAcquirer(WithResolver(resolver), WithFetcher(fetcher)).Ensure(context.Background(), Request{Spec: "pkg@1.2.3"})
 	if err != nil {
 		t.Fatal(err)
 	}

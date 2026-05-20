@@ -1,6 +1,7 @@
 package source
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -33,6 +34,30 @@ type Options struct {
 	Fetcher Fetcher
 }
 
+type Request struct {
+	Spec string
+	CWD  string
+}
+
+type Acquirer struct {
+	client          *http.Client
+	fetcher         Fetcher
+	resolver        Resolver
+	versionDetector InstalledVersionDetector
+	store           *cache.SourceStore
+}
+
+type Option func(*Acquirer)
+
+type Resolver interface {
+	ResolvePackage(context.Context, registry.PackageSpec, *http.Client) (registry.ResolvedPackage, error)
+	ResolveRepo(context.Context, repo.Spec, *http.Client) (repo.Resolved, error)
+}
+
+type InstalledVersionDetector interface {
+	InstalledVersion(registry.Registry, string, string) string
+}
+
 type Fetcher interface {
 	FetchPackage(registry.ResolvedPackage) FetchResult
 	FetchRepo(displayName, repoURL, gitRef string) FetchResult
@@ -48,27 +73,74 @@ type FetchResult struct {
 	Registry registry.Registry
 }
 
-func EnsureCached(spec string, opts Options) (Outcome, error) {
-	switch registry.DetectInputType(spec) {
-	case registry.RepoInput:
-		return ensureRepoCached(spec, opts)
-	default:
-		return ensurePackageCached(spec, opts)
+func NewAcquirer(opts ...Option) *Acquirer {
+	acquirer := &Acquirer{
+		resolver:        defaultResolver{},
+		versionDetector: lockfileVersionDetector{},
+		store:           cache.NewSourceStore(),
+	}
+	for _, opt := range opts {
+		opt(acquirer)
+	}
+	return acquirer
+}
+
+func WithHTTPClient(client *http.Client) Option {
+	return func(acquirer *Acquirer) {
+		acquirer.client = client
 	}
 }
 
-func ensurePackageCached(input string, opts Options) (Outcome, error) {
-	store := cache.NewSourceStore()
+func WithFetcher(fetcher Fetcher) Option {
+	return func(acquirer *Acquirer) {
+		acquirer.fetcher = fetcher
+	}
+}
+
+func WithResolver(resolver Resolver) Option {
+	return func(acquirer *Acquirer) {
+		if resolver != nil {
+			acquirer.resolver = resolver
+		}
+	}
+}
+
+func WithInstalledVersionDetector(detector InstalledVersionDetector) Option {
+	return func(acquirer *Acquirer) {
+		if detector != nil {
+			acquirer.versionDetector = detector
+		}
+	}
+}
+
+func EnsureCached(spec string, opts Options) (Outcome, error) {
+	acquirer := NewAcquirer(
+		WithHTTPClient(opts.Client),
+		WithFetcher(opts.Fetcher),
+	)
+	return acquirer.Ensure(context.Background(), Request{Spec: spec, CWD: opts.CWD})
+}
+
+func (a *Acquirer) Ensure(ctx context.Context, req Request) (Outcome, error) {
+	switch registry.DetectInputType(req.Spec) {
+	case registry.RepoInput:
+		return a.ensureRepoCached(ctx, req.Spec)
+	default:
+		return a.ensurePackageCached(ctx, req.Spec, req.CWD)
+	}
+}
+
+func (a *Acquirer) ensurePackageCached(ctx context.Context, input, cwd string) (Outcome, error) {
 	spec := registry.ParsePackageSpec(input)
 	if spec.Name == "" {
 		return Outcome{}, fmt.Errorf("package name must not be empty")
 	}
 	if spec.Registry == registry.NPM && spec.Version == "" {
-		spec.Version = lockfile.DetectInstalledVersion(spec.Name, opts.CWD)
+		spec.Version = a.versionDetector.InstalledVersion(spec.Registry, spec.Name, cwd)
 	}
 	if spec.Version != "" {
 		key := cache.PackageKey{Name: spec.Name, Registry: string(spec.Registry), Version: spec.Version}
-		if entry, ok, err := store.GetPackage(key); err != nil {
+		if entry, ok, err := a.store.GetPackage(key); err != nil {
 			return Outcome{}, err
 		} else if ok {
 			return Outcome{
@@ -81,12 +153,12 @@ func ensurePackageCached(input string, opts Options) (Outcome, error) {
 		}
 	}
 
-	resolved, err := resolvePackage(spec, opts.Client)
+	resolved, err := a.resolver.ResolvePackage(ctx, spec, a.client)
 	if err != nil {
 		return Outcome{}, err
 	}
 	key := cache.PackageKey{Name: resolved.Name, Registry: string(resolved.Registry), Version: resolved.Version}
-	if entry, ok, err := store.GetPackage(key); err != nil {
+	if entry, ok, err := a.store.GetPackage(key); err != nil {
 		return Outcome{}, err
 	} else if ok {
 		return Outcome{
@@ -98,10 +170,7 @@ func ensurePackageCached(input string, opts Options) (Outcome, error) {
 		}, nil
 	}
 
-	fetcher := opts.Fetcher
-	if fetcher == nil {
-		fetcher = GitFetcher{Client: opts.Client}
-	}
+	fetcher := a.fetcherOrDefault()
 	result := fetcher.FetchPackage(resolved)
 	if err := fetchError(result); err != nil {
 		return Outcome{}, err
@@ -115,7 +184,7 @@ func ensurePackageCached(input string, opts Options) (Outcome, error) {
 	if result.Registry == "" {
 		result.Registry = resolved.Registry
 	}
-	entry, err := store.RecordPackage(key, cache.FetchedPackage{
+	entry, err := a.store.RecordPackage(key, cache.FetchedPackage{
 		Name:     result.Package,
 		Registry: string(result.Registry),
 		Version:  result.Version,
@@ -133,8 +202,7 @@ func ensurePackageCached(input string, opts Options) (Outcome, error) {
 	}, nil
 }
 
-func ensureRepoCached(input string, opts Options) (Outcome, error) {
-	store := cache.NewSourceStore()
+func (a *Acquirer) ensureRepoCached(ctx context.Context, input string) (Outcome, error) {
 	spec, ok := repo.ParseSpec(input)
 	if !ok {
 		return Outcome{}, repobridge.InvalidRepoSpecError{Spec: input}
@@ -146,13 +214,13 @@ func ensureRepoCached(input string, opts Options) (Outcome, error) {
 	}
 	if resolved.GitRef == "" {
 		var err error
-		resolved, err = repo.Resolve(spec, opts.Client)
+		resolved, err = a.resolver.ResolveRepo(ctx, spec, a.client)
 		if err != nil {
 			return Outcome{}, err
 		}
 	}
 	key := cache.RepoKey{DisplayName: resolved.DisplayName, Version: resolved.GitRef}
-	if entry, ok, err := store.GetRepo(key); err != nil {
+	if entry, ok, err := a.store.GetRepo(key); err != nil {
 		return Outcome{}, err
 	} else if ok {
 		return Outcome{
@@ -164,10 +232,7 @@ func ensureRepoCached(input string, opts Options) (Outcome, error) {
 		}, nil
 	}
 
-	fetcher := opts.Fetcher
-	if fetcher == nil {
-		fetcher = GitFetcher{Client: opts.Client}
-	}
+	fetcher := a.fetcherOrDefault()
 	result := fetcher.FetchRepo(resolved.DisplayName, resolved.RepoURL, resolved.GitRef)
 	if err := fetchError(result); err != nil {
 		return Outcome{}, err
@@ -178,7 +243,7 @@ func ensureRepoCached(input string, opts Options) (Outcome, error) {
 	if result.Version == "" {
 		result.Version = resolved.GitRef
 	}
-	entry, err := store.RecordRepo(key, cache.FetchedRepo{
+	entry, err := a.store.RecordRepo(key, cache.FetchedRepo{
 		Name:    result.Package,
 		Version: result.Version,
 		Path:    result.Path,
@@ -195,7 +260,31 @@ func ensureRepoCached(input string, opts Options) (Outcome, error) {
 	}, nil
 }
 
-var resolvePackage = defaultResolvePackage
+func (a *Acquirer) fetcherOrDefault() Fetcher {
+	if a.fetcher != nil {
+		return a.fetcher
+	}
+	return GitFetcher{Client: a.client}
+}
+
+type defaultResolver struct{}
+
+func (defaultResolver) ResolvePackage(ctx context.Context, spec registry.PackageSpec, client *http.Client) (registry.ResolvedPackage, error) {
+	return defaultResolvePackage(spec, client)
+}
+
+func (defaultResolver) ResolveRepo(ctx context.Context, spec repo.Spec, client *http.Client) (repo.Resolved, error) {
+	return repo.Resolve(spec, client)
+}
+
+type lockfileVersionDetector struct{}
+
+func (lockfileVersionDetector) InstalledVersion(reg registry.Registry, name, cwd string) string {
+	if reg != registry.NPM {
+		return ""
+	}
+	return lockfile.DetectInstalledVersion(name, cwd)
+}
 
 func defaultResolvePackage(spec registry.PackageSpec, client *http.Client) (registry.ResolvedPackage, error) {
 	if err := registry.SupportedRegistry(spec.Registry); err != nil {

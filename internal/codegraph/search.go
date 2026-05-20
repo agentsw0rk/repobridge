@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"repobridge/internal/codegraph/parser"
@@ -45,6 +44,7 @@ type GraphStore interface {
 	Status() (GraphStatus, error)
 	Counts() (GraphCounts, error)
 	Files() ([]GraphFile, error)
+	Snapshot() (GraphSnapshot, error)
 	Nodes(GraphNodeQuery) ([]GraphNode, error)
 	CallsByNode(stableID string) ([]string, error)
 	Callgraph(CallgraphQuery) ([]CallgraphEdge, error)
@@ -79,14 +79,13 @@ func (s *SearchService) Search(spec, rawQuery string, opts SearchOptions) ([]Sea
 		if opts.Limit > 0 {
 			query.Limit = opts.Limit
 		}
-		found, err := session.Store.Search(query)
+		snapshot, err := session.Store.Snapshot()
 		if err != nil {
 			return err
 		}
-		for i := range found {
-			if shouldReplaceResultSource(found[i].Source, session.SourcePath) {
-				found[i].Source = session.SourceLabel
-			}
+		found, err := NewGraphQueries(snapshot, QueryOptions{SourceLabel: session.SourceLabel}).Search(query)
+		if err != nil {
+			return err
 		}
 		results = found
 		return nil
@@ -115,15 +114,6 @@ func currentGraphFiles(sourcePath string, opts parser.Options) ([]GraphFile, err
 		})
 	}
 	return files, nil
-}
-
-func shouldReplaceResultSource(resultSource, sourcePath string) bool {
-	if resultSource == "" {
-		return true
-	}
-	resultAbs, resultErr := filepath.Abs(resultSource)
-	sourceAbs, sourceErr := filepath.Abs(sourcePath)
-	return resultErr == nil && sourceErr == nil && resultAbs == sourceAbs
 }
 
 func searchSourceLabel(outcome source.Outcome) string {

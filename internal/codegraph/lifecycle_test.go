@@ -146,6 +146,7 @@ func newTestLifecycle(sourceDir string, store *lifecycleStore, current []codegra
 type lifecycleStore struct {
 	status   codegraph.GraphStatus
 	files    []codegraph.GraphFile
+	snapshot codegraph.GraphSnapshot
 	replaced bool
 	closed   bool
 }
@@ -164,6 +165,16 @@ func (s *lifecycleStore) Counts() (codegraph.GraphCounts, error) {
 
 func (s *lifecycleStore) Files() ([]codegraph.GraphFile, error) {
 	return s.files, nil
+}
+
+func (s *lifecycleStore) Snapshot() (codegraph.GraphSnapshot, error) {
+	if s.snapshot.SourcePath == "" {
+		s.snapshot.SourcePath = s.status.SourcePath
+	}
+	if len(s.snapshot.Files) == 0 {
+		s.snapshot.Files = s.files
+	}
+	return s.snapshot, nil
 }
 
 func (s *lifecycleStore) Nodes(codegraph.GraphNodeQuery) ([]codegraph.GraphNode, error) {
