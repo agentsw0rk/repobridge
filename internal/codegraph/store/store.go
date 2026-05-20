@@ -4,7 +4,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/objectbox/objectbox-go/objectbox"
 
@@ -15,12 +14,12 @@ type Store struct {
 	ob *objectbox.ObjectBox
 }
 
-type Status struct {
-	SchemaVersion int
-	SourcePath    string
-	Status        string
-	ErrorText     string
-	CompletedAt   time.Time
+type Status = codegraph.GraphStatus
+
+func init() {
+	codegraph.RegisterGraphStoreOpener(func(dir string) (codegraph.GraphStore, error) {
+		return Open(dir)
+	})
 }
 
 func Open(dir string) (*Store, error) {
