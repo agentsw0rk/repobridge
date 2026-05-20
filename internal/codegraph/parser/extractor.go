@@ -38,10 +38,7 @@ func ExtractFromSource(path string, source []byte, language codegraph.Language) 
 	defer tree.Close()
 
 	result := ExtractionResult{}
-	switch language {
-	case codegraph.LanguageGo:
-		walkGo(path, source, tree.RootNode(), &result)
-	}
+	walkByLanguage(path, source, tree.RootNode(), language, &result)
 	return result, nil
 }
 
