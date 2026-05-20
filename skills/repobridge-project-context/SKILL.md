@@ -62,23 +62,23 @@ For project-local code that is not an external dependency, normal local code too
 
 Use this only when `command -v repobridge` fails. Prefer an existing installed binary when available.
 
-Use the pinned release version `v0.3.0`. Pick the asset for the current platform:
+Use the pinned release version `v0.4.0`. Pick the asset for the current platform:
 
 | Platform | Asset |
 | --- | --- |
-| macOS Apple Silicon | `repobridge_v0.3.0_darwin_arm64.tar.gz` |
-| macOS Intel | `repobridge_v0.3.0_darwin_amd64.tar.gz` |
-| Linux x86_64 | `repobridge_v0.3.0_linux_amd64.tar.gz` |
-| Linux arm64 | `repobridge_v0.3.0_linux_arm64.tar.gz` |
-| Windows x86_64 | `repobridge_v0.3.0_windows_amd64.zip` |
+| macOS Apple Silicon | `repobridge_v0.4.0_darwin_arm64.tar.gz` |
+| macOS Intel | `repobridge_v0.4.0_darwin_amd64.tar.gz` |
+| Linux x86_64 | `repobridge_v0.4.0_linux_amd64.tar.gz` |
+| Linux arm64 | `repobridge_v0.4.0_linux_arm64.tar.gz` |
+| Windows x86_64 | `repobridge_v0.4.0_windows_amd64.zip` |
 
 Download the selected asset from:
 
 ```text
-https://github.com/agentsw0rk/repobridge/releases/download/v0.3.0/<asset>
+https://github.com/agentsw0rk/repobridge/releases/download/v0.4.0/<asset>
 ```
 
-For macOS/Linux, extract the tarball and keep `repobridge` beside the bundled `libobjectbox.*` file in a directory on `PATH` such as `$HOME/.local/bin/repobridge-v0.3.0`. Make `repobridge` executable and verify with `repobridge --version`.
+For macOS/Linux, extract the tarball and keep `repobridge` beside the bundled `libobjectbox.*` file in a directory on `PATH` such as `$HOME/.local/bin/repobridge-v0.4.0`. Make `repobridge` executable and verify with `repobridge --version`.
 
 For Windows, extract the zip file and keep `repobridge.exe` beside the bundled `objectbox.dll`. Add that directory to `PATH` and verify with `repobridge --version`.
 
@@ -234,7 +234,7 @@ repobridge search --cwd /path/to/service maven:org.springframework:spring-core@6
 
 ## Failure Handling
 
-- If `repobridge` is not installed, download the pinned `v0.3.0` asset for the current OS/architecture, install it into a local bin directory, and verify `repobridge --version`.
+- If `repobridge` is not installed, download the pinned `v0.4.0` asset for the current OS/architecture, install it into a local bin directory, and verify `repobridge --version`.
 - If `repobridge context --help`, `repobridge explore --help`, or `repobridge search --help` is unavailable, install or build a newer RepoBridge version that includes codegraph context/search.
 - If a proposed spec fails, continue with the remaining specs and report the failure.
 - If too many dependencies are detected, narrow to the libraries relevant to the user's current task.
