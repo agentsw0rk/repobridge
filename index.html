@@ -493,6 +493,38 @@
         margin-top: 16px;
       }
 
+      .budget-intro {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
+        align-items: end;
+        border-bottom: 1px solid rgba(114, 228, 255, 0.14);
+        padding: 16px;
+        background: rgba(114, 228, 255, 0.045);
+      }
+
+      .budget-intro strong {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--text);
+        font-size: 1rem;
+      }
+
+      .budget-intro p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .budget-proof {
+        color: var(--green);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 0.82rem;
+        font-weight: 700;
+        text-align: right;
+        white-space: nowrap;
+      }
+
       .budget-panel table {
         font-size: 0.88rem;
       }
@@ -698,6 +730,16 @@
           margin-bottom: 4px;
         }
 
+        .budget-intro {
+          grid-template-columns: 1fr;
+          align-items: start;
+        }
+
+        .budget-proof {
+          text-align: left;
+          white-space: normal;
+        }
+
         .footer-inner {
           flex-direction: column;
         }
@@ -815,6 +857,13 @@ repobridge context github.com/acme/service "POST /login" --budget small
 repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 "DockerComposeContainer up" --budget large --depth 2</code></pre>
         </div>
         <div class="input-table budget-panel" aria-label="Search output budget benchmark">
+          <div class="budget-intro">
+            <div>
+              <strong>Give the agent evidence, not a wall of matching lines.</strong>
+              <p>RepoBridge searches the AST graph and returns symbols, calls, routes, files, and line numbers as compact structured context. The same investigations with broad text search produce larger snippets that the model still has to interpret.</p>
+            </div>
+            <div class="budget-proof">49.5-83.3% fewer estimated tokens</div>
+          </div>
           <table>
             <thead>
               <tr>
