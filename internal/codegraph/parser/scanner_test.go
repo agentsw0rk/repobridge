@@ -29,6 +29,33 @@ func TestScanSourceFilesIncludesSupportedLanguagesAndSkipsGeneratedDirs(t *testi
 	}
 }
 
+func TestScanSourceFilesReturnsErrorForMissingRoot(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+	if _, err := ScanSourceFiles(missing, Options{}); err == nil {
+		t.Fatal("ScanSourceFiles() error = nil, want error")
+	}
+}
+
+func TestScanSourceFilesSkipsSymlinks(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.go")
+	if err := os.WriteFile(outside, []byte("package outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked.go")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	files, err := ScanSourceFiles(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("files = %#v, want no symlinked files", files)
+	}
+}
+
 func writeParserFixture(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))

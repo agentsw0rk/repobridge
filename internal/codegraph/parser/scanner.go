@@ -29,6 +29,9 @@ func ScanSourceFiles(root string, opts Options) ([]SourceFile, error) {
 	var files []SourceFile
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if path == root {
+				return walkErr
+			}
 			return nil
 		}
 		if entry.IsDir() {
@@ -38,7 +41,7 @@ func ScanSourceFiles(root string, opts Options) ([]SourceFile, error) {
 			return nil
 		}
 		info, err := entry.Info()
-		if err != nil || info.Size() > opts.MaxFileSize {
+		if err != nil || !info.Mode().IsRegular() || info.Size() > opts.MaxFileSize {
 			return nil
 		}
 		language := DetectLanguage(path)
