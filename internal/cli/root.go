@@ -26,6 +26,9 @@ type Options struct {
 type App interface {
 	EnsureCached(spec string, opts source.Options) (source.Outcome, error)
 	SearchCode(spec, rawQuery string, opts codegraph.SearchOptions) ([]codegraph.SearchResult, error)
+	CodeGraphStatus(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphInspectStatus, error)
+	CodeGraphFiles(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphFilesResult, error)
+	CodeGraphNode(spec, lookup string, opts codegraph.GraphInspectOptions) (codegraph.GraphNodeLookupResult, error)
 }
 
 type IndexScheduler interface {
@@ -46,6 +49,27 @@ func (defaultApp) SearchCode(spec, rawQuery string, opts codegraph.SearchOptions
 		},
 	})
 	return service.Search(spec, rawQuery, opts)
+}
+
+func (defaultApp) CodeGraphStatus(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphInspectStatus, error) {
+	return defaultInspectService().Status(spec, opts)
+}
+
+func (defaultApp) CodeGraphFiles(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphFilesResult, error) {
+	return defaultInspectService().Files(spec, opts)
+}
+
+func (defaultApp) CodeGraphNode(spec, lookup string, opts codegraph.GraphInspectOptions) (codegraph.GraphNodeLookupResult, error) {
+	return defaultInspectService().Node(spec, lookup, opts)
+}
+
+func defaultInspectService() *codegraph.InspectService {
+	return codegraph.NewInspectService(codegraph.SearchServiceOptions{
+		Resolver: defaultApp{},
+		StoreOpener: func(dir string) (codegraph.GraphStore, error) {
+			return store.Open(dir)
+		},
+	})
 }
 
 func (o Options) stdout() io.Writer {
@@ -155,6 +179,9 @@ func NewRootCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newPathCommand(opts))
 	cmd.AddCommand(newScanCommand(opts))
 	cmd.AddCommand(newSearchCommand(opts))
+	cmd.AddCommand(newGraphStatusCommand(opts))
+	cmd.AddCommand(newGraphFilesCommand(opts))
+	cmd.AddCommand(newGraphNodeCommand(opts))
 	cmd.AddCommand(newListCommand(opts))
 	cmd.AddCommand(newRemoveCommand(opts))
 	cmd.AddCommand(newCleanCommand(opts))

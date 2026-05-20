@@ -43,7 +43,10 @@ type GraphStatus struct {
 type GraphStore interface {
 	Close()
 	Status() (GraphStatus, error)
+	Counts() (GraphCounts, error)
 	Files() ([]GraphFile, error)
+	Nodes(GraphNodeQuery) ([]GraphNode, error)
+	CallsByNode(stableID string) ([]string, error)
 	Replace(IndexResult) error
 	Search(SearchQuery) ([]SearchResult, error)
 }

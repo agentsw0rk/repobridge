@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"repobridge/internal/codegraph/model"
+	"repobridge/internal/source"
 )
 
 type NodeKind = model.NodeKind
@@ -82,4 +83,67 @@ type SearchResult struct {
 	EndLine       int      `json:"endLine"`
 	Score         float64  `json:"score"`
 	Calls         []string `json:"calls"`
+}
+
+type GraphCounts struct {
+	Files      int `json:"files"`
+	Nodes      int `json:"nodes"`
+	Edges      int `json:"edges"`
+	Unresolved int `json:"unresolved"`
+	Warnings   int `json:"warnings"`
+}
+
+type GraphInspectOptions struct {
+	CWD         string
+	SyncIndex   bool
+	Limit       int
+	PathFilter  string
+	SourceLines int
+	SourceOpts  source.Options
+}
+
+type GraphInspectStatus struct {
+	Source        string      `json:"source"`
+	SourcePath    string      `json:"sourcePath"`
+	GraphPath     string      `json:"graphPath"`
+	Status        string      `json:"status"`
+	SchemaVersion int         `json:"schemaVersion"`
+	ErrorText     string      `json:"errorText,omitempty"`
+	IndexedAt     time.Time   `json:"indexedAt,omitempty"`
+	Counts        GraphCounts `json:"counts"`
+}
+
+type GraphFilesResult struct {
+	Source string      `json:"source"`
+	Files  []GraphFile `json:"files"`
+}
+
+type SourceLine struct {
+	Line int    `json:"line"`
+	Text string `json:"text"`
+}
+
+type GraphNodeDetail struct {
+	ID            string       `json:"id"`
+	Kind          NodeKind     `json:"kind"`
+	Name          string       `json:"name"`
+	QualifiedName string       `json:"qualifiedName"`
+	Language      Language     `json:"language"`
+	Path          string       `json:"path"`
+	StartLine     int          `json:"startLine"`
+	EndLine       int          `json:"endLine"`
+	Signature     string       `json:"signature,omitempty"`
+	Calls         []string     `json:"calls,omitempty"`
+	Source        []SourceLine `json:"source,omitempty"`
+}
+
+type GraphNodeLookupResult struct {
+	Source  string            `json:"source"`
+	Node    *GraphNodeDetail  `json:"node,omitempty"`
+	Matches []GraphNodeDetail `json:"matches,omitempty"`
+}
+
+type GraphNodeQuery struct {
+	Lookup string
+	Limit  int
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -189,6 +190,89 @@ func (s *Store) Files() ([]codegraph.GraphFile, error) {
 	return files, err
 }
 
+func (s *Store) Counts() (codegraph.GraphCounts, error) {
+	var counts codegraph.GraphCounts
+	err := s.ob.RunInReadTx(func() error {
+		files, err := BoxForFileEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+		nodes, err := BoxForNodeEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+		edges, err := BoxForEdgeEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+		unresolved, err := BoxForUnresolvedReferenceEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+		counts.Files = len(files)
+		counts.Nodes = len(nodes)
+		counts.Edges = len(edges)
+		counts.Unresolved = len(unresolved)
+		return nil
+	})
+	return counts, err
+}
+
+func (s *Store) Nodes(query codegraph.GraphNodeQuery) ([]codegraph.GraphNode, error) {
+	var nodes []codegraph.GraphNode
+	err := s.ob.RunInReadTx(func() error {
+		entities, err := BoxForNodeEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+		lookup := strings.TrimSpace(query.Lookup)
+		numericID, hasNumericID := parseObjectBoxID(lookup)
+		var exact []codegraph.GraphNode
+		var fuzzy []codegraph.GraphNode
+		for _, entity := range entities {
+			node := graphNodeFromEntity(entity)
+			if lookup == "" {
+				nodes = append(nodes, node)
+				continue
+			}
+			if nodeMatchesExactLookup(entity, lookup, numericID, hasNumericID) {
+				exact = append(exact, node)
+				continue
+			}
+			if nodeMatchesFuzzyLookup(entity, lookup) {
+				fuzzy = append(fuzzy, node)
+			}
+		}
+		if lookup != "" {
+			if len(exact) > 0 {
+				nodes = exact
+			} else {
+				nodes = fuzzy
+			}
+		}
+		sort.SliceStable(nodes, func(i, j int) bool {
+			if nodes[i].FilePath != nodes[j].FilePath {
+				return nodes[i].FilePath < nodes[j].FilePath
+			}
+			if nodes[i].StartLine != nodes[j].StartLine {
+				return nodes[i].StartLine < nodes[j].StartLine
+			}
+			if nodes[i].QualifiedName != nodes[j].QualifiedName {
+				return nodes[i].QualifiedName < nodes[j].QualifiedName
+			}
+			if nodes[i].Name != nodes[j].Name {
+				return nodes[i].Name < nodes[j].Name
+			}
+			return nodes[i].ID < nodes[j].ID
+		})
+		if query.Limit > 0 && len(nodes) > query.Limit {
+			nodes = nodes[:query.Limit]
+		}
+		return nil
+	})
+	return nodes, err
+}
+
 func (s *Store) Search(query codegraph.SearchQuery) ([]codegraph.SearchResult, error) {
 	var results []codegraph.SearchResult
 	err := s.ob.RunInReadTx(func() error {
@@ -360,6 +444,39 @@ func graphFileFromEntity(file *FileEntity) codegraph.GraphFile {
 		IndexedAt:   file.IndexedAt,
 		NodeCount:   file.NodeCount,
 	}
+}
+
+func graphNodeFromEntity(node *NodeEntity) codegraph.GraphNode {
+	return codegraph.GraphNode{
+		ID:            node.StableID,
+		Kind:          codegraph.NodeKind(node.Kind),
+		Name:          node.Name,
+		QualifiedName: node.QualifiedName,
+		FilePath:      node.FilePath,
+		Language:      codegraph.Language(node.Language),
+		StartLine:     node.StartLine,
+		EndLine:       node.EndLine,
+		StartColumn:   node.StartColumn,
+		EndColumn:     node.EndColumn,
+		Signature:     node.Signature,
+	}
+}
+
+func nodeMatchesExactLookup(node *NodeEntity, lookup string, numericID uint64, hasNumericID bool) bool {
+	if hasNumericID && node.Id == numericID {
+		return true
+	}
+	return node.StableID == lookup || node.QualifiedName == lookup || node.Name == lookup
+}
+
+func nodeMatchesFuzzyLookup(node *NodeEntity, lookup string) bool {
+	lookup = strings.ToLower(lookup)
+	return strings.Contains(strings.ToLower(node.QualifiedName), lookup) || strings.Contains(strings.ToLower(node.Name), lookup)
+}
+
+func parseObjectBoxID(lookup string) (uint64, bool) {
+	id, err := strconv.ParseUint(lookup, 10, 64)
+	return id, err == nil
 }
 
 func nodeEntities(nodes []codegraph.GraphNode) []*NodeEntity {

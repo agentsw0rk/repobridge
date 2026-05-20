@@ -162,6 +162,99 @@ func TestStoreFilesReturnsStoredFileMetadata(t *testing.T) {
 	}
 }
 
+func TestStoreCountsGraphEntities(t *testing.T) {
+	graph := openTestStore(t)
+
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   time.Now(),
+		Files: []codegraph.GraphFile{
+			{Path: "main.go", Language: codegraph.LanguageGo},
+			{Path: "helper.go", Language: codegraph.LanguageGo},
+		},
+		Nodes: []codegraph.GraphNode{
+			{ID: "n1", Kind: codegraph.NodeKindFunction, Name: "Run", FilePath: "main.go", Language: codegraph.LanguageGo},
+			{ID: "n2", Kind: codegraph.NodeKindFunction, Name: "Helper", FilePath: "helper.go", Language: codegraph.LanguageGo},
+		},
+		Edges: []codegraph.GraphEdge{
+			{SourceNodeID: "n1", TargetNodeID: "n2", Kind: codegraph.EdgeKindCalls},
+		},
+		Unresolved: []codegraph.UnresolvedReference{
+			{FromNodeID: "n1", ReferenceName: "fmt.Println", ReferenceKind: codegraph.EdgeKindCalls},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	counts, err := graph.Counts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := codegraph.GraphCounts{Files: 2, Nodes: 2, Edges: 1, Unresolved: 1}
+	if counts != want {
+		t.Fatalf("counts = %#v, want %#v", counts, want)
+	}
+}
+
+func TestStoreNodesResolvesStableIDQualifiedNameAndAmbiguousName(t *testing.T) {
+	graph := openTestStore(t)
+
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   time.Now(),
+		Nodes: []codegraph.GraphNode{
+			{
+				ID:            "stable-run",
+				Kind:          codegraph.NodeKindFunction,
+				Name:          "Run",
+				QualifiedName: "main.Run",
+				FilePath:      "main.go",
+				Language:      codegraph.LanguageGo,
+				StartLine:     10,
+			},
+			{
+				ID:            "stable-worker-run",
+				Kind:          codegraph.NodeKindMethod,
+				Name:          "Run",
+				QualifiedName: "worker.Run",
+				FilePath:      "worker.go",
+				Language:      codegraph.LanguageGo,
+				StartLine:     3,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	byID, err := graph.Nodes(codegraph.GraphNodeQuery{Lookup: "stable-run", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byID) != 1 || byID[0].QualifiedName != "main.Run" {
+		t.Fatalf("by stable id = %#v, want main.Run", byID)
+	}
+
+	byQualifiedName, err := graph.Nodes(codegraph.GraphNodeQuery{Lookup: "worker.Run", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byQualifiedName) != 1 || byQualifiedName[0].ID != "stable-worker-run" {
+		t.Fatalf("by qualified name = %#v, want worker.Run", byQualifiedName)
+	}
+
+	byName, err := graph.Nodes(codegraph.GraphNodeQuery{Lookup: "Run", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byName) != 2 {
+		t.Fatalf("by name = %#v, want two ambiguous matches", byName)
+	}
+}
+
 func TestStoreReplacePersistsWarningsInStatusErrorText(t *testing.T) {
 	graph := openTestStore(t)
 

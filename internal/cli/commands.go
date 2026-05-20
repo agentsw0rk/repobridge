@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"repobridge/internal/cache"
@@ -218,6 +219,111 @@ func newSearchCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+func newGraphStatusCommand(opts Options) *cobra.Command {
+	var cwd string
+	var jsonOutput bool
+	var noSyncIndex bool
+
+	cmd := &cobra.Command{
+		Use:   "status <spec>",
+		Short: "Show cached code graph status",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+			result, err := opts.app().CodeGraphStatus(args[0], codegraph.GraphInspectOptions{
+				CWD:       cwd,
+				SyncIndex: !noSyncIndex,
+			})
+			if err != nil {
+				return err
+			}
+			if jsonOutput {
+				return printJSON(out, result)
+			}
+			printGraphStatus(out, result)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print graph status as JSON")
+	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale code graph index")
+	return cmd
+}
+
+func newGraphFilesCommand(opts Options) *cobra.Command {
+	var cwd string
+	var jsonOutput bool
+	var noSyncIndex bool
+	var limit int
+	var pathFilter string
+
+	cmd := &cobra.Command{
+		Use:   "files <spec>",
+		Short: "List files in the cached code graph",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+			result, err := opts.app().CodeGraphFiles(args[0], codegraph.GraphInspectOptions{
+				CWD:        cwd,
+				SyncIndex:  !noSyncIndex,
+				Limit:      limit,
+				PathFilter: pathFilter,
+			})
+			if err != nil {
+				return err
+			}
+			if jsonOutput {
+				return printJSON(out, result)
+			}
+			printGraphFiles(out, result)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print graph files as JSON")
+	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale code graph index")
+	cmd.Flags().IntVar(&limit, "limit", 0, "limit number of files")
+	cmd.Flags().StringVar(&pathFilter, "path", "", "filter files by path substring")
+	return cmd
+}
+
+func newGraphNodeCommand(opts Options) *cobra.Command {
+	var cwd string
+	var jsonOutput bool
+	var noSyncIndex bool
+	var limit int
+	var sourceLines int
+
+	cmd := &cobra.Command{
+		Use:   "node <spec> <id-or-name>",
+		Short: "Show details for one code graph node",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+			result, err := opts.app().CodeGraphNode(args[0], args[1], codegraph.GraphInspectOptions{
+				CWD:         cwd,
+				SyncIndex:   !noSyncIndex,
+				Limit:       limit,
+				SourceLines: sourceLines,
+			})
+			if err != nil {
+				return err
+			}
+			if jsonOutput {
+				return printJSON(out, result)
+			}
+			printGraphNode(out, args[1], result)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print graph node as JSON")
+	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale code graph index")
+	cmd.Flags().IntVar(&limit, "limit", 0, "limit ambiguous node matches")
+	cmd.Flags().IntVar(&sourceLines, "source-lines", 0, "include up to this many source lines")
+	return cmd
+}
+
 func appendSearchFilters(query string, kinds, languages, paths, calls []string) string {
 	filters := make([]string, 0, len(kinds)+len(languages)+len(paths)+len(calls))
 	for _, kind := range kinds {
@@ -239,6 +345,117 @@ func appendSearchFilters(query string, kinds, languages, paths, calls []string) 
 		return strings.Join(filters, " ")
 	}
 	return query + " " + strings.Join(filters, " ")
+}
+
+func printJSON(out io.Writer, value any) error {
+	content, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, string(content))
+	return nil
+}
+
+func printGraphStatus(out io.Writer, result codegraph.GraphInspectStatus) {
+	source := result.Source
+	if source == "" {
+		source = "(unknown source)"
+	}
+	fmt.Fprintln(out, source)
+	if result.GraphPath != "" {
+		fmt.Fprintf(out, "  graph: %s\n", result.GraphPath)
+	}
+	fmt.Fprintf(out, "  status: %s\n", result.Status)
+	if result.SourcePath != "" {
+		fmt.Fprintf(out, "  source: %s\n", result.SourcePath)
+	}
+	if result.SchemaVersion != 0 {
+		fmt.Fprintf(out, "  schemaVersion: %d\n", result.SchemaVersion)
+	}
+	fmt.Fprintf(out, "  files: %d\n", result.Counts.Files)
+	fmt.Fprintf(out, "  nodes: %d\n", result.Counts.Nodes)
+	fmt.Fprintf(out, "  edges: %d\n", result.Counts.Edges)
+	fmt.Fprintf(out, "  unresolved: %d\n", result.Counts.Unresolved)
+	fmt.Fprintf(out, "  warnings: %d\n", result.Counts.Warnings)
+	if !result.IndexedAt.IsZero() {
+		fmt.Fprintf(out, "  indexedAt: %s\n", result.IndexedAt.Format(time.RFC3339))
+	}
+	if result.ErrorText != "" {
+		fmt.Fprintf(out, "  error: %s\n", result.ErrorText)
+	}
+}
+
+func printGraphFiles(out io.Writer, result codegraph.GraphFilesResult) {
+	source := result.Source
+	if source == "" {
+		source = "(unknown source)"
+	}
+	fmt.Fprintln(out, source)
+	if len(result.Files) == 0 {
+		fmt.Fprintln(out, "  No indexed files found.")
+		return
+	}
+	for _, file := range result.Files {
+		fmt.Fprintf(out, "  %s %s nodes:%d bytes:%d\n", file.Path, file.Language, file.NodeCount, file.Size)
+	}
+}
+
+func printGraphNode(out io.Writer, lookup string, result codegraph.GraphNodeLookupResult) {
+	source := result.Source
+	if source == "" {
+		source = "(unknown source)"
+	}
+	fmt.Fprintln(out, source)
+	switch {
+	case result.Node != nil:
+		printGraphNodeDetail(out, "  ", *result.Node)
+	case len(result.Matches) > 0:
+		fmt.Fprintf(out, "  Multiple code graph nodes matched %s:\n", lookup)
+		for _, match := range result.Matches {
+			location := formatSearchLocation(match.Path, match.StartLine)
+			fmt.Fprintf(out, "    %s %s %s %s\n", match.ID, match.Kind, bestNodeDisplayName(match), location)
+		}
+	default:
+		fmt.Fprintf(out, "  No code graph node matched %s.\n", lookup)
+	}
+}
+
+func printGraphNodeDetail(out io.Writer, prefix string, node codegraph.GraphNodeDetail) {
+	location := formatSearchLocation(node.Path, node.StartLine)
+	descriptor := strings.TrimSpace(fmt.Sprintf("%s %s", node.Kind, node.Name))
+	if location == "" {
+		fmt.Fprintf(out, "%s%s\n", prefix, descriptor)
+	} else {
+		fmt.Fprintf(out, "%s%s %s\n", prefix, descriptor, location)
+	}
+	if node.ID != "" {
+		fmt.Fprintf(out, "%s  id: %s\n", prefix, node.ID)
+	}
+	if node.QualifiedName != "" {
+		fmt.Fprintf(out, "%s  qualified: %s\n", prefix, node.QualifiedName)
+	}
+	if node.Language != "" {
+		fmt.Fprintf(out, "%s  language: %s\n", prefix, node.Language)
+	}
+	if node.Signature != "" {
+		fmt.Fprintf(out, "%s  signature: %s\n", prefix, node.Signature)
+	}
+	if len(node.Calls) > 0 {
+		fmt.Fprintf(out, "%s  calls: %s\n", prefix, strings.Join(node.Calls, ", "))
+	}
+	if len(node.Source) > 0 {
+		fmt.Fprintf(out, "%s  source:\n", prefix)
+		for _, line := range node.Source {
+			fmt.Fprintf(out, "%s    %d: %s\n", prefix, line.Line, line.Text)
+		}
+	}
+}
+
+func bestNodeDisplayName(node codegraph.GraphNodeDetail) string {
+	if node.QualifiedName != "" {
+		return node.QualifiedName
+	}
+	return node.Name
 }
 
 func printSearchResult(out io.Writer, result codegraph.SearchResult) {

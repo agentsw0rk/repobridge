@@ -48,6 +48,16 @@ type fakeApp struct {
 	searchSpec    string
 	searchQuery   string
 	searchOpts    codegraph.SearchOptions
+	statusResult  codegraph.GraphInspectStatus
+	statusSpec    string
+	statusOpts    codegraph.GraphInspectOptions
+	filesResult   codegraph.GraphFilesResult
+	filesSpec     string
+	filesOpts     codegraph.GraphInspectOptions
+	nodeResult    codegraph.GraphNodeLookupResult
+	nodeSpec      string
+	nodeLookup    string
+	nodeOpts      codegraph.GraphInspectOptions
 }
 
 func (a *fakeApp) EnsureCached(spec string, opts source.Options) (source.Outcome, error) {
@@ -60,6 +70,25 @@ func (a *fakeApp) SearchCode(spec, rawQuery string, opts codegraph.SearchOptions
 	a.searchQuery = rawQuery
 	a.searchOpts = opts
 	return a.searchResults, nil
+}
+
+func (a *fakeApp) CodeGraphStatus(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphInspectStatus, error) {
+	a.statusSpec = spec
+	a.statusOpts = opts
+	return a.statusResult, nil
+}
+
+func (a *fakeApp) CodeGraphFiles(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphFilesResult, error) {
+	a.filesSpec = spec
+	a.filesOpts = opts
+	return a.filesResult, nil
+}
+
+func (a *fakeApp) CodeGraphNode(spec, lookup string, opts codegraph.GraphInspectOptions) (codegraph.GraphNodeLookupResult, error) {
+	a.nodeSpec = spec
+	a.nodeLookup = lookup
+	a.nodeOpts = opts
+	return a.nodeResult, nil
 }
 
 type fakeIndexer struct {
@@ -603,6 +632,179 @@ func TestSearchPassesOptionsAndFilterFlags(t *testing.T) {
 	}
 	if app.searchOpts.CWD != "/tmp/project" || app.searchOpts.Limit != 7 || app.searchOpts.SyncIndex {
 		t.Fatalf("search options = %#v, want cwd, limit, no sync", app.searchOpts)
+	}
+}
+
+func TestGraphStatusPrintsHumanReadableSummary(t *testing.T) {
+	indexedAt := time.Date(2026, 5, 20, 12, 31, 44, 0, time.UTC)
+	app := &fakeApp{statusResult: codegraph.GraphInspectStatus{
+		Source:        "demo@v1",
+		SourcePath:    "/cache/demo",
+		GraphPath:     "/cache/demo/.repobridge-graph",
+		Status:        "ready",
+		SchemaVersion: codegraph.SchemaVersion,
+		IndexedAt:     indexedAt,
+		Counts: codegraph.GraphCounts{
+			Files:      2,
+			Nodes:      5,
+			Edges:      3,
+			Warnings:   1,
+			Unresolved: 4,
+		},
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "status", "--cwd", "/tmp/project", "demo@v1")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	for _, want := range []string{
+		"demo@v1",
+		"graph: /cache/demo/.repobridge-graph",
+		"status: ready",
+		"files: 2",
+		"nodes: 5",
+		"edges: 3",
+		"warnings: 1",
+		"indexedAt: 2026-05-20T12:31:44Z",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if app.statusSpec != "demo@v1" || app.statusOpts.CWD != "/tmp/project" || !app.statusOpts.SyncIndex {
+		t.Fatalf("status call = %q %#v, want spec, cwd and sync", app.statusSpec, app.statusOpts)
+	}
+}
+
+func TestGraphStatusJSONPrintsSummary(t *testing.T) {
+	app := &fakeApp{statusResult: codegraph.GraphInspectStatus{
+		Source: "demo@v1",
+		Status: "missing",
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "status", "--json", "--no-sync-index", "demo@v1")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	var got codegraph.GraphInspectStatus
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if got.Source != "demo@v1" || got.Status != "missing" {
+		t.Fatalf("status = %#v, want demo missing", got)
+	}
+	if app.statusOpts.SyncIndex {
+		t.Fatalf("status options = %#v, want no sync", app.statusOpts)
+	}
+}
+
+func TestGraphFilesPrintsFilteredFiles(t *testing.T) {
+	app := &fakeApp{filesResult: codegraph.GraphFilesResult{
+		Source: "demo@v1",
+		Files: []codegraph.GraphFile{{
+			Path:      "src/main.go",
+			Language:  codegraph.LanguageGo,
+			NodeCount: 4,
+			Size:      128,
+		}},
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "files", "--path", "src", "--limit", "5", "demo@v1")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	for _, want := range []string{
+		"demo@v1",
+		"src/main.go go nodes:4 bytes:128",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if app.filesSpec != "demo@v1" || app.filesOpts.PathFilter != "src" || app.filesOpts.Limit != 5 {
+		t.Fatalf("files call = %q %#v, want filter and limit", app.filesSpec, app.filesOpts)
+	}
+}
+
+func TestGraphNodePrintsDetailsAndSourceSnippet(t *testing.T) {
+	app := &fakeApp{nodeResult: codegraph.GraphNodeLookupResult{
+		Source: "demo@v1",
+		Node: &codegraph.GraphNodeDetail{
+			ID:            "n1",
+			Kind:          codegraph.NodeKindFunction,
+			Name:          "Run",
+			QualifiedName: "main.Run",
+			Language:      codegraph.LanguageGo,
+			Path:          "main.go",
+			StartLine:     3,
+			EndLine:       5,
+			Signature:     "func Run()",
+			Calls:         []string{"helper"},
+			Source: []codegraph.SourceLine{
+				{Line: 3, Text: "func Run() {"},
+				{Line: 4, Text: "\thelper()"},
+			},
+		},
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "node", "--source-lines", "2", "demo@v1", "main.Run")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	for _, want := range []string{
+		"demo@v1",
+		"function Run main.go:3",
+		"qualified: main.Run",
+		"signature: func Run()",
+		"calls: helper",
+		"3: func Run() {",
+		"4: \thelper()",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if app.nodeSpec != "demo@v1" || app.nodeLookup != "main.Run" || app.nodeOpts.SourceLines != 2 {
+		t.Fatalf("node call = %q %q %#v, want source-lines", app.nodeSpec, app.nodeLookup, app.nodeOpts)
+	}
+}
+
+func TestGraphNodePrintsAmbiguousMatches(t *testing.T) {
+	app := &fakeApp{nodeResult: codegraph.GraphNodeLookupResult{
+		Source: "demo@v1",
+		Matches: []codegraph.GraphNodeDetail{
+			{ID: "n1", Kind: codegraph.NodeKindFunction, Name: "Run", QualifiedName: "main.Run", Path: "main.go", StartLine: 3},
+			{ID: "n2", Kind: codegraph.NodeKindMethod, Name: "Run", QualifiedName: "worker.Run", Path: "worker.go", StartLine: 8},
+		},
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "node", "demo@v1", "Run")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	for _, want := range []string{
+		"Multiple code graph nodes matched Run",
+		"n1 function main.Run main.go:3",
+		"n2 method worker.Run worker.go:8",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 }
 
