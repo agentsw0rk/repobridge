@@ -103,6 +103,23 @@ func TestRepoPathRejectsTraversalSegments(t *testing.T) {
 	}
 }
 
+func TestGraphDirForSourceStaysInsideSourcePath(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "repo")
+	got, err := GraphDirForSource(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != filepath.Join(source, ".repobridge-graph") {
+		t.Fatalf("GraphDirForSource() = %q", got)
+	}
+}
+
+func TestGraphDirForSourceRejectsEmptyPath(t *testing.T) {
+	if _, err := GraphDirForSource(""); err == nil {
+		t.Fatal("GraphDirForSource() error = nil, want error")
+	}
+}
+
 func TestWriteSourcesRemovesEmptyIndex(t *testing.T) {
 	dir := withHome(t)
 	if err := os.WriteFile(filepath.Join(dir, "sources.json"), []byte(`{"packages":[]}`), 0o644); err != nil {

@@ -14,6 +14,7 @@ const (
 	defaultDir  = ".repobridge"
 	reposDir    = "repos"
 	sourcesFile = "sources.json"
+	graphDir    = ".repobridge-graph"
 )
 
 type PackageEntry struct {
@@ -76,6 +77,17 @@ func RepoPath(displayName, version string) (string, error) {
 		return "", err
 	}
 	return AbsolutePath(filepath.ToSlash(filepath.Join(reposDir, filepath.FromSlash(displayName), filepath.FromSlash(version))))
+}
+
+func GraphDirForSource(sourcePath string) (string, error) {
+	if strings.TrimSpace(sourcePath) == "" {
+		return "", fmt.Errorf("source path must not be empty")
+	}
+	abs, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(abs, graphDir), nil
 }
 
 func ReadSources() (SourcesIndex, error) {
