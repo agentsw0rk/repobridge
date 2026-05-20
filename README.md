@@ -14,13 +14,14 @@
 
 ## Introduction
 
-`repobridge` is a small Go CLI for turning package or repository specs into local source trees. It supports npm, pypi, crates.io, maven, nuget, and common git repository hosts.
+`repobridge` is a small Go CLI for turning package or repository specs into local source trees and searchable AST code graphs. It supports npm, pypi, crates.io, maven, nuget, and common git repository hosts.
 
 ## Features
 
 - Resolve package specs from npm, pypi, crates.io, maven, and nuget.
 - Fetch Git repositories from GitHub, GitLab, and Bitbucket.
 - Scan a project for dependency source specs from manifests, lockfiles, and imports.
+- Build local Tree-sitter AST graphs for cached sources and search them by symbol, kind, path, language, and calls.
 - Reuse a stable local cache across repeated agent/tool runs.
 - Detect installed npm package versions from `node_modules`, lockfiles, and `package.json`.
 - Print machine-friendly paths for downstream automation.
@@ -78,6 +79,7 @@ Search cached source graphs:
 ```bash
 repobridge search react@19.0.0 "kind:function name:render"
 repobridge search pypi:requests==2.32.3 "calls:send lang:python"
+repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
 repobridge search github.com/vercel/next.js "path:packages kind:method"
 ```
 
@@ -108,6 +110,8 @@ Package inputs default to npm. Use a registry prefix for non-npm packages.
 Maven inputs use explicit `groupId:artifactId@version` coordinates. RepoBridge downloads the published `*-sources.jar` from maven first; when no source JAR exists, it tries to clone a Git repository from SCM metadata in the artifact POM.
 
 NuGet inputs use package IDs with an optional explicit version. Without a version, RepoBridge selects the latest stable NuGet version. RepoBridge downloads the `.nupkg` only to read `.nuspec` repository metadata, then fetches the matching Git repository by commit or version tag. It does not cache package binaries as source.
+
+AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust sources with Tree-sitter. Indexing runs in the background after successful `path`, `fetch`, and `scan --fetch` commands. `search` rebuilds a missing or stale graph synchronously before returning results unless `--no-sync-index` is set.
 
 ## Commands
 

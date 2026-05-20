@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="repobridge scans projects, resolves dependency sources, and gives AI agents read-only framework context."
+      content="repobridge fetches dependency sources, builds local AST code graphs, and gives AI agents searchable framework context."
     />
     <title>repobridge Documentation</title>
     <link
@@ -685,6 +685,7 @@
           <a href="#features">Features</a>
           <a href="#inputs">Inputs</a>
           <a href="#cli">CLI</a>
+          <a href="#codegraph">Codegraph</a>
           <a href="#workflows">Workflows</a>
           <a href="#troubleshooting">Trouble</a>
         </nav>
@@ -694,11 +695,11 @@
     <main id="top">
       <section class="hero shell">
         <div>
-          <p class="eyebrow">Go CLI · package sources · repository snapshots</p>
-          <h1>source context for ai agents</h1>
+          <p class="eyebrow">Go CLI · package sources · AST code graphs</p>
+          <h1>searchable source context for ai agents</h1>
           <p class="hero-copy">
             repobridge scans a project, detects the frameworks and libraries it uses, fetches their source code,
-            and gives AI agents stable read-only reference paths for code search and symbol investigation.
+            indexes local AST graphs, and gives AI agents stable reference paths for symbol and call investigation.
           </p>
           <div class="install-callout" aria-label="Install the repobridge AI agent skill">
             <span>Install skill</span>
@@ -717,16 +718,18 @@
             <div class="terminal-title">repobridge</div>
           </div>
           <div class="terminal-body">
-            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge scan --cwd . --json</span></span>
-            <span class="line out">"react@19.0.0", "vite@5.0.1", "github.com/spf13/cobra@v1.9.1"</span>
-            <span class="line">&nbsp;</span>
             <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge scan --cwd . --fetch --limit 10</span></span>
-            <span class="line dim">Fetched dependency source context for agent reference</span>
+            <span class="line dim">Fetched sources and queued background AST indexing</span>
+            <span class="line">&nbsp;</span>
+            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge search react@19.0.0 "calls:createRoot"</span></span>
+            <span class="line out">function render src/client/ReactDOMRoot.js:92</span>
             <div class="terminal-grid">
+              <div class="terminal-chip">AST nodes · calls</div>
+              <div class="terminal-chip">Go · Java · Kotlin</div>
+              <div class="terminal-chip">C# · JS · TS</div>
+              <div class="terminal-chip">Python · Rust</div>
               <div class="terminal-chip">npm · PyPI · crates.io</div>
               <div class="terminal-chip">Maven · NuGet</div>
-              <div class="terminal-chip">GitHub · GitLab</div>
-              <div class="terminal-chip">Bitbucket · URLs</div>
             </div>
           </div>
         </div>
@@ -751,6 +754,9 @@
 repobridge scan --cwd . --json
 repobridge scan --cwd . --fetch --limit 10
 
+repobridge search react@19.0.0 "kind:function calls:createRoot"
+repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
+
 REACT_PATH="$(repobridge path --cwd . react)"
 rg "useSyncExternalStore" "$REACT_PATH"</code></pre>
         </div>
@@ -766,7 +772,7 @@ rg "useSyncExternalStore" "$REACT_PATH"</code></pre>
         </div>
         <div class="cards">
           <article class="feature-card">
-              <h3>Scan project context</h3>
+            <h3>Scan project context</h3>
             <p>Detect dependencies from manifests, lockfiles, and imports before the <code>repobridge-project-context</code> skill guides an AI agent through code work.</p>
             <div class="tag-row">
               <span class="tag">scan</span><span class="tag">--json</span><span class="tag">--no-imports</span>
@@ -781,10 +787,10 @@ rg "useSyncExternalStore" "$REACT_PATH"</code></pre>
             </div>
           </article>
           <article class="feature-card">
-            <h3>Search cached references</h3>
-            <p>Use resolved source paths with <code>rg</code>, file reads, and symbol tools while keeping dependency code untouched.</p>
+            <h3>Search AST code graphs</h3>
+            <p>Query cached source graphs by symbol name, node kind, path, language, and function calls without touching dependency code.</p>
             <div class="tag-row">
-              <span class="tag">path</span><span class="tag">rg</span><span class="tag">read-only</span>
+              <span class="tag">search</span><span class="tag">calls:</span><span class="tag">lang:kotlin</span>
             </div>
           </article>
         </div>
@@ -826,12 +832,12 @@ rg "useSyncExternalStore" "$REACT_PATH"</code></pre>
               <tr>
                 <td>Maven</td>
                 <td><code>maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0</code></td>
-                <td>Prefers source JARs and falls back to SCM metadata when needed.</td>
+                <td>Prefers source JARs, falls back to SCM metadata, and indexes Java/Kotlin source graphs.</td>
               </tr>
               <tr>
                 <td>NuGet</td>
                 <td><code>nuget:Newtonsoft.Json@13.0.3</code>, <code>dotnet:Serilog@3.1.1</code></td>
-                <td>Reads `.nuspec` repository metadata and fetches the matching Git source.</td>
+                <td>Reads <code>.nuspec</code> repository metadata and fetches the matching Git source.</td>
               </tr>
               <tr>
                 <td>Repositories</td>
@@ -865,13 +871,13 @@ rg "useSyncExternalStore" "$REACT_PATH"</code></pre>
             </article>
             <article class="reference-card">
               <h3><code>fetch &lt;spec...&gt;</code></h3>
-              <p>Preloads one or more sources into the cache.</p>
+              <p>Preloads one or more sources into the cache and queues background AST indexing.</p>
               <p><code>--cwd</code> · <code>--quiet</code></p>
             </article>
             <article class="reference-card">
-              <h3><code>list</code></h3>
-              <p>Lists cached packages and repositories.</p>
-              <p><code>--json</code></p>
+              <h3><code>search &lt;spec&gt; &lt;query&gt;</code></h3>
+              <p>Searches the local AST graph, rebuilding missing or stale graph data when needed.</p>
+              <p><code>--json</code> · <code>--limit</code> · <code>--kind</code> · <code>--lang</code> · <code>--calls</code></p>
             </article>
           </div>
           <div class="code-panel">
@@ -886,8 +892,43 @@ repobridge scan --cwd . --no-imports
 repobridge path --cwd . react
 repobridge path --cwd . github.com/spf13/cobra
 
-rg "createRoot|useEffect" "$(repobridge path --cwd . react)"</code></pre>
+repobridge search react@19.0.0 "kind:function calls:createRoot"
+repobridge search pypi:requests==2.32.3 "calls:send lang:python"
+repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"</code></pre>
           </div>
+        </div>
+      </section>
+
+      <section id="codegraph" class="shell">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">AST codegraph</p>
+            <h2>Search behavior, not only text.</h2>
+          </div>
+          <p>Graph data is stored beside each cached source in <code>.repobridge-graph/</code> and rebuilt when the source changes.</p>
+        </div>
+        <div class="cards">
+          <article class="feature-card">
+            <h3>Background indexing</h3>
+            <p>Successful <code>path</code>, <code>fetch</code>, and <code>scan --fetch</code> calls start AST indexing without changing command output.</p>
+            <div class="tag-row">
+              <span class="tag">async</span><span class="tag">ObjectBox</span><span class="tag">local</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <h3>Language coverage</h3>
+            <p>Tree-sitter parsers extract functions, methods, and call references from Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust.</p>
+            <div class="tag-row">
+              <span class="tag">go</span><span class="tag">kotlin</span><span class="tag">python</span><span class="tag">rust</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <h3>Fresh results</h3>
+            <p><code>search</code> detects missing or stale graphs and rebuilds them synchronously unless <code>--no-sync-index</code> is set.</p>
+            <div class="tag-row">
+              <span class="tag">stale check</span><span class="tag">--no-sync-index</span>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -911,14 +952,14 @@ rg "createRoot|useEffect" "$(repobridge path --cwd . react)"</code></pre>
             <span class="step">02</span>
             <div>
               <h3>Fetch reference sources</h3>
-              <p>Run <code>repobridge scan --cwd . --fetch --limit 10</code> to cache the most relevant sources before deep code work.</p>
+              <p>Run <code>repobridge scan --cwd . --fetch --limit 10</code> to cache sources and start background AST indexing.</p>
             </div>
           </article>
           <article class="workflow">
             <span class="step">03</span>
             <div>
-              <h3>Search the dependency implementation</h3>
-              <p>Resolve a path with <code>repobridge path --cwd . &lt;spec&gt;</code>, then use <code>rg</code> against that read-only source tree.</p>
+              <h3>Search symbols and calls</h3>
+              <p>Run <code>repobridge search &lt;spec&gt; "kind:function calls:send"</code> or resolve a path and use <code>rg</code> for raw text search.</p>
             </div>
           </article>
         </div>
@@ -934,16 +975,20 @@ rg "createRoot|useEffect" "$(repobridge path --cwd . react)"</code></pre>
         </div>
         <div class="cards">
           <article class="trouble">
-            <h3>`git` is not found</h3>
-            <p>Install `git`, make sure it is available on the `PATH`, then rerun the command.</p>
+            <h3><code>git</code> is not found</h3>
+            <p>Install <code>git</code>, make sure it is available on the <code>PATH</code>, then rerun the command.</p>
           </article>
           <article class="trouble">
             <h3>API limits or private repositories</h3>
-            <p>Set `GITHUB_TOKEN`, `GITLAB_TOKEN`, or `BITBUCKET_TOKEN` through your environment.</p>
+            <p>Set <code>GITHUB_TOKEN</code>, <code>GITLAB_TOKEN</code>, or <code>BITBUCKET_TOKEN</code> through your environment.</p>
           </article>
           <article class="trouble">
             <h3>Wrong npm version</h3>
-            <p>Pass `--cwd /path/to/project` or provide the exact package version explicitly.</p>
+            <p>Pass <code>--cwd /path/to/project</code> or provide the exact package version explicitly.</p>
+          </article>
+          <article class="trouble">
+            <h3>Missing graph data</h3>
+            <p>Run <code>repobridge search</code> without <code>--no-sync-index</code>; it rebuilds missing or stale AST graphs before returning results.</p>
           </article>
         </div>
       </section>
