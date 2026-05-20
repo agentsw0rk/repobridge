@@ -34,3 +34,17 @@ func TestParseSearchQueryTreatsUnknownPrefixesAsText(t *testing.T) {
 		t.Fatalf("NameFilters = %#v", got.NameFilters)
 	}
 }
+
+func TestParseSearchQueryAcceptsRouteKinds(t *testing.T) {
+	got := ParseSearchQuery(`kind:route kind:handler kind:component_route path:/login`)
+
+	want := []NodeKind{NodeKindRoute, NodeKindHandler, NodeKindComponentRoute}
+	for i, kind := range want {
+		if got.Kinds[i] != kind {
+			t.Fatalf("Kinds = %#v, want %v at %d", got.Kinds, kind, i)
+		}
+	}
+	if got.PathFilters[0] != "/login" {
+		t.Fatalf("PathFilters = %#v, want /login", got.PathFilters)
+	}
+}

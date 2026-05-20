@@ -79,6 +79,32 @@ func TestExtractFromSourceFindsJavaScriptFunctionAndCall(t *testing.T) {
 	assertUnresolvedFrom(t, result.Unresolved, "updateContainer", renderID)
 }
 
+func TestExtractFromSourceFindsExpressAndReactRouterRoutes(t *testing.T) {
+	source := []byte(`function loginHandler(req, res) {}
+const Settings = () => null
+app.post('/api/login', loginHandler)
+router.use('/admin', requireAdmin)
+const routes = [{ path: '/settings', Component: Settings }]
+const home = <Route path="/home" element={<Home />} />`)
+
+	result, err := ExtractFromSource("routes.js", source, model.LanguageJavaScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, "POST /api/login")
+	handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "loginHandler")
+	assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+	middlewareID := findNodeID(t, result.Nodes, model.NodeKindRoute, "USE /admin")
+	middlewareHandlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "requireAdmin")
+	assertEdge(t, result.Edges, middlewareID, middlewareHandlerID, model.EdgeKindMiddleware)
+	settingsID := findNodeID(t, result.Nodes, model.NodeKindComponentRoute, "/settings")
+	settingsTargetID := findNodeID(t, result.Nodes, model.NodeKindHandler, "Settings")
+	assertEdge(t, result.Edges, settingsID, settingsTargetID, model.EdgeKindRoutesTo)
+	homeID := findNodeID(t, result.Nodes, model.NodeKindComponentRoute, "/home")
+	homeTargetID := findNodeID(t, result.Nodes, model.NodeKindHandler, "Home")
+	assertEdge(t, result.Edges, homeID, homeTargetID, model.EdgeKindRoutesTo)
+}
+
 func TestExtractFromSourceFindsTypeScriptFunctionAndCall(t *testing.T) {
 	source := []byte(`function render(): void { updateContainer(); }`)
 
@@ -90,6 +116,19 @@ func TestExtractFromSourceFindsTypeScriptFunctionAndCall(t *testing.T) {
 	renderID := findNodeID(t, result.Nodes, model.NodeKindFunction, "render")
 	assertUnresolvedWithLanguage(t, result.Unresolved, "updateContainer", model.LanguageTypeScript)
 	assertUnresolvedFrom(t, result.Unresolved, "updateContainer", renderID)
+}
+
+func TestExtractFromSourceFindsTypeScriptExpressRoute(t *testing.T) {
+	source := []byte(`function getUser(req: Request, res: Response): void {}
+router.get('/users/:id', getUser)`)
+
+	result, err := ExtractFromSource("routes.ts", source, model.LanguageTypeScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /users/:id")
+	handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "getUser")
+	assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
 }
 
 func TestExtractFromSourceFindsPythonFunctionAndCall(t *testing.T) {
@@ -105,6 +144,38 @@ func TestExtractFromSourceFindsPythonFunctionAndCall(t *testing.T) {
 	assertUnresolvedFrom(t, result.Unresolved, "request", sendID)
 }
 
+func TestExtractFromSourceFindsPythonFrameworkRoutes(t *testing.T) {
+	source := []byte(`@app.post("/login")
+def login_view():
+    audit()
+
+@blueprint.route("/health", methods=["GET"])
+def health():
+    pass
+
+urlpatterns = [
+    path("users/", user_view),
+    re_path(r"^legacy/$", legacy_view),
+]
+`)
+
+	result, err := ExtractFromSource("views.py", source, model.LanguagePython)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "POST /login")
+	loginHandlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "login_view")
+	assertEdge(t, result.Edges, loginRouteID, loginHandlerID, model.EdgeKindHandles)
+	healthRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /health")
+	healthHandlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "health")
+	assertEdge(t, result.Edges, healthRouteID, healthHandlerID, model.EdgeKindHandles)
+	usersRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "ANY /users/")
+	usersHandlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "user_view")
+	assertEdge(t, result.Edges, usersRouteID, usersHandlerID, model.EdgeKindHandles)
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindRoute, "ANY ^legacy/$", model.LanguagePython)
+	assertUnresolvedFrom(t, result.Unresolved, "audit", loginHandlerID)
+}
+
 func TestExtractFromSourceFindsRustFunctionAndCall(t *testing.T) {
 	source := []byte(`fn run() { helper(); }`)
 
@@ -116,6 +187,29 @@ func TestExtractFromSourceFindsRustFunctionAndCall(t *testing.T) {
 	runID := findNodeID(t, result.Nodes, model.NodeKindFunction, "run")
 	assertUnresolvedWithLanguage(t, result.Unresolved, "helper", model.LanguageRust)
 	assertUnresolvedFrom(t, result.Unresolved, "helper", runID)
+}
+
+func TestExtractFromSourceFindsRustFrameworkRoutes(t *testing.T) {
+	source := []byte(`#[get("/health")]
+async fn health_check() {}
+
+fn app() {
+    Router::new().route("/users", get(list_users)).nest("/api", api_router);
+}`)
+
+	result, err := ExtractFromSource("routes.rs", source, model.LanguageRust)
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /health")
+	healthHandlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "health_check")
+	assertEdge(t, result.Edges, healthRouteID, healthHandlerID, model.EdgeKindHandles)
+	usersRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /users")
+	usersHandlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "list_users")
+	assertEdge(t, result.Edges, usersRouteID, usersHandlerID, model.EdgeKindHandles)
+	nestRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "ANY /api")
+	nestTargetID := findNodeID(t, result.Nodes, model.NodeKindHandler, "api_router")
+	assertEdge(t, result.Edges, nestRouteID, nestTargetID, model.EdgeKindRoutesTo)
 }
 
 func TestExtractFromSourceFindsJavaMethodAndCall(t *testing.T) {
@@ -131,6 +225,39 @@ func TestExtractFromSourceFindsJavaMethodAndCall(t *testing.T) {
 	assertUnresolvedFrom(t, result.Unresolved, "helper", runID)
 }
 
+func TestExtractFromSourceFindsSpringJavaRouteAndHandler(t *testing.T) {
+	source := []byte(`@RestController
+@RequestMapping("/api")
+class AuthController {
+  @PostMapping(path="/login")
+  public void login() { audit(); }
+}`)
+
+	result, err := ExtractFromSource("AuthController.java", source, model.LanguageJava)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, "POST /api/login")
+	handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "login")
+	assertQualifiedNode(t, result.Nodes, model.NodeKindHandler, "login", "AuthController.login")
+	assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+	assertUnresolvedFrom(t, result.Unresolved, "audit", handlerID)
+}
+
+func TestExtractFromSourceFindsSpringJavaRequestMappingMethod(t *testing.T) {
+	source := []byte(`@RestController
+class AuthController {
+  @RequestMapping(value="/login", method=RequestMethod.POST)
+  public void login() {}
+}`)
+
+	result, err := ExtractFromSource("AuthController.java", source, model.LanguageJava)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindRoute, "POST /login", model.LanguageJava)
+}
+
 func TestExtractFromSourceFindsCSharpMethodAndCall(t *testing.T) {
 	source := []byte(`class App { void Run() { Helper(); } }`)
 
@@ -144,6 +271,27 @@ func TestExtractFromSourceFindsCSharpMethodAndCall(t *testing.T) {
 	assertUnresolvedFrom(t, result.Unresolved, "Helper", runID)
 }
 
+func TestExtractFromSourceFindsAspNetRoutes(t *testing.T) {
+	source := []byte(`[Route("api/[controller]")]
+public class UsersController {
+  [HttpGet("{id}")]
+  public IActionResult Get(int id) { return Ok(); }
+}
+var app = builder.Build();
+app.MapPost("/login", Login);`)
+
+	result, err := ExtractFromSource("UsersController.cs", source, model.LanguageCSharp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controllerRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /api/users/{id}")
+	controllerHandlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "Get")
+	assertEdge(t, result.Edges, controllerRouteID, controllerHandlerID, model.EdgeKindHandles)
+	minimalRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "POST /login")
+	minimalHandlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "Login")
+	assertEdge(t, result.Edges, minimalRouteID, minimalHandlerID, model.EdgeKindHandles)
+}
+
 func TestExtractFromSourceFindsKotlinFunctionAndCall(t *testing.T) {
 	result, err := ExtractFromSource("App.kt", []byte(`fun run() { helper() }`), model.LanguageKotlin)
 	if err != nil {
@@ -153,6 +301,25 @@ func TestExtractFromSourceFindsKotlinFunctionAndCall(t *testing.T) {
 	runID := findNodeID(t, result.Nodes, model.NodeKindFunction, "run")
 	assertUnresolvedWithLanguage(t, result.Unresolved, "helper", model.LanguageKotlin)
 	assertUnresolvedFrom(t, result.Unresolved, "helper", runID)
+}
+
+func TestExtractFromSourceFindsSpringKotlinRouteAndHandler(t *testing.T) {
+	source := []byte(`@RestController
+@RequestMapping("/api")
+class AuthController {
+  @GetMapping("/users/{id}")
+  fun user() { audit() }
+}`)
+
+	result, err := ExtractFromSource("AuthController.kt", source, model.LanguageKotlin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /api/users/{id}")
+	handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "user")
+	assertQualifiedNode(t, result.Nodes, model.NodeKindHandler, "user", "AuthController.user")
+	assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+	assertUnresolvedFrom(t, result.Unresolved, "audit", handlerID)
 }
 
 func TestExtractFromSourceWarnsForUnsupportedLanguage(t *testing.T) {
@@ -191,6 +358,16 @@ func assertNode(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name
 	t.Fatalf("node %s %s not found in %#v", kind, name, nodes)
 }
 
+func assertQualifiedNode(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name, qualified string) {
+	t.Helper()
+	for _, node := range nodes {
+		if node.Kind == kind && node.Name == name && node.QualifiedName == qualified {
+			return
+		}
+	}
+	t.Fatalf("node %s %s qualified %s not found in %#v", kind, name, qualified, nodes)
+}
+
 func findNodeID(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name string) string {
 	t.Helper()
 	for _, node := range nodes {
@@ -200,6 +377,16 @@ func findNodeID(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name
 	}
 	t.Fatalf("node %s %s not found in %#v", kind, name, nodes)
 	return ""
+}
+
+func assertEdge(t *testing.T, edges []model.GraphEdge, fromID, toID string, kind model.EdgeKind) {
+	t.Helper()
+	for _, edge := range edges {
+		if edge.SourceNodeID == fromID && edge.TargetNodeID == toID && edge.Kind == kind {
+			return
+		}
+	}
+	t.Fatalf("edge %s -> %s %s not found in %#v", fromID, toID, kind, edges)
 }
 
 func assertUnresolved(t *testing.T, refs []model.UnresolvedReference, name string) {

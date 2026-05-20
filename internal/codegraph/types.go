@@ -10,22 +10,28 @@ import (
 type NodeKind = model.NodeKind
 
 const (
-	NodeKindFile      = model.NodeKindFile
-	NodeKindModule    = model.NodeKindModule
-	NodeKindClass     = model.NodeKindClass
-	NodeKindStruct    = model.NodeKindStruct
-	NodeKindInterface = model.NodeKindInterface
-	NodeKindFunction  = model.NodeKindFunction
-	NodeKindMethod    = model.NodeKindMethod
-	NodeKindImport    = model.NodeKindImport
+	NodeKindFile           = model.NodeKindFile
+	NodeKindModule         = model.NodeKindModule
+	NodeKindClass          = model.NodeKindClass
+	NodeKindStruct         = model.NodeKindStruct
+	NodeKindInterface      = model.NodeKindInterface
+	NodeKindFunction       = model.NodeKindFunction
+	NodeKindMethod         = model.NodeKindMethod
+	NodeKindImport         = model.NodeKindImport
+	NodeKindRoute          = model.NodeKindRoute
+	NodeKindHandler        = model.NodeKindHandler
+	NodeKindComponentRoute = model.NodeKindComponentRoute
 )
 
 type EdgeKind = model.EdgeKind
 
 const (
-	EdgeKindContains = model.EdgeKindContains
-	EdgeKindCalls    = model.EdgeKindCalls
-	EdgeKindImports  = model.EdgeKindImports
+	EdgeKindContains   = model.EdgeKindContains
+	EdgeKindCalls      = model.EdgeKindCalls
+	EdgeKindImports    = model.EdgeKindImports
+	EdgeKindHandles    = model.EdgeKindHandles
+	EdgeKindRoutesTo   = model.EdgeKindRoutesTo
+	EdgeKindMiddleware = model.EdgeKindMiddleware
 )
 
 type Language = model.Language

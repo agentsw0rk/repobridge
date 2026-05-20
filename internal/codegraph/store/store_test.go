@@ -88,6 +88,37 @@ func TestStoreCallsByNodeReturnsUnresolvedCallNames(t *testing.T) {
 	}
 }
 
+func TestStoreSearchFindsRouteByRoutePathFilter(t *testing.T) {
+	graph := openTestStore(t)
+
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   time.Now(),
+		Nodes: []codegraph.GraphNode{{
+			ID:            "route-login",
+			Kind:          codegraph.NodeKindRoute,
+			Name:          "POST /api/login",
+			QualifiedName: "spring POST /api/login",
+			FilePath:      "AuthController.kt",
+			Language:      codegraph.LanguageKotlin,
+			StartLine:     4,
+			Signature:     "spring route POST /api/login -> AuthController.login",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := graph.Search(codegraph.SearchQuery{Kinds: []codegraph.NodeKind{codegraph.NodeKindRoute}, PathFilters: []string{"/login"}, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Name != "POST /api/login" {
+		t.Fatalf("results = %#v, want route result", results)
+	}
+}
+
 func TestStoreStatusReportsMissingAndComplete(t *testing.T) {
 	graph := openTestStore(t)
 
@@ -299,6 +330,38 @@ func TestStoreCallgraphReturnsDirectCallersAndCallees(t *testing.T) {
 	}
 	if len(callees) != 1 || callees[0].From.ID != "target" || callees[0].To.ID != "callee" || callees[0].Line != 8 {
 		t.Fatalf("callees = %#v, want target -> callee", callees)
+	}
+}
+
+func TestStoreCallgraphReturnsRouteHandlers(t *testing.T) {
+	graph := openTestStore(t)
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   time.Now(),
+		Nodes: []codegraph.GraphNode{
+			{ID: "route-login", Kind: codegraph.NodeKindRoute, Name: "POST /login", QualifiedName: "spring POST /login", FilePath: "AuthController.java", Language: codegraph.LanguageJava, StartLine: 3},
+			{ID: "handler-login", Kind: codegraph.NodeKindHandler, Name: "login", QualifiedName: "AuthController.login", FilePath: "AuthController.java", Language: codegraph.LanguageJava, StartLine: 4},
+		},
+		Edges: []codegraph.GraphEdge{
+			{SourceNodeID: "route-login", TargetNodeID: "handler-login", Kind: codegraph.EdgeKindHandles, FilePath: "AuthController.java", Line: 3},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	callers, err := graph.Callgraph(codegraph.CallgraphQuery{
+		RootNodeID: "handler-login",
+		Direction:  codegraph.CallgraphDirectionCallers,
+		Depth:      1,
+		Limit:      10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(callers) != 1 || callers[0].Kind != codegraph.EdgeKindHandles || callers[0].From.Name != "POST /login" || callers[0].To.ID != "handler-login" {
+		t.Fatalf("callers = %#v, want POST /login handles handler-login", callers)
 	}
 }
 
