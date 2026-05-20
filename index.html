@@ -8,10 +8,7 @@
       content="repobridge fetches dependency sources, builds local AST code graphs, and gives AI agents searchable framework context."
     />
     <title>repobridge Documentation</title>
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23071016'/%3E%3Cpath d='M16 38V20h11c5 0 8 3 8 7 0 3-2 5-4 6l5 5h-7l-4-4h-3v4h-6Zm6-9h5c1 0 2-1 2-2s-1-2-2-2h-5v4Zm19 9V20h6v18h-6Z' fill='%2372e4ff'/%3E%3C/svg%3E"
-    />
+    <link rel="icon" type="image/png" href="logo.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -103,20 +100,6 @@
         text-decoration: none;
       }
 
-      .brand-mark {
-        display: grid;
-        width: 38px;
-        height: 38px;
-        place-items: center;
-        border: 1px solid rgba(114, 228, 255, 0.38);
-        border-radius: 10px;
-        background: linear-gradient(145deg, rgba(114, 228, 255, 0.16), rgba(111, 242, 180, 0.08));
-        box-shadow: 0 0 24px rgba(114, 228, 255, 0.12);
-        color: var(--cyan);
-        font-family: "JetBrains Mono", ui-monospace, monospace;
-        font-weight: 700;
-      }
-
       .brand-name {
         display: flex;
         flex-direction: column;
@@ -156,9 +139,9 @@
         display: grid;
         grid-template-columns: minmax(0, 1.02fr) minmax(360px, 0.98fr);
         align-items: center;
-        gap: 48px;
-        min-height: calc(100vh - 68px);
-        padding: 72px 0 56px;
+        gap: 40px;
+        min-height: min(660px, calc(100vh - 68px));
+        padding: 36px 0 32px;
       }
 
       .hero > * {
@@ -188,6 +171,17 @@
         content: "";
       }
 
+      .hero-logo {
+        display: block;
+        width: min(100%, 300px);
+        height: auto;
+        margin: 0 0 24px;
+        border: 1px solid rgba(114, 228, 255, 0.24);
+        border-radius: 10px;
+        background: #ffffff;
+        box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
+      }
+
       h1,
       h2,
       h3 {
@@ -197,7 +191,7 @@
 
       h1 {
         max-width: 850px;
-        font-size: clamp(3.2rem, 7vw, 6rem);
+        font-size: clamp(2.8rem, 4.8vw, 4.5rem);
         font-weight: 700;
         overflow-wrap: anywhere;
       }
@@ -642,7 +636,7 @@
 
         .hero {
           min-height: auto;
-          padding-top: 48px;
+          padding-top: 40px;
         }
 
         .install-callout {
@@ -661,6 +655,11 @@
       }
 
       @media (max-width: 620px) {
+        .hero-logo {
+          width: min(100%, 320px);
+          margin-bottom: 22px;
+        }
+
         h1 {
           font-size: 3.1rem;
         }
@@ -726,7 +725,6 @@
     <header class="site-header">
       <div class="shell nav">
         <a class="brand" href="#top" aria-label="repobridge home">
-          <span class="brand-mark">rb</span>
           <span class="brand-name">
             <strong>repobridge</strong>
             <span>context source for ai-agents</span>
@@ -746,6 +744,7 @@
     <main id="top">
       <section class="hero shell">
         <div>
+          <img class="hero-logo" src="logo.png" alt="RepoBridge source to local path for agents and tools" width="440" height="240" />
           <p class="eyebrow">Go CLI · package sources · AST code graphs</p>
           <h1>searchable source context for ai agents</h1>
           <p class="hero-copy">

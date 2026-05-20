@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="RepoBridge logo" width="560">
+</p>
+
 <h1 align="center">RepoBridge</h1>
 
 <p align="center">
