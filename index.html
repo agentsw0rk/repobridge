@@ -763,8 +763,8 @@
             <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge search react@19.0.0 "calls:createRoot"</span></span>
             <span class="line out">function render src/client/ReactDOMRoot.js:92</span>
             <span class="line">&nbsp;</span>
-            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge callers react@19.0.0 createRoot --depth 2</span></span>
-            <span class="line out">method ReactDOMRoot.render src/client/ReactDOMRoot.js:86</span>
+            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge context react@19.0.0 "createRoot render flow"</span></span>
+            <span class="line out">entry points · relationships · snippets · related files</span>
             <div class="terminal-grid">
               <div class="terminal-chip">AST nodes · callgraph</div>
               <div class="terminal-chip">Go · Java · Kotlin</div>
@@ -805,7 +805,10 @@ repobridge files github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc
 repobridge node github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 up --source-lines 12
 
 repobridge callers github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 exec --include-unresolved
-repobridge callees github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 findDockerCompose --depth 2</code></pre>
+repobridge callees github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 findDockerCompose --depth 2
+
+repobridge context github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 "findDockerCompose exec flow" --budget small
+repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 "DockerComposeContainer up" --budget large --depth 2</code></pre>
         </div>
         <div class="input-table budget-panel" aria-label="Search output budget benchmark">
           <table>
@@ -890,6 +893,13 @@ repobridge callees github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
             <p>Use <code>callers</code>, <code>callees</code>, and <code>impact</code> to follow stored graph edges instead of asking the agent to rediscover call flow.</p>
             <div class="tag-row">
               <span class="tag">callers</span><span class="tag">callees</span><span class="tag">impact</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <h3>Build agent context</h3>
+            <p>Use <code>context</code> and <code>explore</code> to return bounded entry points, relationships, snippets, related files, warnings, and stats for a task.</p>
+            <div class="tag-row">
+              <span class="tag">context</span><span class="tag">explore</span><span class="tag">budget</span>
             </div>
           </article>
         </div>
@@ -988,6 +998,11 @@ repobridge callees github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
               <p>Traverses call and impact relationships from the stored AST graph with deterministic, compact output.</p>
               <p><code>--depth</code> · <code>--limit</code> · <code>--include-unresolved</code> · <code>--json</code></p>
             </article>
+            <article class="reference-card">
+              <h3><code>context · explore</code></h3>
+              <p>Builds focused or broad task context with entry points, graph relationships, source snippets, related files, warnings, and stats.</p>
+              <p><code>--budget</code> · <code>--limit</code> · <code>--depth</code> · <code>--json</code></p>
+            </article>
           </div>
           <div class="code-panel">
             <div class="copy-row">
@@ -1011,7 +1026,10 @@ repobridge node react@19.0.0 createRoot --source-lines 20
 
 repobridge callers react@19.0.0 createRoot --depth 2
 repobridge callees react@19.0.0 createRoot --include-unresolved
-repobridge impact react@19.0.0 createRoot --json</code></pre>
+repobridge impact react@19.0.0 createRoot --json
+
+repobridge context react@19.0.0 "createRoot render flow" --budget small
+repobridge explore github.com/vercel/next.js "AppRouter cache invalidation" --budget large --depth 2</code></pre>
           </div>
         </div>
       </section>
@@ -1060,6 +1078,13 @@ repobridge impact react@19.0.0 createRoot --json</code></pre>
               <span class="tag">depth</span><span class="tag">limit</span><span class="tag">unresolved</span>
             </div>
           </article>
+          <article class="feature-card">
+            <h3>Context budgets</h3>
+            <p><code>context</code> and <code>explore</code> apply small, medium, or large output budgets so agents receive focused evidence without oversized transcripts.</p>
+            <div class="tag-row">
+              <span class="tag">small</span><span class="tag">medium</span><span class="tag">large</span>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -1096,8 +1121,8 @@ repobridge impact react@19.0.0 createRoot --json</code></pre>
           <article class="workflow">
             <span class="step">04</span>
             <div>
-              <h3>Inspect and trace the graph</h3>
-              <p>Run <code>repobridge node &lt;spec&gt; &lt;symbol&gt;</code>, <code>repobridge callers &lt;spec&gt; &lt;symbol&gt;</code>, or <code>repobridge impact &lt;spec&gt; &lt;symbol&gt;</code> when the agent needs exact evidence.</p>
+              <h3>Build task context</h3>
+              <p>Run <code>repobridge context &lt;spec&gt; "task query"</code> or <code>repobridge explore &lt;spec&gt; "symbol flow"</code> when the agent needs exact evidence with bounded snippets and graph relationships.</p>
             </div>
           </article>
         </div>

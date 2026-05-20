@@ -28,6 +28,7 @@
 - Build local Tree-sitter AST graphs for cached sources and search them by symbol, kind, path, language, and calls.
 - Inspect cached code graphs with `status`, `files`, and `node` without scanning source trees again.
 - Traverse call graphs with `callers`, `callees`, and `impact` for focused agent investigations.
+- Build task-oriented agent context with `context` and broader graph explanations with `explore`.
 - Reuse a stable local cache across repeated agent/tool runs.
 - Detect installed npm package versions from `node_modules`, lockfiles, and `package.json`.
 - Print machine-friendly paths for downstream automation.
@@ -114,6 +115,13 @@ repobridge callees react@19.0.0 createRoot --include-unresolved
 repobridge impact react@19.0.0 createRoot --json
 ```
 
+Build task context for an agent:
+
+```bash
+repobridge context react@19.0.0 "createRoot render flow" --budget small
+repobridge explore github.com/vercel/next.js "AppRouter cache invalidation" --budget large --depth 2
+```
+
 Inspect and clean cached sources:
 
 ```bash
@@ -142,7 +150,7 @@ Maven inputs use explicit `groupId:artifactId@version` coordinates. RepoBridge d
 
 NuGet inputs use package IDs with an optional explicit version. Without a version, RepoBridge selects the latest stable NuGet version. RepoBridge downloads the `.nupkg` only to read `.nuspec` repository metadata, then fetches the matching Git repository by commit or version tag. It does not cache package binaries as source.
 
-AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust sources with Tree-sitter. Indexing runs in the background after successful `path`, `fetch`, and `scan --fetch` commands. `search` rebuilds a missing or stale graph synchronously before returning results unless `--no-sync-index` is set.
+AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust sources with Tree-sitter. Indexing runs in the background after successful `path`, `fetch`, and `scan --fetch` commands. `search`, graph inspection, callgraph, `context`, and `explore` rebuild a missing or stale graph synchronously before returning results unless `--no-sync-index` is set.
 
 ## Commands
 
@@ -158,11 +166,13 @@ AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeSc
 | `repobridge callers <spec> <symbol>` | Finds functions or methods that call a symbol. |
 | `repobridge callees <spec> <symbol>` | Finds functions or methods called by a symbol. |
 | `repobridge impact <spec> <symbol>` | Traverses incoming call/import relationships to estimate change impact. |
+| `repobridge context <spec> <query>` | Returns focused task context with entry points, relationships, snippets, related files, warnings, and stats. |
+| `repobridge explore <spec> <query>` | Returns broader graph exploration context with the same bounded output shape. |
 | `repobridge list [--json]` | Lists cached packages and repositories. |
 | `repobridge remove <spec...>` | Removes selected cached sources. |
 | `repobridge clean` | Removes cached sources, optionally scoped by flags. |
 
-Most commands that resolve package versions accept `--cwd` for lockfile detection. `fetch` also accepts `--quiet`; `path` accepts `--verbose`; `scan` accepts `--json`, `--fetch`, `--limit`, and `--no-imports`; `search` accepts `--json`, `--limit`, `--kind`, `--lang`, `--path`, `--calls`, and `--no-sync-index`; `status`, `files`, `node`, `callers`, `callees`, and `impact` accept `--json` and `--no-sync-index`; `files` adds `--path` and `--limit`; `node` adds `--source-lines`; callgraph commands add `--depth`, `--kind`, `--lang`, `--path`, `--limit`, and `--include-unresolved`; `clean` accepts filters such as `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, and `--nuget`.
+Most commands that resolve package versions accept `--cwd` for lockfile detection. `fetch` also accepts `--quiet`; `path` accepts `--verbose`; `scan` accepts `--json`, `--fetch`, `--limit`, and `--no-imports`; `search` accepts `--json`, `--limit`, `--kind`, `--lang`, `--path`, `--calls`, and `--no-sync-index`; `status`, `files`, `node`, `callers`, `callees`, `impact`, `context`, and `explore` accept `--json` and `--no-sync-index`; `files` adds `--path` and `--limit`; `node` adds `--source-lines`; callgraph commands add `--depth`, `--kind`, `--lang`, `--path`, `--limit`, and `--include-unresolved`; `context` and `explore` add `--budget`, `--limit`, and `--depth`; `clean` accepts filters such as `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, and `--nuget`.
 
 ## Configuration
 
@@ -175,7 +185,7 @@ Most commands that resolve package versions accept `--cwd` for lockfile detectio
 
 The cache contains cloned source trees and a `sources.json` index under `REPOBRIDGE_HOME`. Repository fetches remove `.git` so the cache stores source snapshots rather than nested working trees.
 
-After successful `path`, `fetch`, and `scan --fetch` calls, RepoBridge starts background AST indexing for the cached source. Graph data is stored beside the source in `.repobridge-graph/`; command output remains unchanged. The first `search`, `status`, `files`, `node`, `callers`, `callees`, or `impact` call builds a missing or stale graph synchronously unless `--no-sync-index` is set.
+After successful `path`, `fetch`, and `scan --fetch` calls, RepoBridge starts background AST indexing for the cached source. Graph data is stored beside the source in `.repobridge-graph/`; command output remains unchanged. The first `search`, `status`, `files`, `node`, `callers`, `callees`, `impact`, `context`, or `explore` call builds a missing or stale graph synchronously unless `--no-sync-index` is set.
 
 ## Development
 

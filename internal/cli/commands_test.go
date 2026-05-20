@@ -62,6 +62,10 @@ type fakeApp struct {
 	callgraphSpec   string
 	callgraphSymbol string
 	callgraphOpts   codegraph.CallgraphOptions
+	contextResult   codegraph.ContextResult
+	contextSpec     string
+	contextQuery    string
+	contextOpts     codegraph.ContextOptions
 }
 
 func (a *fakeApp) EnsureCached(spec string, opts source.Options) (source.Outcome, error) {
@@ -100,6 +104,13 @@ func (a *fakeApp) CodeGraphCallgraph(spec, symbol string, opts codegraph.Callgra
 	a.callgraphSymbol = symbol
 	a.callgraphOpts = opts
 	return a.callgraphResult, nil
+}
+
+func (a *fakeApp) CodeGraphContext(spec, query string, opts codegraph.ContextOptions) (codegraph.ContextResult, error) {
+	a.contextSpec = spec
+	a.contextQuery = query
+	a.contextOpts = opts
+	return a.contextResult, nil
 }
 
 type fakeIndexer struct {
@@ -921,6 +932,98 @@ func TestImpactPrintsNoEdgesMessage(t *testing.T) {
 	}
 	if app.callgraphOpts.Direction != codegraph.CallgraphDirectionImpact {
 		t.Fatalf("direction = %q, want impact", app.callgraphOpts.Direction)
+	}
+}
+
+func TestContextPrintsHumanReadableResult(t *testing.T) {
+	app := &fakeApp{contextResult: codegraph.ContextResult{
+		Source: "demo@v1",
+		Mode:   codegraph.ContextModeContext,
+		Query:  "auth login flow",
+		Budget: codegraph.ContextBudget{Name: "small", SearchLimit: 5, SnippetCount: 3, SourceLines: 8, Depth: 1},
+		EntryPoints: []codegraph.GraphNodeDetail{{
+			ID: "login", Kind: codegraph.NodeKindFunction, Name: "Login", QualifiedName: "auth.Login", Path: "auth.go", StartLine: 3,
+		}},
+		Relationships: []codegraph.CallgraphEdge{{
+			Depth: 1,
+			From:  codegraph.GraphNodeDetail{ID: "login", Name: "Login", QualifiedName: "auth.Login"},
+			To:    codegraph.GraphNodeDetail{ID: "session", Name: "createSession", QualifiedName: "auth.createSession"},
+			Kind:  codegraph.EdgeKindCalls,
+			Line:  4,
+		}},
+		Snippets: []codegraph.ContextSnippet{{
+			Path:      "auth.go",
+			StartLine: 3,
+			EndLine:   4,
+			Lines: []codegraph.SourceLine{
+				{Line: 3, Text: "func Login() {"},
+				{Line: 4, Text: "\tcreateSession()"},
+			},
+		}},
+		RelatedFiles: []codegraph.GraphFile{{Path: "auth.go", Language: codegraph.LanguageGo, NodeCount: 2}},
+		Stats:        codegraph.ContextResultStats{EntryPoints: 1, Relationships: 1, Snippets: 1, RelatedFiles: 1},
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "context", "--budget", "small", "--limit", "7", "--depth", "2", "demo@v1", "auth login flow")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	for _, want := range []string{
+		"context: auth login flow",
+		"source: demo@v1",
+		"budget: small",
+		"Entry points",
+		"function auth.Login auth.go:3",
+		"Relationships",
+		"auth.Login -> auth.createSession",
+		"Snippets",
+		"auth.go:3-4",
+		"3: func Login() {",
+		"Related files",
+		"auth.go go nodes:2",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if app.contextSpec != "demo@v1" || app.contextQuery != "auth login flow" {
+		t.Fatalf("context call = %q %q, want spec/query", app.contextSpec, app.contextQuery)
+	}
+	if app.contextOpts.Mode != codegraph.ContextModeContext || app.contextOpts.Budget != "small" || app.contextOpts.Limit != 7 || app.contextOpts.Depth != 2 {
+		t.Fatalf("context opts = %#v, want context small limit depth", app.contextOpts)
+	}
+}
+
+func TestExploreJSONPrintsResult(t *testing.T) {
+	app := &fakeApp{contextResult: codegraph.ContextResult{
+		Source: "demo@v1",
+		Mode:   codegraph.ContextModeExplore,
+		Query:  "AuthService.login",
+		Budget: codegraph.ContextBudget{Name: "large", SearchLimit: 20, SnippetCount: 8, SourceLines: 28, Depth: 2},
+		EntryPoints: []codegraph.GraphNodeDetail{{
+			ID: "login", Kind: codegraph.NodeKindMethod, Name: "login", QualifiedName: "AuthService.login", Path: "AuthService.kt", StartLine: 42,
+		}},
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "explore", "--json", "--budget", "large", "--no-sync-index", "demo@v1", "AuthService.login")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	var got codegraph.ContextResult
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if got.Mode != codegraph.ContextModeExplore || len(got.EntryPoints) != 1 || got.EntryPoints[0].QualifiedName != "AuthService.login" {
+		t.Fatalf("result = %#v, want explore AuthService.login", got)
+	}
+	if app.contextOpts.SyncIndex || app.contextOpts.Mode != codegraph.ContextModeExplore || app.contextOpts.Budget != "large" {
+		t.Fatalf("context opts = %#v, want no-sync explore large", app.contextOpts)
 	}
 }
 

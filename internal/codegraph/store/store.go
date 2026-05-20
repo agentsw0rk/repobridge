@@ -415,6 +415,7 @@ func (s *Store) Search(query codegraph.SearchQuery) ([]codegraph.SearchResult, e
 			scored = append(scored, scoredResult{
 				result: codegraph.SearchResult{
 					Source:        status.SourcePath,
+					ID:            node.StableID,
 					Kind:          codegraph.NodeKind(node.Kind),
 					Name:          node.Name,
 					QualifiedName: node.QualifiedName,

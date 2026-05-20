@@ -74,6 +74,7 @@ type SearchQuery struct {
 
 type SearchResult struct {
 	Source        string   `json:"source"`
+	ID            string   `json:"id,omitempty"`
 	Kind          NodeKind `json:"kind"`
 	Name          string   `json:"name"`
 	QualifiedName string   `json:"qualifiedName"`
@@ -199,4 +200,64 @@ type CallgraphQuery struct {
 	Languages         []Language
 	PathFilters       []string
 	IncludeUnresolved bool
+}
+
+type ContextMode string
+
+const (
+	ContextModeContext ContextMode = "context"
+	ContextModeExplore ContextMode = "explore"
+)
+
+type ContextOptions struct {
+	CWD        string
+	SyncIndex  bool
+	Limit      int
+	Depth      int
+	Budget     string
+	Mode       ContextMode
+	SourceOpts source.Options
+}
+
+type ContextBudget struct {
+	Name         string `json:"name"`
+	SearchLimit  int    `json:"searchLimit"`
+	SnippetCount int    `json:"snippetCount"`
+	SourceLines  int    `json:"sourceLines"`
+	Depth        int    `json:"depth"`
+}
+
+type ContextParsedQuery struct {
+	Raw     string      `json:"raw"`
+	Terms   []string    `json:"terms"`
+	Symbols []string    `json:"symbols"`
+	Search  SearchQuery `json:"search"`
+}
+
+type ContextResult struct {
+	Source        string             `json:"source"`
+	Mode          ContextMode        `json:"mode"`
+	Query         string             `json:"query"`
+	Budget        ContextBudget      `json:"budget"`
+	EntryPoints   []GraphNodeDetail  `json:"entryPoints"`
+	Relationships []CallgraphEdge    `json:"relationships"`
+	Snippets      []ContextSnippet   `json:"snippets"`
+	RelatedFiles  []GraphFile        `json:"relatedFiles"`
+	Warnings      []string           `json:"warnings,omitempty"`
+	Stats         ContextResultStats `json:"stats"`
+}
+
+type ContextSnippet struct {
+	Path      string       `json:"path"`
+	StartLine int          `json:"startLine"`
+	EndLine   int          `json:"endLine"`
+	Lines     []SourceLine `json:"lines"`
+}
+
+type ContextResultStats struct {
+	Terms         int `json:"terms"`
+	EntryPoints   int `json:"entryPoints"`
+	Relationships int `json:"relationships"`
+	Snippets      int `json:"snippets"`
+	RelatedFiles  int `json:"relatedFiles"`
 }

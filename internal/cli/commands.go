@@ -336,6 +336,60 @@ func newImpactCommand(opts Options) *cobra.Command {
 	return newCallgraphCommand(opts, codegraph.CallgraphDirectionImpact)
 }
 
+func newContextCommand(opts Options) *cobra.Command {
+	return newContextLikeCommand(opts, codegraph.ContextModeContext)
+}
+
+func newExploreCommand(opts Options) *cobra.Command {
+	return newContextLikeCommand(opts, codegraph.ContextModeExplore)
+}
+
+func newContextLikeCommand(opts Options, mode codegraph.ContextMode) *cobra.Command {
+	var cwd string
+	var jsonOutput bool
+	var noSyncIndex bool
+	var limit int
+	var depth int
+	var budget string
+
+	short := "Build focused task context from the cached code graph"
+	if mode == codegraph.ContextModeExplore {
+		short = "Explore broader code graph context for symbols and tasks"
+	}
+
+	cmd := &cobra.Command{
+		Use:   string(mode) + " <spec> <query>",
+		Short: short,
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+			result, err := opts.app().CodeGraphContext(args[0], args[1], codegraph.ContextOptions{
+				CWD:       cwd,
+				SyncIndex: !noSyncIndex,
+				Limit:     limit,
+				Depth:     depth,
+				Budget:    budget,
+				Mode:      mode,
+			})
+			if err != nil {
+				return err
+			}
+			if jsonOutput {
+				return printJSON(out, result)
+			}
+			printContextResult(out, result)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print context result as JSON")
+	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale code graph index")
+	cmd.Flags().IntVar(&limit, "limit", 0, "override budget search result limit")
+	cmd.Flags().IntVar(&depth, "depth", 0, "override budget relationship traversal depth")
+	cmd.Flags().StringVar(&budget, "budget", "", "context budget: small, medium, or large")
+	return cmd
+}
+
 func newCallgraphCommand(opts Options, direction codegraph.CallgraphDirection) *cobra.Command {
 	var cwd string
 	var jsonOutput bool
@@ -558,6 +612,85 @@ func printCallgraphResult(out io.Writer, result codegraph.CallgraphResult) {
 			fmt.Fprintf(out, "    %s %s\n", edge.Kind, reference)
 		}
 	}
+}
+
+func printContextResult(out io.Writer, result codegraph.ContextResult) {
+	fmt.Fprintf(out, "%s: %s\n", result.Mode, result.Query)
+	source := result.Source
+	if source == "" {
+		source = "(unknown source)"
+	}
+	fmt.Fprintf(out, "source: %s\n", source)
+	fmt.Fprintf(out, "budget: %s search:%d snippets:%d lines:%d depth:%d\n",
+		result.Budget.Name,
+		result.Budget.SearchLimit,
+		result.Budget.SnippetCount,
+		result.Budget.SourceLines,
+		result.Budget.Depth,
+	)
+
+	fmt.Fprintln(out, "Entry points")
+	if len(result.EntryPoints) == 0 {
+		fmt.Fprintln(out, "  No entry points found.")
+	} else {
+		for _, entry := range result.EntryPoints {
+			location := formatSearchLocation(entry.Path, entry.StartLine)
+			fmt.Fprintf(out, "  %s %s %s\n", entry.Kind, bestNodeDisplayName(entry), location)
+		}
+	}
+
+	fmt.Fprintln(out, "Relationships")
+	if len(result.Relationships) == 0 {
+		fmt.Fprintln(out, "  No relationships found.")
+	} else {
+		for _, edge := range result.Relationships {
+			left := bestNodeDisplayName(edge.From)
+			right := bestNodeDisplayName(edge.To)
+			if edge.Unresolved && edge.ReferenceName != "" {
+				right = edge.ReferenceName
+			}
+			if edge.Line > 0 {
+				fmt.Fprintf(out, "  %s -> %s %s at line %d\n", left, right, edge.Kind, edge.Line)
+			} else {
+				fmt.Fprintf(out, "  %s -> %s %s\n", left, right, edge.Kind)
+			}
+		}
+	}
+
+	fmt.Fprintln(out, "Snippets")
+	if len(result.Snippets) == 0 {
+		fmt.Fprintln(out, "  No snippets found.")
+	} else {
+		for _, snippet := range result.Snippets {
+			fmt.Fprintf(out, "  %s:%d-%d\n", snippet.Path, snippet.StartLine, snippet.EndLine)
+			for _, line := range snippet.Lines {
+				fmt.Fprintf(out, "    %d: %s\n", line.Line, line.Text)
+			}
+		}
+	}
+
+	fmt.Fprintln(out, "Related files")
+	if len(result.RelatedFiles) == 0 {
+		fmt.Fprintln(out, "  No related files found.")
+	} else {
+		for _, file := range result.RelatedFiles {
+			fmt.Fprintf(out, "  %s %s nodes:%d\n", file.Path, file.Language, file.NodeCount)
+		}
+	}
+
+	if len(result.Warnings) > 0 {
+		fmt.Fprintln(out, "Warnings")
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(out, "  %s\n", warning)
+		}
+	}
+	fmt.Fprintf(out, "Stats terms:%d entryPoints:%d relationships:%d snippets:%d relatedFiles:%d\n",
+		result.Stats.Terms,
+		result.Stats.EntryPoints,
+		result.Stats.Relationships,
+		result.Stats.Snippets,
+		result.Stats.RelatedFiles,
+	)
 }
 
 func callgraphDisplayNode(direction codegraph.CallgraphDirection, edge codegraph.CallgraphEdge) codegraph.GraphNodeDetail {
