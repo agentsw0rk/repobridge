@@ -113,6 +113,8 @@ NuGet inputs use package IDs with an optional explicit version. Without a versio
 
 AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust sources with Tree-sitter. Indexing runs in the background after successful `path`, `fetch`, and `scan --fetch` commands. `search` rebuilds a missing or stale graph synchronously before returning results unless `--no-sync-index` is set.
 
+The `test/e2e-search` benchmark writes a Markdown report comparing `repobridge search` output with comparable `rg -C 3` output for the pinned Kotlin E2E repository. In the current run, structured codegraph search reduced estimated output tokens by 49.5% to 83.3% across four search tasks. The estimate uses UTF-8 bytes divided by four; use API usage metrics or a model tokenizer for exact accounting.
+
 ## Commands
 
 | Command | Description |

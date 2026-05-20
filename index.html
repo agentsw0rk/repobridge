@@ -506,6 +506,35 @@
         border-radius: 12px;
       }
 
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 22px;
+      }
+
+      .metric {
+        border: 1px solid rgba(114, 228, 255, 0.16);
+        border-radius: 10px;
+        padding: 16px;
+        background: rgba(255, 255, 255, 0.035);
+      }
+
+      .metric strong {
+        display: block;
+        color: var(--green);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 1.45rem;
+        line-height: 1;
+      }
+
+      .metric span {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+
       table {
         width: 100%;
         border-collapse: collapse;
@@ -633,6 +662,10 @@
         .cards {
           grid-template-columns: 1fr;
         }
+
+        .metric-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
       }
 
       @media (max-width: 620px) {
@@ -667,6 +700,10 @@
 
         .footer-inner {
           flex-direction: column;
+        }
+
+        .metric-grid {
+          grid-template-columns: 1fr;
         }
       }
     </style>
@@ -756,9 +793,7 @@ repobridge scan --cwd . --fetch --limit 10
 
 repobridge search react@19.0.0 "kind:function calls:createRoot"
 repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
-
-REACT_PATH="$(repobridge path --cwd . react)"
-rg "useSyncExternalStore" "$REACT_PATH"</code></pre>
+repobridge search github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 "lang:kotlin calls:exec"</code></pre>
         </div>
       </section>
 
@@ -793,6 +828,24 @@ rg "useSyncExternalStore" "$REACT_PATH"</code></pre>
               <span class="tag">search</span><span class="tag">calls:</span><span class="tag">lang:kotlin</span>
             </div>
           </article>
+        </div>
+        <div class="metric-grid" aria-label="Search output budget benchmark results">
+          <div class="metric">
+            <strong>49.5%</strong>
+            <span>fewer estimated tokens finding Kotlin <code>up</code></span>
+          </div>
+          <div class="metric">
+            <strong>64.0%</strong>
+            <span>fewer estimated tokens finding functions calling <code>exec</code></span>
+          </div>
+          <div class="metric">
+            <strong>75.6%</strong>
+            <span>fewer estimated tokens finding functions calling <code>ps</code></span>
+          </div>
+          <div class="metric">
+            <strong>83.3%</strong>
+            <span>fewer estimated tokens finding <code>findDockerCompose</code></span>
+          </div>
         </div>
       </section>
 
@@ -959,7 +1012,7 @@ repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin ki
             <span class="step">03</span>
             <div>
               <h3>Search symbols and calls</h3>
-              <p>Run <code>repobridge search &lt;spec&gt; "kind:function calls:send"</code> or resolve a path and use <code>rg</code> for raw text search.</p>
+              <p>Run <code>repobridge search &lt;spec&gt; "kind:function calls:send"</code> to get compact, structured results for the agent context.</p>
             </div>
           </article>
         </div>
