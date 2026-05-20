@@ -73,6 +73,14 @@ repobridge scan --cwd . --json
 repobridge scan --cwd . --fetch --limit 10
 ```
 
+Search cached source graphs:
+
+```bash
+repobridge search react@19.0.0 "kind:function name:render"
+repobridge search pypi:requests==2.32.3 "calls:send lang:python"
+repobridge search github.com/vercel/next.js "path:packages kind:method"
+```
+
 Inspect and clean cached sources:
 
 ```bash
@@ -108,11 +116,12 @@ NuGet inputs use package IDs with an optional explicit version. Without a versio
 | `repobridge fetch <spec...>` | Downloads sources into the cache. |
 | `repobridge path <spec...>` | Fetches on cache miss and prints absolute source paths. |
 | `repobridge scan` | Scans a project and proposes dependency source specs. |
+| `repobridge search <spec> <query>` | Searches the local AST graph for a cached source, building the graph synchronously if needed. |
 | `repobridge list [--json]` | Lists cached packages and repositories. |
 | `repobridge remove <spec...>` | Removes selected cached sources. |
 | `repobridge clean` | Removes cached sources, optionally scoped by flags. |
 
-Most commands that resolve package versions accept `--cwd` for lockfile detection. `fetch` also accepts `--quiet`; `path` accepts `--verbose`; `scan` accepts `--json`, `--fetch`, `--limit`, and `--no-imports`; `clean` accepts filters such as `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, and `--nuget`.
+Most commands that resolve package versions accept `--cwd` for lockfile detection. `fetch` also accepts `--quiet`; `path` accepts `--verbose`; `scan` accepts `--json`, `--fetch`, `--limit`, and `--no-imports`; `search` accepts `--json`, `--limit`, `--kind`, `--lang`, `--path`, `--calls`, and `--no-sync-index`; `clean` accepts filters such as `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, and `--nuget`.
 
 ## Configuration
 
@@ -124,6 +133,8 @@ Most commands that resolve package versions accept `--cwd` for lockfile detectio
 | `BITBUCKET_TOKEN` | Token for private Bitbucket repositories. |
 
 The cache contains cloned source trees and a `sources.json` index under `REPOBRIDGE_HOME`. Repository fetches remove `.git` so the cache stores source snapshots rather than nested working trees.
+
+After successful `path`, `fetch`, and `scan --fetch` calls, RepoBridge starts background AST indexing for the cached source. Graph data is stored beside the source in `.repobridge-graph/`; command output remains unchanged. The first `search` builds a missing or stale graph synchronously before returning results.
 
 ## Development
 
