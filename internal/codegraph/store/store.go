@@ -44,6 +44,16 @@ func (s *Store) Close() {
 }
 
 func (s *Store) Status() (Status, error) {
+	var status Status
+	err := s.ob.RunInReadTx(func() error {
+		var err error
+		status, err = s.statusInTx()
+		return err
+	})
+	return status, err
+}
+
+func (s *Store) statusInTx() (Status, error) {
 	metadata, err := BoxForMetadataEntity(s.ob).GetAll()
 	if err != nil {
 		return Status{}, err
@@ -126,94 +136,108 @@ func (s *Store) Replace(result codegraph.IndexResult) error {
 }
 
 func (s *Store) Search(query codegraph.SearchQuery) ([]codegraph.SearchResult, error) {
-	nodes, err := BoxForNodeEntity(s.ob).GetAll()
-	if err != nil {
-		return nil, err
-	}
-
-	status, err := s.Status()
-	if err != nil {
-		return nil, err
-	}
-
-	type scoredResult struct {
-		result   codegraph.SearchResult
-		stableID string
-	}
-
-	scored := make([]scoredResult, 0, len(nodes))
-	for _, node := range nodes {
-		score, ok := scoreNode(node, query)
-		if !ok {
-			continue
-		}
-
-		calls, err := s.CallsByNode(node.StableID)
+	var results []codegraph.SearchResult
+	err := s.ob.RunInReadTx(func() error {
+		nodes, err := BoxForNodeEntity(s.ob).GetAll()
 		if err != nil {
-			return nil, err
-		}
-		if !matchesCallFilters(calls, query.Calls) {
-			continue
+			return err
 		}
 
-		scored = append(scored, scoredResult{
-			result: codegraph.SearchResult{
-				Source:        status.SourcePath,
-				Kind:          codegraph.NodeKind(node.Kind),
-				Name:          node.Name,
-				QualifiedName: node.QualifiedName,
-				Language:      codegraph.Language(node.Language),
-				Path:          node.FilePath,
-				StartLine:     node.StartLine,
-				EndLine:       node.EndLine,
-				Score:         score,
-				Calls:         calls,
-			},
-			stableID: node.StableID,
+		status, err := s.statusInTx()
+		if err != nil {
+			return err
+		}
+
+		type scoredResult struct {
+			result   codegraph.SearchResult
+			stableID string
+		}
+
+		scored := make([]scoredResult, 0, len(nodes))
+		for _, node := range nodes {
+			score, ok := scoreNode(node, query)
+			if !ok {
+				continue
+			}
+
+			calls, err := s.callsByNodeInTx(node.StableID)
+			if err != nil {
+				return err
+			}
+			if !matchesCallFilters(calls, query.Calls) {
+				continue
+			}
+
+			scored = append(scored, scoredResult{
+				result: codegraph.SearchResult{
+					Source:        status.SourcePath,
+					Kind:          codegraph.NodeKind(node.Kind),
+					Name:          node.Name,
+					QualifiedName: node.QualifiedName,
+					Language:      codegraph.Language(node.Language),
+					Path:          node.FilePath,
+					StartLine:     node.StartLine,
+					EndLine:       node.EndLine,
+					Score:         score,
+					Calls:         calls,
+				},
+				stableID: node.StableID,
+			})
+		}
+
+		sort.SliceStable(scored, func(i, j int) bool {
+			left := scored[i].result
+			right := scored[j].result
+			if left.Score != right.Score {
+				return left.Score > right.Score
+			}
+			if left.Path != right.Path {
+				return left.Path < right.Path
+			}
+			if left.StartLine != right.StartLine {
+				return left.StartLine < right.StartLine
+			}
+			if left.Name != right.Name {
+				return left.Name < right.Name
+			}
+			if left.QualifiedName != right.QualifiedName {
+				return left.QualifiedName < right.QualifiedName
+			}
+			if left.Kind != right.Kind {
+				return left.Kind < right.Kind
+			}
+			if left.Language != right.Language {
+				return left.Language < right.Language
+			}
+			if left.EndLine != right.EndLine {
+				return left.EndLine < right.EndLine
+			}
+			return scored[i].stableID < scored[j].stableID
 		})
-	}
 
-	sort.SliceStable(scored, func(i, j int) bool {
-		left := scored[i].result
-		right := scored[j].result
-		if left.Score != right.Score {
-			return left.Score > right.Score
+		results = make([]codegraph.SearchResult, 0, len(scored))
+		for _, result := range scored {
+			results = append(results, result.result)
 		}
-		if left.Path != right.Path {
-			return left.Path < right.Path
+		if query.Limit > 0 && len(results) > query.Limit {
+			results = results[:query.Limit]
 		}
-		if left.StartLine != right.StartLine {
-			return left.StartLine < right.StartLine
-		}
-		if left.Name != right.Name {
-			return left.Name < right.Name
-		}
-		if left.QualifiedName != right.QualifiedName {
-			return left.QualifiedName < right.QualifiedName
-		}
-		if left.Kind != right.Kind {
-			return left.Kind < right.Kind
-		}
-		if left.Language != right.Language {
-			return left.Language < right.Language
-		}
-		if left.EndLine != right.EndLine {
-			return left.EndLine < right.EndLine
-		}
-		return scored[i].stableID < scored[j].stableID
+		return nil
 	})
-
-	results := make([]codegraph.SearchResult, 0, len(scored))
-	for _, result := range scored {
-		results = append(results, result.result)
-	}
-	if query.Limit > 0 && len(results) > query.Limit {
-		results = results[:query.Limit]
-	}
-	return results, nil
+	return results, err
 }
 
 func (s *Store) CallsByNode(stableID string) ([]string, error) {
+	var calls []string
+	err := s.ob.RunInReadTx(func() error {
+		var err error
+		calls, err = s.callsByNodeInTx(stableID)
+		return err
+	})
+	return calls, err
+}
+
+func (s *Store) callsByNodeInTx(stableID string) ([]string, error) {
 	unresolved, err := BoxForUnresolvedReferenceEntity(s.ob).GetAll()
 	if err != nil {
 		return nil, err
