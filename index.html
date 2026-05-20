@@ -140,7 +140,7 @@
         grid-template-columns: minmax(0, 1.02fr) minmax(360px, 0.98fr);
         align-items: center;
         gap: 40px;
-        min-height: min(660px, calc(100vh - 68px));
+        min-height: min(700px, calc(100vh - 68px));
         padding: 36px 0 32px;
       }
 
@@ -169,17 +169,6 @@
         background: var(--green);
         box-shadow: 0 0 22px rgba(111, 242, 180, 0.8);
         content: "";
-      }
-
-      .hero-logo {
-        display: block;
-        width: min(100%, 300px);
-        height: auto;
-        margin: 0 0 24px;
-        border: 1px solid rgba(114, 228, 255, 0.24);
-        border-radius: 10px;
-        background: #ffffff;
-        box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
       }
 
       h1,
@@ -655,11 +644,6 @@
       }
 
       @media (max-width: 620px) {
-        .hero-logo {
-          width: min(100%, 320px);
-          margin-bottom: 22px;
-        }
-
         h1 {
           font-size: 3.1rem;
         }
@@ -719,6 +703,12 @@
         }
 
       }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+      }
     </style>
   </head>
   <body>
@@ -744,7 +734,6 @@
     <main id="top">
       <section class="hero shell">
         <div>
-          <img class="hero-logo" src="logo.png" alt="RepoBridge source to local path for agents and tools" width="440" height="240" />
           <p class="eyebrow">Go CLI · package sources · AST code graphs</p>
           <h1>searchable source context for ai agents</h1>
           <p class="hero-copy">
