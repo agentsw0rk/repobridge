@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"repobridge/internal/cache"
+	"repobridge/internal/codegraph"
 	"repobridge/internal/projectscan"
 	"repobridge/internal/registry"
 	"repobridge/internal/registry/repo"
@@ -163,6 +165,111 @@ func newScanCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&noImports, "no-imports", false, "disable import hints from source files")
 	cmd.Flags().IntVar(&limit, "limit", 0, "limit number of reported or fetched specs")
 	return cmd
+}
+
+func newSearchCommand(opts Options) *cobra.Command {
+	var cwd string
+	var jsonOutput bool
+	var limit int
+	var kinds []string
+	var languages []string
+	var paths []string
+	var calls []string
+	var noSyncIndex bool
+
+	cmd := &cobra.Command{
+		Use:   "search <spec> <query>",
+		Short: "Search cached source code graph",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+			query := appendSearchFilters(args[1], kinds, languages, paths, calls)
+			results, err := opts.app().SearchCode(args[0], query, codegraph.SearchOptions{
+				CWD:       cwd,
+				SyncIndex: !noSyncIndex,
+				Limit:     limit,
+			})
+			if err != nil {
+				return err
+			}
+			if jsonOutput {
+				content, err := json.MarshalIndent(results, "", "  ")
+				if err != nil {
+					return err
+				}
+				fmt.Fprintln(out, string(content))
+				return nil
+			}
+			if len(results) == 0 {
+				fmt.Fprintln(out, "No code graph results found.")
+				return nil
+			}
+			for _, result := range results {
+				printSearchResult(out, result)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print search results as JSON")
+	cmd.Flags().IntVar(&limit, "limit", 0, "limit number of search results")
+	cmd.Flags().StringArrayVar(&kinds, "kind", nil, "filter by node kind")
+	cmd.Flags().StringArrayVar(&languages, "lang", nil, "filter by language")
+	cmd.Flags().StringArrayVar(&paths, "path", nil, "filter by path substring")
+	cmd.Flags().StringArrayVar(&calls, "calls", nil, "filter by called symbol")
+	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale code graph index")
+	return cmd
+}
+
+func appendSearchFilters(query string, kinds, languages, paths, calls []string) string {
+	filters := make([]string, 0, len(kinds)+len(languages)+len(paths)+len(calls))
+	for _, kind := range kinds {
+		filters = append(filters, "kind:"+kind)
+	}
+	for _, language := range languages {
+		filters = append(filters, "lang:"+language)
+	}
+	for _, path := range paths {
+		filters = append(filters, "path:"+path)
+	}
+	for _, call := range calls {
+		filters = append(filters, "calls:"+call)
+	}
+	if len(filters) == 0 {
+		return query
+	}
+	if query == "" {
+		return strings.Join(filters, " ")
+	}
+	return query + " " + strings.Join(filters, " ")
+}
+
+func printSearchResult(out io.Writer, result codegraph.SearchResult) {
+	source := result.Source
+	if source == "" {
+		source = "(unknown source)"
+	}
+	descriptor := strings.TrimSpace(fmt.Sprintf("%s %s", result.Kind, result.Name))
+	if descriptor == "" {
+		descriptor = "(unknown)"
+	}
+	location := formatSearchLocation(result.Path, result.StartLine)
+	fmt.Fprintln(out, source)
+	if location == "" {
+		fmt.Fprintf(out, "  %s\n", descriptor)
+	} else {
+		fmt.Fprintf(out, "  %s %s\n", descriptor, location)
+	}
+	if len(result.Calls) > 0 {
+		fmt.Fprintf(out, "    calls: %s\n", strings.Join(result.Calls, ", "))
+	}
+}
+
+func formatSearchLocation(path string, startLine int) string {
+	if startLine <= 0 {
+		return path
+	}
+	return fmt.Sprintf("%s:%d", path, startLine)
 }
 
 func newListCommand(opts Options) *cobra.Command {

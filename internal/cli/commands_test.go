@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"repobridge/internal/cache"
+	"repobridge/internal/codegraph"
 	"repobridge/internal/source"
 )
 
@@ -39,13 +40,24 @@ type ensureCall struct {
 }
 
 type fakeApp struct {
-	outcomes map[string]source.Outcome
-	calls    []ensureCall
+	outcomes      map[string]source.Outcome
+	calls         []ensureCall
+	searchResults []codegraph.SearchResult
+	searchSpec    string
+	searchQuery   string
+	searchOpts    codegraph.SearchOptions
 }
 
 func (a *fakeApp) EnsureCached(spec string, opts source.Options) (source.Outcome, error) {
 	a.calls = append(a.calls, ensureCall{spec: spec, opts: opts})
 	return a.outcomes[spec], nil
+}
+
+func (a *fakeApp) SearchCode(spec, rawQuery string, opts codegraph.SearchOptions) ([]codegraph.SearchResult, error) {
+	a.searchSpec = spec
+	a.searchQuery = rawQuery
+	a.searchOpts = opts
+	return a.searchResults, nil
 }
 
 type fakeIndexer struct {
@@ -461,6 +473,108 @@ func TestScanJSONPrintsProjectCandidates(t *testing.T) {
 	}
 	if got.Candidates[0].Spec != "react@19.0.0" || got.Candidates[0].Ecosystem != "npm" {
 		t.Fatalf("candidate = %#v, want react npm", got.Candidates[0])
+	}
+}
+
+func TestSearchPrintsHumanReadableResults(t *testing.T) {
+	app := &fakeApp{searchResults: []codegraph.SearchResult{{
+		Source:    "zod@3.22.4",
+		Kind:      codegraph.NodeKindFunction,
+		Name:      "parse",
+		Language:  codegraph.LanguageTypeScript,
+		Path:      "src/index.ts",
+		StartLine: 12,
+		EndLine:   20,
+		Calls:     []string{"safeParse"},
+	}}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "search", "zod@3.22.4", "kind:function name:parse")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	for _, want := range []string{
+		"zod@3.22.4",
+		"function parse src/index.ts:12",
+		"calls: safeParse",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if app.searchSpec != "zod@3.22.4" || app.searchQuery != "kind:function name:parse" {
+		t.Fatalf("search call = %q %q %#v", app.searchSpec, app.searchQuery, app.searchOpts)
+	}
+	if !app.searchOpts.SyncIndex {
+		t.Fatalf("search options = %#v, want SyncIndex true", app.searchOpts)
+	}
+}
+
+func TestSearchJSONPrintsResults(t *testing.T) {
+	app := &fakeApp{searchResults: []codegraph.SearchResult{{
+		Source:    "demo",
+		Kind:      codegraph.NodeKindFunction,
+		Name:      "Run",
+		Path:      "main.go",
+		StartLine: 1,
+	}}}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "search", "--json", "demo", "Run")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	var got []codegraph.SearchResult
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if len(got) != 1 || got[0].Name != "Run" || got[0].Path != "main.go" {
+		t.Fatalf("results = %#v, want Run main.go", got)
+	}
+	if !strings.HasSuffix(stdout, "\n") {
+		t.Fatalf("stdout = %q, want trailing newline", stdout)
+	}
+}
+
+func TestSearchPassesOptionsAndFilterFlags(t *testing.T) {
+	app := &fakeApp{}
+
+	stdout, stderr, err := executeForTestWithOptions(
+		Options{App: app},
+		"search",
+		"--cwd", "/tmp/project",
+		"--limit", "7",
+		"--kind", "function",
+		"--lang", "go",
+		"--path", "internal/",
+		"--calls", "helper",
+		"--no-sync-index",
+		"demo",
+		"parse",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if strings.TrimSpace(stdout) != "No code graph results found." {
+		t.Fatalf("stdout = %q, want no-results message", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if app.searchSpec != "demo" {
+		t.Fatalf("search spec = %q, want demo", app.searchSpec)
+	}
+	for _, want := range []string{"parse", "kind:function", "lang:go", "path:internal/", "calls:helper"} {
+		if !strings.Contains(app.searchQuery, want) {
+			t.Fatalf("search query = %q, want %q", app.searchQuery, want)
+		}
+	}
+	if app.searchOpts.CWD != "/tmp/project" || app.searchOpts.Limit != 7 || app.searchOpts.SyncIndex {
+		t.Fatalf("search options = %#v, want cwd, limit, no sync", app.searchOpts)
 	}
 }
 

@@ -22,6 +22,7 @@ type Options struct {
 
 type App interface {
 	EnsureCached(spec string, opts source.Options) (source.Outcome, error)
+	SearchCode(spec, rawQuery string, opts codegraph.SearchOptions) ([]codegraph.SearchResult, error)
 }
 
 type IndexScheduler interface {
@@ -36,6 +37,16 @@ type defaultApp struct{}
 
 func (defaultApp) EnsureCached(spec string, opts source.Options) (source.Outcome, error) {
 	return source.EnsureCached(spec, opts)
+}
+
+func (defaultApp) SearchCode(spec, rawQuery string, opts codegraph.SearchOptions) ([]codegraph.SearchResult, error) {
+	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{
+		Resolver: defaultApp{},
+		StoreOpener: func(dir string) (codegraph.GraphStore, error) {
+			return store.Open(dir)
+		},
+	})
+	return service.Search(spec, rawQuery, opts)
 }
 
 func (o Options) stdout() io.Writer {
@@ -115,6 +126,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFetchCommand(opts))
 	cmd.AddCommand(newPathCommand(opts))
 	cmd.AddCommand(newScanCommand(opts))
+	cmd.AddCommand(newSearchCommand(opts))
 	cmd.AddCommand(newListCommand(opts))
 	cmd.AddCommand(newRemoveCommand(opts))
 	cmd.AddCommand(newCleanCommand(opts))
