@@ -6,6 +6,9 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"repobridge/internal/cache"
+	"repobridge/internal/codegraph"
+	"repobridge/internal/codegraph/store"
 	"repobridge/internal/source"
 )
 
@@ -14,10 +17,19 @@ type Options struct {
 	Stdout  io.Writer
 	Stderr  io.Writer
 	App     App
+	Indexer IndexScheduler
 }
 
 type App interface {
 	EnsureCached(spec string, opts source.Options) (source.Outcome, error)
+}
+
+type IndexScheduler interface {
+	Schedule(source.Outcome)
+}
+
+type waitableIndexScheduler interface {
+	Wait()
 }
 
 type defaultApp struct{}
@@ -45,6 +57,39 @@ func (o Options) app() App {
 		return o.App
 	}
 	return defaultApp{}
+}
+
+func (o Options) indexer() IndexScheduler {
+	if o.Indexer != nil {
+		return o.Indexer
+	}
+	return codegraph.NewScheduler(codegraph.SchedulerOptions{IndexFunc: indexOutcome})
+}
+
+func indexOutcome(outcome source.Outcome) error {
+	graphDir, err := cache.GraphDirForSource(outcome.Path)
+	if err != nil {
+		return err
+	}
+	graph, err := store.Open(graphDir)
+	if err != nil {
+		return err
+	}
+	defer graph.Close()
+
+	index, err := codegraph.NewIndexer(codegraph.IndexOptions{}).Index(outcome.Path)
+	if err != nil {
+		return err
+	}
+	return graph.Replace(index)
+}
+
+func waitForIndexer(indexer IndexScheduler) {
+	waiter, ok := indexer.(waitableIndexScheduler)
+	if !ok {
+		return
+	}
+	waiter.Wait()
 }
 
 func NewRootCommand(opts Options) *cobra.Command {

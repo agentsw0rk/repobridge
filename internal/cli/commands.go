@@ -23,6 +23,8 @@ func newFetchCommand(opts Options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			errOut := cmd.ErrOrStderr()
+			indexer := opts.indexer()
+			defer waitForIndexer(indexer)
 			fetched, cached, failed := 0, 0, 0
 			for _, spec := range args {
 				outcome, err := opts.app().EnsureCached(spec, source.Options{CWD: cwd, Verbose: !quiet})
@@ -45,6 +47,7 @@ func newFetchCommand(opts Options) *cobra.Command {
 				if outcome.Warning != "" && !quiet {
 					fmt.Fprintf(errOut, "Warning for %s: %s\n", spec, outcome.Warning)
 				}
+				indexer.Schedule(outcome)
 			}
 			if !quiet {
 				fmt.Fprintf(out, "Fetched %d source(s), %d already cached\n", fetched, cached)
@@ -69,11 +72,14 @@ func newPathCommand(opts Options) *cobra.Command {
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
+			indexer := opts.indexer()
+			defer waitForIndexer(indexer)
 			for _, spec := range args {
 				outcome, err := opts.app().EnsureCached(spec, source.Options{CWD: cwd, Verbose: verbose})
 				if err != nil {
 					return err
 				}
+				indexer.Schedule(outcome)
 				fmt.Fprintln(out, outcome.Path)
 			}
 			return nil
@@ -109,6 +115,8 @@ func newScanCommand(opts Options) *cobra.Command {
 				result.Candidates = result.Candidates[:limit]
 			}
 			if fetch {
+				indexer := opts.indexer()
+				defer waitForIndexer(indexer)
 				for _, candidate := range result.Candidates {
 					outcome, err := opts.app().EnsureCached(candidate.Spec, source.Options{CWD: cwd, Verbose: !jsonOutput})
 					if err != nil {
@@ -122,6 +130,7 @@ func newScanCommand(opts Options) *cobra.Command {
 							fmt.Fprintf(out, "Fetched %s\n", formatOutcome(outcome, candidate.Spec))
 						}
 					}
+					indexer.Schedule(outcome)
 				}
 			}
 			if jsonOutput {

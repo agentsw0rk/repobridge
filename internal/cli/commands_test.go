@@ -22,6 +22,9 @@ func executeForTestWithOptions(opts Options, args ...string) (string, string, er
 	opts.Version = "test-version"
 	opts.Stdout = &stdout
 	opts.Stderr = &stderr
+	if opts.Indexer == nil {
+		opts.Indexer = &fakeIndexer{}
+	}
 	cmd := NewRootCommand(opts)
 	cmd.SetArgs(args)
 	err := cmd.Execute()
@@ -41,6 +44,14 @@ type fakeApp struct {
 func (a *fakeApp) EnsureCached(spec string, opts source.Options) (source.Outcome, error) {
 	a.calls = append(a.calls, ensureCall{spec: spec, opts: opts})
 	return a.outcomes[spec], nil
+}
+
+type fakeIndexer struct {
+	outcomes []source.Outcome
+}
+
+func (i *fakeIndexer) Schedule(outcome source.Outcome) {
+	i.outcomes = append(i.outcomes, outcome)
 }
 
 func withHome(t *testing.T) string {
@@ -124,6 +135,31 @@ func TestPathEnsuresCachedAndPrintsOnlyAbsolutePath(t *testing.T) {
 	}
 }
 
+func TestPathSchedulesIndexAfterSuccessfulOutcome(t *testing.T) {
+	outcome := source.Outcome{Path: filepath.Join(t.TempDir(), "zod")}
+	app := &fakeApp{outcomes: map[string]source.Outcome{
+		"zod@3.22.4": outcome,
+	}}
+	indexer := &fakeIndexer{}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app, Indexer: indexer}, "path", "zod@3.22.4")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stdout != outcome.Path+"\n" {
+		t.Fatalf("stdout = %q, want only path", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if len(indexer.outcomes) != 1 {
+		t.Fatalf("scheduled outcomes = %#v, want one", indexer.outcomes)
+	}
+	if indexer.outcomes[0] != outcome {
+		t.Fatalf("scheduled outcome = %#v, want %#v", indexer.outcomes[0], outcome)
+	}
+}
+
 func TestFetchEnsuresCachedAndSummarizesOutcomes(t *testing.T) {
 	app := &fakeApp{outcomes: map[string]source.Outcome{
 		"zod@3.22.4":     {Name: "zod", Version: "3.22.4", SourceLabel: "npm", Path: "/cache/zod"},
@@ -153,6 +189,31 @@ func TestFetchEnsuresCachedAndSummarizesOutcomes(t *testing.T) {
 		if call.opts.CWD != "/tmp/project" || !call.opts.Verbose {
 			t.Fatalf("call = %#v, want cwd and verbose", call)
 		}
+	}
+}
+
+func TestFetchQuietStillSchedulesIndex(t *testing.T) {
+	outcome := source.Outcome{Name: "zod", Version: "3.22.4", SourceLabel: "npm", Path: "/cache/zod"}
+	app := &fakeApp{outcomes: map[string]source.Outcome{
+		"zod@3.22.4": outcome,
+	}}
+	indexer := &fakeIndexer{}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app, Indexer: indexer}, "fetch", "--quiet", "zod@3.22.4")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if len(indexer.outcomes) != 1 {
+		t.Fatalf("scheduled outcomes = %#v, want one", indexer.outcomes)
+	}
+	if indexer.outcomes[0] != outcome {
+		t.Fatalf("scheduled outcome = %#v, want %#v", indexer.outcomes[0], outcome)
 	}
 }
 
@@ -197,6 +258,35 @@ func TestFetchDisplaysNuGetLabel(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestScanFetchSchedulesIndexForSuccessfulCandidates(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"react":"19.0.0"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outcome := source.Outcome{Name: "react", Version: "19.0.0", SourceLabel: "npm", Path: "/cache/react"}
+	app := &fakeApp{outcomes: map[string]source.Outcome{
+		"react@19.0.0": outcome,
+	}}
+	indexer := &fakeIndexer{}
+
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app, Indexer: indexer}, "scan", "--cwd", dir, "--fetch", "--no-imports")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if !strings.Contains(stdout, "Fetched react@19.0.0 from npm") {
+		t.Fatalf("stdout = %q, want fetch output", stdout)
+	}
+	if len(indexer.outcomes) != 1 {
+		t.Fatalf("scheduled outcomes = %#v, want one", indexer.outcomes)
+	}
+	if indexer.outcomes[0] != outcome {
+		t.Fatalf("scheduled outcome = %#v, want %#v", indexer.outcomes[0], outcome)
 	}
 }
 
