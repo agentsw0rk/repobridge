@@ -3,51 +3,51 @@ package codegraph
 import (
 	"time"
 
-	"repobridge/internal/codegraph/parser"
+	"repobridge/internal/codegraph/model"
 )
 
-type NodeKind = parser.NodeKind
+type NodeKind = model.NodeKind
 
 const (
-	NodeKindFile      = parser.NodeKindFile
-	NodeKindModule    = parser.NodeKindModule
-	NodeKindClass     = parser.NodeKindClass
-	NodeKindStruct    = parser.NodeKindStruct
-	NodeKindInterface = parser.NodeKindInterface
-	NodeKindFunction  = parser.NodeKindFunction
-	NodeKindMethod    = parser.NodeKindMethod
-	NodeKindImport    = parser.NodeKindImport
+	NodeKindFile      = model.NodeKindFile
+	NodeKindModule    = model.NodeKindModule
+	NodeKindClass     = model.NodeKindClass
+	NodeKindStruct    = model.NodeKindStruct
+	NodeKindInterface = model.NodeKindInterface
+	NodeKindFunction  = model.NodeKindFunction
+	NodeKindMethod    = model.NodeKindMethod
+	NodeKindImport    = model.NodeKindImport
 )
 
-type EdgeKind = parser.EdgeKind
+type EdgeKind = model.EdgeKind
 
 const (
-	EdgeKindContains = parser.EdgeKindContains
-	EdgeKindCalls    = parser.EdgeKindCalls
-	EdgeKindImports  = parser.EdgeKindImports
+	EdgeKindContains = model.EdgeKindContains
+	EdgeKindCalls    = model.EdgeKindCalls
+	EdgeKindImports  = model.EdgeKindImports
 )
 
-type Language = parser.Language
+type Language = model.Language
 
 const (
-	LanguageGo         = parser.LanguageGo
-	LanguageJava       = parser.LanguageJava
-	LanguageKotlin     = parser.LanguageKotlin
-	LanguageCSharp     = parser.LanguageCSharp
-	LanguageJavaScript = parser.LanguageJavaScript
-	LanguageTypeScript = parser.LanguageTypeScript
-	LanguagePython     = parser.LanguagePython
-	LanguageRust       = parser.LanguageRust
-	LanguageUnknown    = parser.LanguageUnknown
+	LanguageGo         = model.LanguageGo
+	LanguageJava       = model.LanguageJava
+	LanguageKotlin     = model.LanguageKotlin
+	LanguageCSharp     = model.LanguageCSharp
+	LanguageJavaScript = model.LanguageJavaScript
+	LanguageTypeScript = model.LanguageTypeScript
+	LanguagePython     = model.LanguagePython
+	LanguageRust       = model.LanguageRust
+	LanguageUnknown    = model.LanguageUnknown
 )
 
-type GraphFile = parser.GraphFile
+type GraphFile = model.GraphFile
 
-type GraphNode = parser.GraphNode
+type GraphNode = model.GraphNode
 
-type GraphEdge = parser.GraphEdge
+type GraphEdge = model.GraphEdge
 
-type UnresolvedReference = parser.UnresolvedReference
+type UnresolvedReference = model.UnresolvedReference
 
 type IndexResult struct {
 	SourcePath    string

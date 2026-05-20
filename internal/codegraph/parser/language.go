@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"repobridge/internal/codegraph/model"
+
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_c_sharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
@@ -11,21 +13,21 @@ import (
 	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
 
-func languageFor(kind Language) (*tree_sitter.Language, bool) {
+func languageFor(kind model.Language) (*tree_sitter.Language, bool) {
 	switch kind {
-	case LanguageGo:
+	case model.LanguageGo:
 		return tree_sitter.NewLanguage(tree_sitter_go.Language()), true
-	case LanguageJava:
+	case model.LanguageJava:
 		return tree_sitter.NewLanguage(tree_sitter_java.Language()), true
-	case LanguageCSharp:
+	case model.LanguageCSharp:
 		return tree_sitter.NewLanguage(tree_sitter_c_sharp.Language()), true
-	case LanguageJavaScript:
+	case model.LanguageJavaScript:
 		return tree_sitter.NewLanguage(tree_sitter_javascript.Language()), true
-	case LanguageTypeScript:
+	case model.LanguageTypeScript:
 		return tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript()), true
-	case LanguagePython:
+	case model.LanguagePython:
 		return tree_sitter.NewLanguage(tree_sitter_python.Language()), true
-	case LanguageRust:
+	case model.LanguageRust:
 		return tree_sitter.NewLanguage(tree_sitter_rust.Language()), true
 	default:
 		return nil, false

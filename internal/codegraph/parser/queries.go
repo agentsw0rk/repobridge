@@ -4,44 +4,45 @@ import (
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+	"repobridge/internal/codegraph/model"
 )
 
 func walkGo(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkGoNode(path, source, node, result, "")
 }
 
-func walkByLanguage(path string, source []byte, node *tree_sitter.Node, language Language, result *ExtractionResult) {
+func walkByLanguage(path string, source []byte, node *tree_sitter.Node, language model.Language, result *ExtractionResult) {
 	switch language {
-	case LanguageGo:
+	case model.LanguageGo:
 		walkGo(path, source, node, result)
-	case LanguageJavaScript:
+	case model.LanguageJavaScript:
 		walkJavaScript(path, source, node, result)
-	case LanguageTypeScript:
+	case model.LanguageTypeScript:
 		walkTypeScript(path, source, node, result)
-	case LanguagePython:
+	case model.LanguagePython:
 		walkPython(path, source, node, result)
-	case LanguageRust:
+	case model.LanguageRust:
 		walkRust(path, source, node, result)
-	case LanguageJava:
+	case model.LanguageJava:
 		walkJava(path, source, node, result)
-	case LanguageCSharp:
+	case model.LanguageCSharp:
 		walkCSharp(path, source, node, result)
 	}
 }
 
 type extractionConfig struct {
-	language       Language
-	nodeKinds      map[string]NodeKind
+	language       model.Language
+	nodeKinds      map[string]model.NodeKind
 	callKinds      map[string]bool
 	anonymousKinds map[string]bool
 }
 
 func walkJavaScript(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: LanguageJavaScript,
-		nodeKinds: map[string]NodeKind{
-			"function_declaration": NodeKindFunction,
-			"method_definition":    NodeKindMethod,
+		language: model.LanguageJavaScript,
+		nodeKinds: map[string]model.NodeKind{
+			"function_declaration": model.NodeKindFunction,
+			"method_definition":    model.NodeKindMethod,
 		},
 		callKinds: map[string]bool{
 			"call_expression": true,
@@ -55,10 +56,10 @@ func walkJavaScript(path string, source []byte, node *tree_sitter.Node, result *
 
 func walkTypeScript(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: LanguageTypeScript,
-		nodeKinds: map[string]NodeKind{
-			"function_declaration": NodeKindFunction,
-			"method_definition":    NodeKindMethod,
+		language: model.LanguageTypeScript,
+		nodeKinds: map[string]model.NodeKind{
+			"function_declaration": model.NodeKindFunction,
+			"method_definition":    model.NodeKindMethod,
 		},
 		callKinds: map[string]bool{
 			"call_expression": true,
@@ -72,9 +73,9 @@ func walkTypeScript(path string, source []byte, node *tree_sitter.Node, result *
 
 func walkPython(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: LanguagePython,
-		nodeKinds: map[string]NodeKind{
-			"function_definition": NodeKindFunction,
+		language: model.LanguagePython,
+		nodeKinds: map[string]model.NodeKind{
+			"function_definition": model.NodeKindFunction,
 		},
 		callKinds: map[string]bool{
 			"call": true,
@@ -87,9 +88,9 @@ func walkPython(path string, source []byte, node *tree_sitter.Node, result *Extr
 
 func walkRust(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: LanguageRust,
-		nodeKinds: map[string]NodeKind{
-			"function_item": NodeKindFunction,
+		language: model.LanguageRust,
+		nodeKinds: map[string]model.NodeKind{
+			"function_item": model.NodeKindFunction,
 		},
 		callKinds: map[string]bool{
 			"call_expression": true,
@@ -102,9 +103,9 @@ func walkRust(path string, source []byte, node *tree_sitter.Node, result *Extrac
 
 func walkJava(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: LanguageJava,
-		nodeKinds: map[string]NodeKind{
-			"method_declaration": NodeKindMethod,
+		language: model.LanguageJava,
+		nodeKinds: map[string]model.NodeKind{
+			"method_declaration": model.NodeKindMethod,
 		},
 		callKinds: map[string]bool{
 			"method_invocation": true,
@@ -117,9 +118,9 @@ func walkJava(path string, source []byte, node *tree_sitter.Node, result *Extrac
 
 func walkCSharp(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: LanguageCSharp,
-		nodeKinds: map[string]NodeKind{
-			"method_declaration": NodeKindMethod,
+		language: model.LanguageCSharp,
+		nodeKinds: map[string]model.NodeKind{
+			"method_declaration": model.NodeKindMethod,
 		},
 		callKinds: map[string]bool{
 			"invocation_expression": true,
@@ -159,11 +160,11 @@ func walkGoNode(path string, source []byte, node *tree_sitter.Node, result *Extr
 
 	switch node.Kind() {
 	case "function_declaration":
-		if id := appendGoNode(path, source, node, NodeKindFunction, result); id != "" {
+		if id := appendGoNode(path, source, node, model.NodeKindFunction, result); id != "" {
 			currentNodeID = id
 		}
 	case "method_declaration":
-		if id := appendGoNode(path, source, node, NodeKindMethod, result); id != "" {
+		if id := appendGoNode(path, source, node, model.NodeKindMethod, result); id != "" {
 			currentNodeID = id
 		}
 	case "func_literal":
@@ -179,7 +180,7 @@ func walkGoNode(path string, source []byte, node *tree_sitter.Node, result *Extr
 	}
 }
 
-func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind NodeKind, result *ExtractionResult) string {
+func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind model.NodeKind, result *ExtractionResult) string {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
 		return ""
@@ -189,13 +190,13 @@ func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind NodeK
 	end := node.EndPosition()
 	startLine := int(start.Row) + 1
 	id := stableNodeID(path, kind, name, startLine)
-	result.Nodes = append(result.Nodes, GraphNode{
+	result.Nodes = append(result.Nodes, model.GraphNode{
 		ID:            id,
 		Kind:          kind,
 		Name:          name,
 		QualifiedName: name,
 		FilePath:      path,
-		Language:      LanguageGo,
+		Language:      model.LanguageGo,
 		StartLine:     startLine,
 		EndLine:       int(end.Row) + 1,
 		StartColumn:   int(start.Column),
@@ -205,7 +206,7 @@ func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind NodeK
 	return id
 }
 
-func appendLanguageNode(path string, source []byte, node *tree_sitter.Node, kind NodeKind, language Language, result *ExtractionResult) string {
+func appendLanguageNode(path string, source []byte, node *tree_sitter.Node, kind model.NodeKind, language model.Language, result *ExtractionResult) string {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
 		return ""
@@ -215,7 +216,7 @@ func appendLanguageNode(path string, source []byte, node *tree_sitter.Node, kind
 	end := node.EndPosition()
 	startLine := int(start.Row) + 1
 	id := stableNodeID(path, kind, name, startLine)
-	result.Nodes = append(result.Nodes, GraphNode{
+	result.Nodes = append(result.Nodes, model.GraphNode{
 		ID:            id,
 		Kind:          kind,
 		Name:          name,
@@ -243,28 +244,28 @@ func appendGoCall(path string, source []byte, node *tree_sitter.Node, result *Ex
 	}
 
 	start := functionNode.StartPosition()
-	result.Unresolved = append(result.Unresolved, UnresolvedReference{
+	result.Unresolved = append(result.Unresolved, model.UnresolvedReference{
 		FromNodeID:    fromNodeID,
 		ReferenceName: name,
-		ReferenceKind: EdgeKindCalls,
+		ReferenceKind: model.EdgeKindCalls,
 		FilePath:      path,
-		Language:      LanguageGo,
+		Language:      model.LanguageGo,
 		Line:          int(start.Row) + 1,
 		Column:        int(start.Column),
 	})
 }
 
-func appendLanguageCall(path string, source []byte, node *tree_sitter.Node, language Language, result *ExtractionResult, fromNodeID string) {
+func appendLanguageCall(path string, source []byte, node *tree_sitter.Node, language model.Language, result *ExtractionResult, fromNodeID string) {
 	nameNode, name, ok := callReference(source, node)
 	if !ok {
 		return
 	}
 
 	start := nameNode.StartPosition()
-	result.Unresolved = append(result.Unresolved, UnresolvedReference{
+	result.Unresolved = append(result.Unresolved, model.UnresolvedReference{
 		FromNodeID:    fromNodeID,
 		ReferenceName: name,
-		ReferenceKind: EdgeKindCalls,
+		ReferenceKind: model.EdgeKindCalls,
 		FilePath:      path,
 		Language:      language,
 		Line:          int(start.Row) + 1,

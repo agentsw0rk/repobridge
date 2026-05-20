@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"repobridge/internal/codegraph/model"
 )
 
 type Options struct {
@@ -15,7 +17,7 @@ type Options struct {
 type SourceFile struct {
 	AbsolutePath string
 	RelativePath string
-	Language     Language
+	Language     model.Language
 	Size         int64
 	ModifiedAt   time.Time
 }
@@ -43,7 +45,7 @@ func ScanSourceFiles(root string, opts Options) ([]SourceFile, error) {
 			return nil
 		}
 		language := DetectLanguage(path)
-		if language == LanguageUnknown {
+		if language == model.LanguageUnknown {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
@@ -63,26 +65,26 @@ func ScanSourceFiles(root string, opts Options) ([]SourceFile, error) {
 	return files, err
 }
 
-func DetectLanguage(path string) Language {
+func DetectLanguage(path string) model.Language {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".go":
-		return LanguageGo
+		return model.LanguageGo
 	case ".java":
-		return LanguageJava
+		return model.LanguageJava
 	case ".kt", ".kts":
-		return LanguageKotlin
+		return model.LanguageKotlin
 	case ".cs":
-		return LanguageCSharp
+		return model.LanguageCSharp
 	case ".js", ".jsx", ".mjs", ".cjs":
-		return LanguageJavaScript
+		return model.LanguageJavaScript
 	case ".ts", ".tsx", ".mts", ".cts":
-		return LanguageTypeScript
+		return model.LanguageTypeScript
 	case ".py":
-		return LanguagePython
+		return model.LanguagePython
 	case ".rs":
-		return LanguageRust
+		return model.LanguageRust
 	default:
-		return LanguageUnknown
+		return model.LanguageUnknown
 	}
 }
 
