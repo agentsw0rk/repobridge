@@ -20,6 +20,17 @@
 
 `repobridge` is a small Go CLI for turning package or repository specs into local source trees and searchable AST code graphs. It supports npm, pypi, crates.io, maven, nuget, and common git repository hosts.
 
+## Benchmark
+
+The E2E Token-Reduction-Benchmark compares `repobridge search` with comparable `rg -C 3` output on a pinned Kotlin repository. The current run shows that structured AST search returns much smaller outputs for LLM context while preserving code-level intent such as function and call matching.
+
+| Task | Results | RepoBridge tokens | rg tokens | Estimated reduction |
+| --- | ---: | ---: | ---: | ---: |
+| Find Kotlin up function | 2 | 224 | 444 | 49.5% |
+| Find functions calling exec | 9 | 928 | 2575 | 64.0% |
+| Find functions calling ps | 3 | 320 | 1310 | 75.6% |
+| Find docker compose resolver | 1 | 96 | 576 | 83.3% |
+
 ## Features
 
 - Resolve package specs from npm, pypi, crates.io, maven, and nuget.
@@ -34,14 +45,6 @@
 - Detect installed npm package versions from `node_modules`, lockfiles, and `package.json`.
 - Print machine-friendly paths for downstream automation.
 
-The E2E benchmark compares `repobridge search` with comparable `rg -C 3` output on a pinned Kotlin repository. The current run shows that structured AST search returns much smaller outputs for LLM context while preserving code-level intent such as function and call matching.
-
-| Task | Results | RepoBridge tokens | rg tokens | Estimated reduction |
-| --- | ---: | ---: | ---: | ---: |
-| Find Kotlin up function | 2 | 224 | 444 | 49.5% |
-| Find functions calling exec | 9 | 928 | 2575 | 64.0% |
-| Find functions calling ps | 3 | 320 | 1310 | 75.6% |
-| Find docker compose resolver | 1 | 96 | 576 | 83.3% |
 
 ## Requirements
 
