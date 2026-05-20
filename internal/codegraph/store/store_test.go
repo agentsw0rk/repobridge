@@ -3,6 +3,8 @@ package store
 import (
 	"path/filepath"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,6 +120,85 @@ func TestStoreStatusReportsMissingAndComplete(t *testing.T) {
 	}
 }
 
+func TestStoreReplaceRollsBackInvalidReplacement(t *testing.T) {
+	graph := openTestStore(t)
+
+	completedAt := time.Now().UTC().Truncate(time.Millisecond)
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   completedAt,
+		Nodes: []codegraph.GraphNode{{
+			ID:            "stable-existing",
+			Kind:          codegraph.NodeKindFunction,
+			Name:          "Existing",
+			QualifiedName: "cache.Existing",
+			FilePath:      "internal/cache/cache.go",
+			Language:      codegraph.LanguageGo,
+			StartLine:     10,
+			EndLine:       20,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/replacement",
+		SchemaVersion: 2,
+		CompletedAt:   completedAt.Add(time.Minute),
+		Nodes: []codegraph.GraphNode{
+			{
+				ID:            "duplicate-stable-id",
+				Kind:          codegraph.NodeKindFunction,
+				Name:          "ReplacementOne",
+				QualifiedName: "cache.ReplacementOne",
+				FilePath:      "internal/cache/replacement.go",
+				Language:      codegraph.LanguageGo,
+				StartLine:     1,
+				EndLine:       2,
+			},
+			{
+				ID:            "duplicate-stable-id",
+				Kind:          codegraph.NodeKindFunction,
+				Name:          "ReplacementTwo",
+				QualifiedName: "cache.ReplacementTwo",
+				FilePath:      "internal/cache/replacement.go",
+				Language:      codegraph.LanguageGo,
+				StartLine:     3,
+				EndLine:       4,
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("Replace returned nil error for duplicate stable IDs")
+	}
+
+	status, err := graph.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != "complete" || status.SourcePath != "/cache/repo" || status.SchemaVersion != 1 {
+		t.Fatalf("status after failed replace = %#v", status)
+	}
+
+	results, err := graph.Search(codegraph.SearchQuery{NameFilters: []string{"Existing"}, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resultQualifiedNames(results); !reflect.DeepEqual(got, []string{"cache.Existing"}) {
+		t.Fatalf("existing results after failed replace = %#v, want cache.Existing", got)
+	}
+
+	results, err = graph.Search(codegraph.SearchQuery{NameFilters: []string{"Replacement"}, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("replacement results after failed replace = %#v, want none", results)
+	}
+}
+
 func TestStoreSearchAppliesFiltersAndSortsDeterministically(t *testing.T) {
 	graph := openTestStore(t)
 
@@ -203,6 +284,101 @@ func TestStoreSearchAppliesFiltersAndSortsDeterministically(t *testing.T) {
 	}
 }
 
+func TestStoreSearchSortsTiedResultsByStableFields(t *testing.T) {
+	graph := openTestStore(t)
+
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   time.Now(),
+		Nodes: []codegraph.GraphNode{
+			{
+				ID:            "stable-4",
+				Kind:          codegraph.NodeKindMethod,
+				Name:          "Shared",
+				QualifiedName: "pkg.Shared",
+				FilePath:      "internal/shared.go",
+				Language:      codegraph.LanguageTypeScript,
+				StartLine:     10,
+				EndLine:       20,
+			},
+			{
+				ID:            "stable-3",
+				Kind:          codegraph.NodeKindMethod,
+				Name:          "Shared",
+				QualifiedName: "pkg.Shared",
+				FilePath:      "internal/shared.go",
+				Language:      codegraph.LanguageGo,
+				StartLine:     10,
+				EndLine:       30,
+			},
+			{
+				ID:            "stable-2",
+				Kind:          codegraph.NodeKindFunction,
+				Name:          "Shared",
+				QualifiedName: "pkg.Shared",
+				FilePath:      "internal/shared.go",
+				Language:      codegraph.LanguageGo,
+				StartLine:     10,
+				EndLine:       30,
+			},
+			{
+				ID:            "stable-5",
+				Kind:          codegraph.NodeKindMethod,
+				Name:          "Shared",
+				QualifiedName: "pkg.Shared",
+				FilePath:      "internal/shared.go",
+				Language:      codegraph.LanguageTypeScript,
+				StartLine:     10,
+				EndLine:       10,
+			},
+			{
+				ID:            "stable-1",
+				Kind:          codegraph.NodeKindFunction,
+				Name:          "Shared",
+				QualifiedName: "alpha.Shared",
+				FilePath:      "internal/shared.go",
+				Language:      codegraph.LanguageGo,
+				StartLine:     10,
+				EndLine:       50,
+			},
+			{
+				ID:            "stable-0",
+				Kind:          codegraph.NodeKindFunction,
+				Name:          "Shared",
+				QualifiedName: "pkg.Shared",
+				FilePath:      "internal/shared.go",
+				Language:      codegraph.LanguageGo,
+				StartLine:     10,
+				EndLine:       30,
+			},
+		},
+		Unresolved: []codegraph.UnresolvedReference{
+			{FromNodeID: "stable-2", ReferenceName: "stable-2-call", ReferenceKind: codegraph.EdgeKindCalls},
+			{FromNodeID: "stable-0", ReferenceName: "stable-0-call", ReferenceKind: codegraph.EdgeKindCalls},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := graph.Search(codegraph.SearchQuery{NameFilters: []string{"Shared"}, Limit: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := resultQualifiedNamesKindsLanguagesEndLines(results)
+	want := []string{
+		"alpha.Shared|function|go|50|",
+		"pkg.Shared|function|go|30|stable-0-call",
+		"pkg.Shared|function|go|30|stable-2-call",
+		"pkg.Shared|method|go|30|",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tied result order = %#v, want %#v", got, want)
+	}
+}
+
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 
@@ -228,4 +404,20 @@ func resultPaths(results []codegraph.SearchResult) []string {
 		paths = append(paths, result.Path)
 	}
 	return paths
+}
+
+func resultQualifiedNames(results []codegraph.SearchResult) []string {
+	names := make([]string, 0, len(results))
+	for _, result := range results {
+		names = append(names, result.QualifiedName)
+	}
+	return names
+}
+
+func resultQualifiedNamesKindsLanguagesEndLines(results []codegraph.SearchResult) []string {
+	values := make([]string, 0, len(results))
+	for _, result := range results {
+		values = append(values, result.QualifiedName+"|"+string(result.Kind)+"|"+string(result.Language)+"|"+strconv.Itoa(result.EndLine)+"|"+strings.Join(result.Calls, ","))
+	}
+	return values
 }

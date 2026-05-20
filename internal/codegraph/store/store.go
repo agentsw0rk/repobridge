@@ -70,43 +70,59 @@ func (s *Store) Status() (Status, error) {
 }
 
 func (s *Store) Replace(result codegraph.IndexResult) error {
-	if err := BoxForUnresolvedReferenceEntity(s.ob).RemoveAll(); err != nil {
-		return err
-	}
-	if err := BoxForEdgeEntity(s.ob).RemoveAll(); err != nil {
-		return err
-	}
-	if err := BoxForNodeEntity(s.ob).RemoveAll(); err != nil {
-		return err
-	}
-	if err := BoxForFileEntity(s.ob).RemoveAll(); err != nil {
-		return err
-	}
-	if err := BoxForMetadataEntity(s.ob).RemoveAll(); err != nil {
-		return err
-	}
+	return s.ob.RunInWriteTx(func() error {
+		unresolvedBox := BoxForUnresolvedReferenceEntity(s.ob)
+		edgeBox := BoxForEdgeEntity(s.ob)
+		nodeBox := BoxForNodeEntity(s.ob)
+		fileBox := BoxForFileEntity(s.ob)
+		metadataBox := BoxForMetadataEntity(s.ob)
 
-	if _, err := BoxForFileEntity(s.ob).PutMany(fileEntities(result.Files)); err != nil {
-		return err
-	}
-	if _, err := BoxForNodeEntity(s.ob).PutMany(nodeEntities(result.Nodes)); err != nil {
-		return err
-	}
-	if _, err := BoxForEdgeEntity(s.ob).PutMany(edgeEntities(result.Edges)); err != nil {
-		return err
-	}
-	if _, err := BoxForUnresolvedReferenceEntity(s.ob).PutMany(unresolvedReferenceEntities(result.Unresolved)); err != nil {
-		return err
-	}
+		if err := unresolvedBox.RemoveAll(); err != nil {
+			return err
+		}
+		if err := edgeBox.RemoveAll(); err != nil {
+			return err
+		}
+		if err := nodeBox.RemoveAll(); err != nil {
+			return err
+		}
+		if err := fileBox.RemoveAll(); err != nil {
+			return err
+		}
+		if err := metadataBox.RemoveAll(); err != nil {
+			return err
+		}
 
-	_, err := BoxForMetadataEntity(s.ob).Put(&MetadataEntity{
-		SchemaVersion: result.SchemaVersion,
-		SourcePath:    result.SourcePath,
-		Status:        "complete",
-		StartedAt:     result.StartedAt,
-		CompletedAt:   result.CompletedAt,
+		for _, entity := range fileEntities(result.Files) {
+			if _, err := fileBox.Put(entity); err != nil {
+				return err
+			}
+		}
+		for _, entity := range nodeEntities(result.Nodes) {
+			if _, err := nodeBox.Put(entity); err != nil {
+				return err
+			}
+		}
+		for _, entity := range edgeEntities(result.Edges) {
+			if _, err := edgeBox.Put(entity); err != nil {
+				return err
+			}
+		}
+		for _, entity := range unresolvedReferenceEntities(result.Unresolved) {
+			if _, err := unresolvedBox.Put(entity); err != nil {
+				return err
+			}
+		}
+
+		_, err := metadataBox.Put(&MetadataEntity{
+			SchemaVersion: result.SchemaVersion,
+			SourcePath:    result.SourcePath,
+			Status:        "complete",
+			StartedAt:     result.StartedAt,
+			CompletedAt:   result.CompletedAt,
+		})
+		return err
 	})
-	return err
 }
 
 func (s *Store) Search(query codegraph.SearchQuery) ([]codegraph.SearchResult, error) {
@@ -120,7 +136,12 @@ func (s *Store) Search(query codegraph.SearchQuery) ([]codegraph.SearchResult, e
 		return nil, err
 	}
 
-	results := make([]codegraph.SearchResult, 0, len(nodes))
+	type scoredResult struct {
+		result   codegraph.SearchResult
+		stableID string
+	}
+
+	scored := make([]scoredResult, 0, len(nodes))
 	for _, node := range nodes {
 		score, ok := scoreNode(node, query)
 		if !ok {
@@ -135,33 +156,57 @@ func (s *Store) Search(query codegraph.SearchQuery) ([]codegraph.SearchResult, e
 			continue
 		}
 
-		results = append(results, codegraph.SearchResult{
-			Source:        status.SourcePath,
-			Kind:          codegraph.NodeKind(node.Kind),
-			Name:          node.Name,
-			QualifiedName: node.QualifiedName,
-			Language:      codegraph.Language(node.Language),
-			Path:          node.FilePath,
-			StartLine:     node.StartLine,
-			EndLine:       node.EndLine,
-			Score:         score,
-			Calls:         calls,
+		scored = append(scored, scoredResult{
+			result: codegraph.SearchResult{
+				Source:        status.SourcePath,
+				Kind:          codegraph.NodeKind(node.Kind),
+				Name:          node.Name,
+				QualifiedName: node.QualifiedName,
+				Language:      codegraph.Language(node.Language),
+				Path:          node.FilePath,
+				StartLine:     node.StartLine,
+				EndLine:       node.EndLine,
+				Score:         score,
+				Calls:         calls,
+			},
+			stableID: node.StableID,
 		})
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].Score != results[j].Score {
-			return results[i].Score > results[j].Score
+	sort.SliceStable(scored, func(i, j int) bool {
+		left := scored[i].result
+		right := scored[j].result
+		if left.Score != right.Score {
+			return left.Score > right.Score
 		}
-		if results[i].Path != results[j].Path {
-			return results[i].Path < results[j].Path
+		if left.Path != right.Path {
+			return left.Path < right.Path
 		}
-		if results[i].StartLine != results[j].StartLine {
-			return results[i].StartLine < results[j].StartLine
+		if left.StartLine != right.StartLine {
+			return left.StartLine < right.StartLine
 		}
-		return results[i].Name < results[j].Name
+		if left.Name != right.Name {
+			return left.Name < right.Name
+		}
+		if left.QualifiedName != right.QualifiedName {
+			return left.QualifiedName < right.QualifiedName
+		}
+		if left.Kind != right.Kind {
+			return left.Kind < right.Kind
+		}
+		if left.Language != right.Language {
+			return left.Language < right.Language
+		}
+		if left.EndLine != right.EndLine {
+			return left.EndLine < right.EndLine
+		}
+		return scored[i].stableID < scored[j].stableID
 	})
 
+	results := make([]codegraph.SearchResult, 0, len(scored))
+	for _, result := range scored {
+		results = append(results, result.result)
+	}
 	if query.Limit > 0 && len(results) > query.Limit {
 		results = results[:query.Limit]
 	}
