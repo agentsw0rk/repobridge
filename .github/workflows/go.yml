@@ -21,8 +21,15 @@ jobs:
       with:
         go-version: '1.22'
 
-    - name: Install ObjectBox
-      run: bash <(curl -s https://raw.githubusercontent.com/objectbox/objectbox-go/main/install.sh)
+    - name: Install ObjectBox native library
+      run: |
+        tmpdir="$(mktemp -d)"
+        pushd "$tmpdir"
+        go mod init objectbox-install
+        bash <(curl -s https://raw.githubusercontent.com/objectbox/objectbox-go/v1.9.0/install.sh)
+        popd
+        rm -rf "$tmpdir"
+        git diff --exit-code -- go.mod go.sum
 
     - name: Build
       run: go build -v ./...
