@@ -10,6 +10,12 @@ Run it explicitly:
 go test -tags=e2e ./test/e2e-scan -count=1
 ```
 
+Use verbose mode to see exactly what each project checks:
+
+```bash
+go test -tags=e2e ./test/e2e-scan -count=1 -v
+```
+
 Useful environment variables:
 
 - `REPOBRIDGE_E2E_DIR`: override the workspace directory, defaults to `./e2e`.
@@ -17,4 +23,3 @@ Useful environment variables:
 
 The test intentionally is not part of `go test ./...` because it requires
 network access and GitHub availability.
-

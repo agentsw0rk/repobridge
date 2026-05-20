@@ -51,7 +51,10 @@ func TestProjectScanE2E(t *testing.T) {
 	}
 
 	projects := loadProjects(t, root)
+	t.Logf("testing %d pinned GitHub projects across ecosystems: %s", len(projects), formatProjectCounts(projects))
 	binary := buildRepoBridge(t, root, workspace)
+	t.Logf("using repobridge binary: %s", binary)
+	t.Logf("using e2e workspace: %s", workspace)
 	resultsDir := filepath.Join(workspace, "results")
 	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -60,12 +63,20 @@ func TestProjectScanE2E(t *testing.T) {
 	for _, project := range projects {
 		project := project
 		t.Run(project.Name, func(t *testing.T) {
+			t.Logf("ecosystem: %s", project.Ecosystem)
+			t.Logf("repository: %s", project.Repo)
+			t.Logf("commit: %s", project.Commit)
+			t.Logf("sparse checkout paths: %s", strings.Join(project.SparsePaths, ", "))
+			t.Logf("minimum expected specs: %s", strings.Join(project.Expected, ", "))
+
 			repoDir := checkoutProject(t, workspace, project)
+			t.Logf("checkout directory: %s", repoDir)
 			output := runScan(t, binary, repoDir)
 			resultPath := filepath.Join(resultsDir, project.Name+".json")
 			if err := os.WriteFile(resultPath, output, 0o644); err != nil {
 				t.Fatal(err)
 			}
+			t.Logf("scan JSON written to: %s", resultPath)
 			assertExpectedSpecs(t, project, output)
 		})
 	}
@@ -190,11 +201,30 @@ func assertExpectedSpecs(t *testing.T, project project, output []byte) {
 	for _, candidate := range result.Candidates {
 		found[candidate.Spec] = true
 	}
+	t.Logf("scanner found %d candidates: %s", len(found), formatSpecs(found))
 	for _, expected := range project.Expected {
 		if !found[expected] {
 			t.Fatalf("%s missing expected spec %q\nfound: %s", project.Name, expected, formatSpecs(found))
 		}
 	}
+	t.Logf("verified expected specs: %s", strings.Join(project.Expected, ", "))
+}
+
+func formatProjectCounts(projects []project) string {
+	counts := map[string]int{}
+	for _, project := range projects {
+		counts[project.Ecosystem]++
+	}
+	ecosystems := make([]string, 0, len(counts))
+	for ecosystem := range counts {
+		ecosystems = append(ecosystems, ecosystem)
+	}
+	sort.Strings(ecosystems)
+	parts := make([]string, 0, len(ecosystems))
+	for _, ecosystem := range ecosystems {
+		parts = append(parts, fmt.Sprintf("%s=%d", ecosystem, counts[ecosystem]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func formatSpecs(specs map[string]bool) string {
