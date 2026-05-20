@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"repobridge/internal/cache"
 	"repobridge/internal/codegraph/parser"
 	"repobridge/internal/source"
 )
@@ -23,6 +22,7 @@ type SearchServiceOptions struct {
 	Resolver    SourceResolver
 	Indexer     *Indexer
 	StoreOpener StoreOpener
+	Lifecycle   GraphLifecycle
 }
 
 type SearchOptions struct {
@@ -53,138 +53,45 @@ type GraphStore interface {
 }
 
 type SearchService struct {
-	resolver    SourceResolver
-	indexer     *Indexer
-	storeOpener StoreOpener
+	lifecycle GraphLifecycle
 }
 
 func NewSearchService(opts SearchServiceOptions) *SearchService {
-	resolver := opts.Resolver
-	if resolver == nil {
-		resolver = defaultSourceResolver{}
+	lifecycle := opts.Lifecycle
+	if lifecycle == nil {
+		lifecycle = NewGraphLifecycle(GraphLifecycleOptions{
+			Resolver:    opts.Resolver,
+			Indexer:     opts.Indexer,
+			StoreOpener: opts.StoreOpener,
+		})
 	}
-
-	indexer := opts.Indexer
-	if indexer == nil {
-		indexer = NewIndexer(IndexOptions{})
-	}
-
-	storeOpener := opts.StoreOpener
-	if storeOpener == nil {
-		storeOpener = defaultStoreOpener
-	}
-
-	return &SearchService{
-		resolver:    resolver,
-		indexer:     indexer,
-		storeOpener: storeOpener,
-	}
+	return &SearchService{lifecycle: lifecycle}
 }
 
 func (s *SearchService) Search(spec, rawQuery string, opts SearchOptions) ([]SearchResult, error) {
-	sourceOpts := opts.SourceOpts
-	if opts.CWD != "" {
-		sourceOpts.CWD = opts.CWD
-	}
-
-	outcome, err := s.resolver.EnsureCached(spec, sourceOpts)
-	if err != nil {
-		return nil, err
-	}
-
-	graphDir, err := cache.GraphDirForSource(outcome.Path)
-	if err != nil {
-		return nil, err
-	}
-
-	graph, err := s.storeOpener(graphDir)
-	if err != nil {
-		return nil, err
-	}
-	defer graph.Close()
-
-	status, err := graph.Status()
-	if err != nil {
-		return nil, err
-	}
-	if needsIndex(status) {
-		if !opts.SyncIndex {
-			return nil, fmt.Errorf("codegraph missing or incomplete for %s; enable sync index to build it", spec)
+	var results []SearchResult
+	err := s.lifecycle.UseReady(spec, GraphUseOptions{
+		CWD:        opts.CWD,
+		SourceOpts: opts.SourceOpts,
+		SyncIndex:  opts.SyncIndex,
+	}, func(session GraphSession) error {
+		query := ParseSearchQuery(rawQuery)
+		if opts.Limit > 0 {
+			query.Limit = opts.Limit
 		}
-		result, err := s.indexer.Index(outcome.Path)
+		found, err := session.Store.Search(query)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if err := graph.Replace(result); err != nil {
-			return nil, err
-		}
-	} else {
-		stale, err := s.graphIsStale(graph, outcome.Path)
-		if err != nil {
-			return nil, err
-		}
-		if stale {
-			if !opts.SyncIndex {
-				return nil, fmt.Errorf("codegraph stale for %s; enable sync index to rebuild it", spec)
-			}
-			result, err := s.indexer.Index(outcome.Path)
-			if err != nil {
-				return nil, err
-			}
-			if err := graph.Replace(result); err != nil {
-				return nil, err
+		for i := range found {
+			if shouldReplaceResultSource(found[i].Source, session.SourcePath) {
+				found[i].Source = session.SourceLabel
 			}
 		}
-	}
-
-	query := ParseSearchQuery(rawQuery)
-	if opts.Limit > 0 {
-		query.Limit = opts.Limit
-	}
-	results, err := graph.Search(query)
-	if err != nil {
-		return nil, err
-	}
-
-	sourceLabel := searchSourceLabel(outcome)
-	for i := range results {
-		if shouldReplaceResultSource(results[i].Source, outcome.Path) {
-			results[i].Source = sourceLabel
-		}
-	}
-	return results, nil
-}
-
-func needsIndex(status GraphStatus) bool {
-	return status.Status != "complete" || status.SchemaVersion != SchemaVersion
-}
-
-func (s *SearchService) graphIsStale(graph GraphStore, sourcePath string) (bool, error) {
-	stored, err := graph.Files()
-	if err != nil {
-		return false, err
-	}
-	current, err := currentGraphFiles(sourcePath, parser.Options{MaxFileSize: s.indexer.opts.MaxFileSize})
-	if err != nil {
-		return false, err
-	}
-	if len(stored) != len(current) {
-		return true, nil
-	}
-	currentByPath := make(map[string]GraphFile, len(current))
-	for _, file := range current {
-		currentByPath[file.Path] = file
-	}
-	for _, storedFile := range stored {
-		currentFile, ok := currentByPath[storedFile.Path]
-		if !ok {
-			return true, nil
-		}
-		if storedFile.ContentHash != currentFile.ContentHash || storedFile.Size != currentFile.Size {
-			return true, nil
-		}
-	}
-	return false, nil
+		results = found
+		return nil
+	})
+	return results, err
 }
 
 func currentGraphFiles(sourcePath string, opts parser.Options) ([]GraphFile, error) {

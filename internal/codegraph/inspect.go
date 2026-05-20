@@ -6,210 +6,98 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"repobridge/internal/cache"
-	"repobridge/internal/codegraph/parser"
-	"repobridge/internal/source"
 )
 
 type InspectService struct {
-	resolver    SourceResolver
-	indexer     *Indexer
-	storeOpener StoreOpener
+	lifecycle GraphLifecycle
 }
 
 func NewInspectService(opts SearchServiceOptions) *InspectService {
 	search := NewSearchService(opts)
-	return &InspectService{
-		resolver:    search.resolver,
-		indexer:     search.indexer,
-		storeOpener: search.storeOpener,
-	}
+	return &InspectService{lifecycle: search.lifecycle}
 }
 
 func (s *InspectService) Status(spec string, opts GraphInspectOptions) (GraphInspectStatus, error) {
-	session, err := s.openGraph(spec, opts)
-	if err != nil {
-		return GraphInspectStatus{}, err
-	}
-	defer session.graph.Close()
-
-	status, err := s.ensureInspectableGraph(session.graph, session.outcome.Path, spec, opts.SyncIndex)
-	if err != nil {
-		return GraphInspectStatus{}, err
-	}
-	counts, err := session.graph.Counts()
-	if err != nil {
-		return GraphInspectStatus{}, err
-	}
-	counts.Warnings = warningCount(status.ErrorText)
-	return inspectStatusFromGraph(session, status, counts), nil
+	var result GraphInspectStatus
+	err := s.lifecycle.UseInspectable(spec, inspectGraphUseOptions(opts), func(session GraphSession) error {
+		counts, err := session.Store.Counts()
+		if err != nil {
+			return err
+		}
+		counts.Warnings = warningCount(session.Status.ErrorText)
+		result = inspectStatusFromSession(session, counts)
+		return nil
+	})
+	return result, err
 }
 
 func (s *InspectService) Files(spec string, opts GraphInspectOptions) (GraphFilesResult, error) {
-	session, err := s.openGraph(spec, opts)
-	if err != nil {
-		return GraphFilesResult{}, err
-	}
-	defer session.graph.Close()
-
-	if _, err := s.ensureInspectableGraph(session.graph, session.outcome.Path, spec, opts.SyncIndex); err != nil {
-		return GraphFilesResult{}, err
-	}
-	files, err := session.graph.Files()
-	if err != nil {
-		return GraphFilesResult{}, err
-	}
-	filtered := make([]GraphFile, 0, len(files))
-	for _, file := range files {
-		if opts.PathFilter != "" && !strings.Contains(strings.ToLower(file.Path), strings.ToLower(opts.PathFilter)) {
-			continue
+	var result GraphFilesResult
+	err := s.lifecycle.UseInspectable(spec, inspectGraphUseOptions(opts), func(session GraphSession) error {
+		files, err := session.Store.Files()
+		if err != nil {
+			return err
 		}
-		filtered = append(filtered, file)
-	}
-	if opts.Limit > 0 && len(filtered) > opts.Limit {
-		filtered = filtered[:opts.Limit]
-	}
-	return GraphFilesResult{Source: searchSourceLabel(session.outcome), Files: filtered}, nil
+		filtered := make([]GraphFile, 0, len(files))
+		for _, file := range files {
+			if opts.PathFilter != "" && !strings.Contains(strings.ToLower(file.Path), strings.ToLower(opts.PathFilter)) {
+				continue
+			}
+			filtered = append(filtered, file)
+		}
+		if opts.Limit > 0 && len(filtered) > opts.Limit {
+			filtered = filtered[:opts.Limit]
+		}
+		result = GraphFilesResult{Source: session.SourceLabel, Files: filtered}
+		return nil
+	})
+	return result, err
 }
 
 func (s *InspectService) Node(spec, lookup string, opts GraphInspectOptions) (GraphNodeLookupResult, error) {
-	session, err := s.openGraph(spec, opts)
-	if err != nil {
-		return GraphNodeLookupResult{}, err
-	}
-	defer session.graph.Close()
-
-	if _, err := s.ensureInspectableGraph(session.graph, session.outcome.Path, spec, opts.SyncIndex); err != nil {
-		return GraphNodeLookupResult{}, err
-	}
-	nodes, err := session.graph.Nodes(GraphNodeQuery{Lookup: lookup, Limit: opts.Limit})
-	if err != nil {
-		return GraphNodeLookupResult{}, err
-	}
-
-	result := GraphNodeLookupResult{Source: searchSourceLabel(session.outcome)}
-	details := make([]GraphNodeDetail, 0, len(nodes))
-	for _, node := range nodes {
-		detail, err := s.nodeDetail(session.graph, session.outcome.Path, node, opts.SourceLines)
+	var result GraphNodeLookupResult
+	err := s.lifecycle.UseInspectable(spec, inspectGraphUseOptions(opts), func(session GraphSession) error {
+		nodes, err := session.Store.Nodes(GraphNodeQuery{Lookup: lookup, Limit: opts.Limit})
 		if err != nil {
-			return GraphNodeLookupResult{}, err
+			return err
 		}
-		details = append(details, detail)
-	}
-	if len(details) == 1 {
-		result.Node = &details[0]
-		return result, nil
-	}
-	result.Matches = details
-	return result, nil
+		result = GraphNodeLookupResult{Source: session.SourceLabel}
+		details := make([]GraphNodeDetail, 0, len(nodes))
+		for _, node := range nodes {
+			detail, err := s.nodeDetail(session.Store, session.SourcePath, node, opts.SourceLines)
+			if err != nil {
+				return err
+			}
+			details = append(details, detail)
+		}
+		if len(details) == 1 {
+			result.Node = &details[0]
+			return nil
+		}
+		result.Matches = details
+		return nil
+	})
+	return result, err
 }
 
-type inspectSession struct {
-	outcome  source.Outcome
-	graphDir string
-	graph    GraphStore
-}
-
-func (s *InspectService) openGraph(spec string, opts GraphInspectOptions) (inspectSession, error) {
-	sourceOpts := opts.SourceOpts
-	if opts.CWD != "" {
-		sourceOpts.CWD = opts.CWD
-	}
-	outcome, err := s.resolver.EnsureCached(spec, sourceOpts)
-	if err != nil {
-		return inspectSession{}, err
-	}
-	graphDir, err := cache.GraphDirForSource(outcome.Path)
-	if err != nil {
-		return inspectSession{}, err
-	}
-	graph, err := s.storeOpener(graphDir)
-	if err != nil {
-		return inspectSession{}, err
-	}
-	return inspectSession{outcome: outcome, graphDir: graphDir, graph: graph}, nil
-}
-
-func (s *InspectService) ensureInspectableGraph(graph GraphStore, sourcePath, spec string, syncIndex bool) (GraphStatus, error) {
-	status, err := graph.Status()
-	if err != nil {
-		return GraphStatus{}, err
-	}
-	if needsIndex(status) {
-		if !syncIndex {
-			return status, nil
-		}
-		result, err := s.indexer.Index(sourcePath)
-		if err != nil {
-			return GraphStatus{}, err
-		}
-		if err := graph.Replace(result); err != nil {
-			return GraphStatus{}, err
-		}
-		return graph.Status()
-	}
-
-	stale, err := s.graphIsStale(graph, sourcePath)
-	if err != nil {
-		return GraphStatus{}, err
-	}
-	if stale {
-		if !syncIndex {
-			status.Status = "stale"
-			return status, nil
-		}
-		result, err := s.indexer.Index(sourcePath)
-		if err != nil {
-			return GraphStatus{}, fmt.Errorf("codegraph stale for %s but reindex failed: %w", spec, err)
-		}
-		if err := graph.Replace(result); err != nil {
-			return GraphStatus{}, err
-		}
-		return graph.Status()
-	}
-	status.Status = normalizeGraphStatus(status.Status)
-	return status, nil
-}
-
-func (s *InspectService) graphIsStale(graph GraphStore, sourcePath string) (bool, error) {
-	stored, err := graph.Files()
-	if err != nil {
-		return false, err
-	}
-	current, err := currentGraphFiles(sourcePath, parser.Options{MaxFileSize: s.indexer.opts.MaxFileSize})
-	if err != nil {
-		return false, err
-	}
-	if len(stored) != len(current) {
-		return true, nil
-	}
-	currentByPath := make(map[string]GraphFile, len(current))
-	for _, file := range current {
-		currentByPath[file.Path] = file
-	}
-	for _, storedFile := range stored {
-		currentFile, ok := currentByPath[storedFile.Path]
-		if !ok {
-			return true, nil
-		}
-		if storedFile.ContentHash != currentFile.ContentHash || storedFile.Size != currentFile.Size {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func inspectStatusFromGraph(session inspectSession, status GraphStatus, counts GraphCounts) GraphInspectStatus {
+func inspectStatusFromSession(session GraphSession, counts GraphCounts) GraphInspectStatus {
 	return GraphInspectStatus{
-		Source:        searchSourceLabel(session.outcome),
-		SourcePath:    session.outcome.Path,
-		GraphPath:     session.graphDir,
-		Status:        normalizeGraphStatus(status.Status),
-		SchemaVersion: status.SchemaVersion,
-		ErrorText:     status.ErrorText,
-		IndexedAt:     status.CompletedAt,
+		Source:        session.SourceLabel,
+		SourcePath:    session.SourcePath,
+		GraphPath:     session.GraphDir,
+		Status:        normalizeGraphStatus(session.Status.Status),
+		SchemaVersion: session.Status.SchemaVersion,
+		ErrorText:     session.Status.ErrorText,
+		IndexedAt:     session.Status.CompletedAt,
 		Counts:        counts,
+	}
+}
+
+func inspectGraphUseOptions(opts GraphInspectOptions) GraphUseOptions {
+	return GraphUseOptions{
+		CWD:        opts.CWD,
+		SourceOpts: opts.SourceOpts,
+		SyncIndex:  opts.SyncIndex,
 	}
 }
 

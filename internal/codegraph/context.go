@@ -4,23 +4,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"repobridge/internal/cache"
 )
 
 type ContextService struct {
-	resolver    SourceResolver
-	indexer     *Indexer
-	storeOpener StoreOpener
+	lifecycle GraphLifecycle
 }
 
 func NewContextService(opts SearchServiceOptions) *ContextService {
 	search := NewSearchService(opts)
-	return &ContextService{
-		resolver:    search.resolver,
-		indexer:     search.indexer,
-		storeOpener: search.storeOpener,
-	}
+	return &ContextService{lifecycle: search.lifecycle}
 }
 
 func (s *ContextService) Context(spec, rawQuery string, opts ContextOptions) (ContextResult, error) {
@@ -28,82 +20,63 @@ func (s *ContextService) Context(spec, rawQuery string, opts ContextOptions) (Co
 		opts.Mode = ContextModeContext
 	}
 	budget := ApplyContextBudgetOverrides(opts)
-	sourceOpts := opts.SourceOpts
-	if opts.CWD != "" {
-		sourceOpts.CWD = opts.CWD
-	}
-	outcome, err := s.resolver.EnsureCached(spec, sourceOpts)
-	if err != nil {
-		return ContextResult{}, err
-	}
-	graphDir, err := cache.GraphDirForSource(outcome.Path)
-	if err != nil {
-		return ContextResult{}, err
-	}
-	graph, err := s.storeOpener(graphDir)
-	if err != nil {
-		return ContextResult{}, err
-	}
-	defer graph.Close()
-
-	callgraph := &CallgraphService{resolver: s.resolver, indexer: s.indexer, storeOpener: s.storeOpener}
-	if err := callgraph.ensureGraph(graph, outcome.Path, spec, opts.SyncIndex); err != nil {
-		return ContextResult{}, err
-	}
-
-	parsed := ParseContextQuery(rawQuery)
-	parsed.Search.Limit = budget.SearchLimit
-	results, err := graph.Search(parsed.Search)
-	if err != nil {
-		return ContextResult{}, err
-	}
-	if len(results) == 0 {
-		results, err = s.searchContextTerms(graph, parsed.Terms, budget)
+	var result ContextResult
+	err := s.lifecycle.UseReady(spec, GraphUseOptions{
+		CWD:        opts.CWD,
+		SourceOpts: opts.SourceOpts,
+		SyncIndex:  opts.SyncIndex,
+	}, func(session GraphSession) error {
+		parsed := ParseContextQuery(rawQuery)
+		parsed.Search.Limit = budget.SearchLimit
+		results, err := session.Store.Search(parsed.Search)
 		if err != nil {
-			return ContextResult{}, err
+			return err
 		}
-	}
-	entryPoints, err := s.entryPoints(graph, parsed, results, budget)
-	if err != nil {
-		return ContextResult{}, err
-	}
-	relationships, err := s.relationships(graph, entryPoints, budget)
-	if err != nil {
-		return ContextResult{}, err
-	}
-	snippets, err := s.snippets(outcome.Path, entryPoints, budget)
-	if err != nil {
-		return ContextResult{}, err
-	}
-	files, err := graph.Files()
-	if err != nil {
-		return ContextResult{}, err
-	}
-	relatedFiles := relatedGraphFiles(files, entryPoints, budget.SearchLimit)
-	status, err := graph.Status()
-	if err != nil {
-		return ContextResult{}, err
-	}
+		if len(results) == 0 {
+			results, err = s.searchContextTerms(session.Store, parsed.Terms, budget)
+			if err != nil {
+				return err
+			}
+		}
+		entryPoints, err := s.entryPoints(session.Store, parsed, results, budget)
+		if err != nil {
+			return err
+		}
+		relationships, err := s.relationships(session.Store, entryPoints, budget)
+		if err != nil {
+			return err
+		}
+		snippets, err := s.snippets(session.SourcePath, entryPoints, budget)
+		if err != nil {
+			return err
+		}
+		files, err := session.Store.Files()
+		if err != nil {
+			return err
+		}
+		relatedFiles := relatedGraphFiles(files, entryPoints, budget.SearchLimit)
 
-	result := ContextResult{
-		Source:        searchSourceLabel(outcome),
-		Mode:          opts.Mode,
-		Query:         rawQuery,
-		Budget:        budget,
-		EntryPoints:   entryPoints,
-		Relationships: relationships,
-		Snippets:      snippets,
-		RelatedFiles:  relatedFiles,
-		Warnings:      splitWarnings(status.ErrorText),
-	}
-	result.Stats = ContextResultStats{
-		Terms:         len(parsed.Terms),
-		EntryPoints:   len(result.EntryPoints),
-		Relationships: len(result.Relationships),
-		Snippets:      len(result.Snippets),
-		RelatedFiles:  len(result.RelatedFiles),
-	}
-	return result, nil
+		result = ContextResult{
+			Source:        session.SourceLabel,
+			Mode:          opts.Mode,
+			Query:         rawQuery,
+			Budget:        budget,
+			EntryPoints:   entryPoints,
+			Relationships: relationships,
+			Snippets:      snippets,
+			RelatedFiles:  relatedFiles,
+			Warnings:      splitWarnings(session.Status.ErrorText),
+		}
+		result.Stats = ContextResultStats{
+			Terms:         len(parsed.Terms),
+			EntryPoints:   len(result.EntryPoints),
+			Relationships: len(result.Relationships),
+			Snippets:      len(result.Snippets),
+			RelatedFiles:  len(result.RelatedFiles),
+		}
+		return nil
+	})
+	return result, err
 }
 
 func (s *ContextService) searchContextTerms(graph GraphStore, terms []string, budget ContextBudget) ([]SearchResult, error) {
