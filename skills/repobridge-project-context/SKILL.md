@@ -1,6 +1,6 @@
 ---
 name: repobridge-project-context
-description: Use when an AI agent needs real framework or library source code as read-only reference context for a project. Scans project manifests, lockfiles, and imports, proposes RepoBridge specs, fetches relevant sources with repobridge, and uses the resolved paths for code reading, symbol investigation, and rg/grep-style searches.
+description: Use when an AI agent needs real framework or library source code as read-only reference context for a project. Scans project manifests, lockfiles, and imports, proposes RepoBridge specs, fetches relevant sources with repobridge, and uses AST codegraph search, resolved paths, file reads, and focused fallback rg searches for investigation.
 ---
 
 # RepoBridge Project Context
@@ -10,7 +10,7 @@ Use this skill to enrich an agent's local context with source code for the frame
 ## Workflow
 
 1. **Find the project root.** Use the current working directory unless the user gives another path.
-2. **Ensure RepoBridge is available.** Run `command -v repobridge`. If it is missing, install the pinned GitHub release using the platform-specific asset table below.
+2. **Ensure RepoBridge is available.** Run `command -v repobridge`. If it is missing, install the pinned GitHub release using the platform-specific asset table below. If AST search is needed, also verify `repobridge search --help`; when unavailable, use a newer RepoBridge build that includes codegraph search.
 3. **Scan dependencies.** Run RepoBridge's project scanner:
 
    ```bash
@@ -26,13 +26,15 @@ Use this skill to enrich an agent's local context with source code for the frame
    repobridge path --cwd <project-root> <spec>
    ```
 
-7. **Use resolved paths as read-only references.** Search and read them with tools such as `rg`, file reads, and LSP navigation when available:
+7. **Search resolved source graphs first.** Prefer `repobridge search` for symbol-, language-, path-, and call-aware investigation because it returns compact AST results instead of broad text snippets:
 
    ```bash
-   rg "createRoot|useEffect" "$(repobridge path --cwd <project-root> react)"
+   repobridge search --cwd <project-root> react "kind:function calls:createRoot"
+   repobridge search --cwd <project-root> maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
    ```
 
-8. **State what was fetched.** In the final response, mention which frameworks/libraries were resolved and which paths were used when that matters for the task.
+8. **Use resolved paths as read-only references when needed.** Read files directly, use LSP navigation when available, and use `rg` only as a fallback for text that is not represented in the AST graph.
+9. **State what was fetched and searched.** In the final response, mention which frameworks/libraries were resolved and which search queries or paths were used when that matters for the task.
 
 ## Installing RepoBridge from GitHub Releases
 
@@ -57,6 +59,47 @@ https://github.com/agentsw0rk/repobridge/releases/download/v0.2.1/<asset>
 For macOS/Linux, extract the tarball, copy `repobridge` to a directory on `PATH` such as `$HOME/.local/bin`, make it executable, and verify with `repobridge --version`.
 
 For Windows, extract `repobridge.exe` from the zip file, add its directory to `PATH`, and verify with `repobridge --version`.
+
+## Codegraph Search
+
+After successful `path`, `fetch`, or `scan --fetch`, RepoBridge starts background AST indexing for cached sources. `repobridge search` builds a missing or stale graph synchronously unless `--no-sync-index` is set. Use search before reading large dependency trees manually.
+
+Search command shape:
+
+```bash
+repobridge search --cwd <project-root> [--json] [--limit N] <spec> "<query>"
+```
+
+Query tokens:
+
+| Token | Use |
+| --- | --- |
+| `kind:<kind>` | Filter node kind: `file`, `module`, `class`, `struct`, `interface`, `function`, `method`, `import`. |
+| `lang:<language>` or `language:<language>` | Filter language: `go`, `java`, `kotlin`, `csharp`, `javascript`, `typescript`, `python`, `rust`, `unknown`. |
+| `path:<substring>` | Restrict results to paths containing the substring. |
+| `name:<substring>` | Match function, method, class, module, or import names. |
+| `calls:<symbol>` | Find functions or methods that call a symbol. |
+| free text | Matches indexed names, qualified names, paths, and call names. |
+
+The same filters can also be passed as flags when this is clearer:
+
+```bash
+repobridge search --cwd <project-root> --json --limit 20 --kind function --lang kotlin --path DockerCompose.kt --calls exec <spec> ""
+```
+
+Use `--json` when another tool or the agent needs structured fields such as `kind`, `name`, `qualifiedName`, `language`, `path`, `startLine`, `endLine`, and `calls`.
+
+Good query patterns:
+
+```bash
+repobridge search --cwd . react@19.0.0 "kind:function name:render"
+repobridge search --cwd . pypi:requests==2.32.3 "calls:send lang:python"
+repobridge search --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
+repobridge search --cwd . github.com/vercel/next.js "path:packages kind:method"
+repobridge search --cwd . <spec> "kind:function calls:exec path:DockerCompose.kt"
+```
+
+Prefer search when the task is about definitions, declarations, functions, methods, classes, imports, languages, paths, or function calls. Use fallback `rg` on `$(repobridge path --cwd <project-root> <spec>)` for comments, docs, string literals, configuration files, generated code, or patterns outside the current AST extraction.
 
 ## Selection Rules
 
@@ -101,8 +144,7 @@ For a React project:
 ```bash
 repobridge scan --cwd /path/to/app --json
 repobridge scan --cwd /path/to/app --fetch --limit 8
-REACT_PATH="$(repobridge path --cwd /path/to/app react)"
-rg "useSyncExternalStore" "$REACT_PATH"
+repobridge search --cwd /path/to/app react "kind:function name:useSyncExternalStore"
 ```
 
 For a mixed backend project:
@@ -110,11 +152,14 @@ For a mixed backend project:
 ```bash
 repobridge scan --cwd /path/to/service
 repobridge fetch --cwd /path/to/service pypi:fastapi maven:org.springframework:spring-core@6.1.0
+repobridge search --cwd /path/to/service pypi:fastapi "lang:python kind:function"
+repobridge search --cwd /path/to/service maven:org.springframework:spring-core@6.1.0 "lang:java kind:class"
 ```
 
 ## Failure Handling
 
 - If `repobridge` is not installed, download the pinned `v0.2.1` asset for the current OS/architecture, install it into a local bin directory, and verify `repobridge --version`.
+- If `repobridge search --help` is unavailable, install or build a newer RepoBridge version that includes codegraph search.
 - If a proposed spec fails, continue with the remaining specs and report the failure.
 - If too many dependencies are detected, narrow to the libraries relevant to the user's current task.
 - If private repositories fail, ask the user to provide the appropriate token through `GITHUB_TOKEN`, `GITLAB_TOKEN`, or `BITBUCKET_TOKEN`.
