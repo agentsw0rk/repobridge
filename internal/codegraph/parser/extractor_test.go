@@ -33,6 +33,16 @@ func (s Service) Run() {
 	assertUnresolvedFrom(t, result.Unresolved, "helper", runID)
 }
 
+func TestExtractFromSourceSkipsGoCallsWithoutOwner(t *testing.T) {
+	source := []byte("package demo\nvar x = helper()\nfunc helper() {}\n")
+
+	result, err := ExtractFromSource("service.go", source, codegraph.LanguageGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoUnresolved(t, result.Unresolved, "helper")
+}
+
 func assertNode(t *testing.T, nodes []codegraph.GraphNode, kind codegraph.NodeKind, name string) {
 	t.Helper()
 	for _, node := range nodes {
@@ -72,4 +82,13 @@ func assertUnresolvedFrom(t *testing.T, refs []codegraph.UnresolvedReference, na
 		}
 	}
 	t.Fatalf("reference %s from %s not found in %#v", name, fromID, refs)
+}
+
+func assertNoUnresolved(t *testing.T, refs []codegraph.UnresolvedReference, name string) {
+	t.Helper()
+	for _, ref := range refs {
+		if ref.ReferenceName == name {
+			t.Fatalf("unexpected reference %s found in %#v", name, refs)
+		}
+	}
 }

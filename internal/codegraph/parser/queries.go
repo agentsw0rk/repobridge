@@ -27,7 +27,9 @@ func walkGoNode(path string, source []byte, node *tree_sitter.Node, result *Extr
 			currentNodeID = id
 		}
 	case "call_expression":
-		appendGoCall(path, source, node, result, currentNodeID)
+		if currentNodeID != "" {
+			appendGoCall(path, source, node, result, currentNodeID)
+		}
 	}
 
 	for i := uint(0); i < node.NamedChildCount(); i++ {
