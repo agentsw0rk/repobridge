@@ -65,9 +65,23 @@ jobs:
         run: |
           set -euo pipefail
           objectbox_dir="${RUNNER_TEMP}/objectbox"
-          mkdir -p "${objectbox_dir}"
+          extract_dir="${objectbox_dir}/extract"
+          mkdir -p "${objectbox_dir}/include" "${objectbox_dir}/lib" "${extract_dir}"
           pushd "${objectbox_dir}"
-          bash <(curl -s https://raw.githubusercontent.com/objectbox/objectbox-c/main/download.sh) --quiet "${OBJECTBOX_CONFIG}" 4.2.0
+          if [[ "${OBJECTBOX_CONFIG}" == linux-* ]]; then
+            archive_ext="tar.gz"
+          else
+            archive_ext="zip"
+          fi
+          archive="objectbox-${OBJECTBOX_CONFIG}.${archive_ext}"
+          curl --location --fail --output "${archive}" "https://github.com/objectbox/objectbox-c/releases/download/v4.2.0/${archive}"
+          if [[ "${archive_ext}" == "tar.gz" ]]; then
+            tar -xzf "${archive}" -C "${extract_dir}"
+          else
+            unzip -q "${archive}" -d "${extract_dir}"
+          fi
+          cp "${extract_dir}"/include/* "${objectbox_dir}/include/"
+          cp "${extract_dir}"/lib/* "${objectbox_dir}/lib/"
           echo "CGO_CFLAGS=-I${objectbox_dir}/include" >> "${GITHUB_ENV}"
           if [[ "${RUNNER_OS}" == "macOS" ]]; then
             echo "CGO_LDFLAGS=-L${objectbox_dir}/lib -Wl,-rpath,@executable_path" >> "${GITHUB_ENV}"
