@@ -26,6 +26,15 @@
 - Detect installed npm package versions from `node_modules`, lockfiles, and `package.json`.
 - Print machine-friendly paths for downstream automation.
 
+The `test/e2e-search` benchmark compares `repobridge search` with comparable `rg -C 3` output on a pinned Kotlin repository. The current run shows that structured AST search returns much smaller outputs for LLM context while preserving code-level intent such as function and call matching. Estimated tokens use UTF-8 bytes divided by four; use API usage metrics or a model tokenizer for exact accounting.
+
+| Task | Results | RepoBridge bytes | RepoBridge est. tokens | rg bytes | rg est. tokens | Estimated reduction |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Find Kotlin up function | 2 | 896 | 224 | 1774 | 444 | 49.5% |
+| Find functions calling exec | 9 | 3712 | 928 | 10297 | 2575 | 64.0% |
+| Find functions calling ps | 3 | 1278 | 320 | 5239 | 1310 | 75.6% |
+| Find docker compose resolver | 1 | 382 | 96 | 2304 | 576 | 83.3% |
+
 ## Requirements
 
 - Go 1.22 or newer
@@ -112,8 +121,6 @@ Maven inputs use explicit `groupId:artifactId@version` coordinates. RepoBridge d
 NuGet inputs use package IDs with an optional explicit version. Without a version, RepoBridge selects the latest stable NuGet version. RepoBridge downloads the `.nupkg` only to read `.nuspec` repository metadata, then fetches the matching Git repository by commit or version tag. It does not cache package binaries as source.
 
 AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust sources with Tree-sitter. Indexing runs in the background after successful `path`, `fetch`, and `scan --fetch` commands. `search` rebuilds a missing or stale graph synchronously before returning results unless `--no-sync-index` is set.
-
-The `test/e2e-search` benchmark writes a Markdown report comparing `repobridge search` output with comparable `rg -C 3` output for the pinned Kotlin E2E repository. In the current run, structured codegraph search reduced estimated output tokens by 49.5% to 83.3% across four search tasks. The estimate uses UTF-8 bytes divided by four; use API usage metrics or a model tokenizer for exact accounting.
 
 ## Commands
 
