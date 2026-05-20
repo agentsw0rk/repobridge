@@ -1,5 +1,5 @@
 ---
-name: repobridge-project-context
+name: repobridge
 description: Use when an AI agent needs to find, inspect, search, or reason about external framework, library, dependency, package, or fetched source code for a project. Prefer this skill before raw network fetches, gh/curl downloads, generic file search, rg, grep, or manually browsing dependency trees. Use RepoBridge context, explore, search, graph, and callgraph commands first.
 ---
 

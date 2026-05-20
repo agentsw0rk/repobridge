@@ -1,0 +1,4 @@
+interface:
+  display_name: "RepoBridge Project Context"
+  short_description: "Search dependency sources with RepoBridge AST graphs"
+  default_prompt: "Use $repobridge for dependency or fetched source-code investigation. Resolve specs with RepoBridge and use repobridge context, explore, search, and callgraph commands before any raw rg, grep, network fetch, or manual source-tree browsing."
