@@ -9,25 +9,23 @@ import (
 	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
 	tree_sitter_rust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
 	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
-
-	"repobridge/internal/codegraph"
 )
 
-func languageFor(kind codegraph.Language) (*tree_sitter.Language, bool) {
+func languageFor(kind Language) (*tree_sitter.Language, bool) {
 	switch kind {
-	case codegraph.LanguageGo:
+	case LanguageGo:
 		return tree_sitter.NewLanguage(tree_sitter_go.Language()), true
-	case codegraph.LanguageJava:
+	case LanguageJava:
 		return tree_sitter.NewLanguage(tree_sitter_java.Language()), true
-	case codegraph.LanguageCSharp:
+	case LanguageCSharp:
 		return tree_sitter.NewLanguage(tree_sitter_c_sharp.Language()), true
-	case codegraph.LanguageJavaScript:
+	case LanguageJavaScript:
 		return tree_sitter.NewLanguage(tree_sitter_javascript.Language()), true
-	case codegraph.LanguageTypeScript:
+	case LanguageTypeScript:
 		return tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript()), true
-	case codegraph.LanguagePython:
+	case LanguagePython:
 		return tree_sitter.NewLanguage(tree_sitter_python.Language()), true
-	case codegraph.LanguageRust:
+	case LanguageRust:
 		return tree_sitter.NewLanguage(tree_sitter_rust.Language()), true
 	default:
 		return nil, false

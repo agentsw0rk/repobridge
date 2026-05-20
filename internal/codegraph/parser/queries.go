@@ -4,46 +4,44 @@ import (
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-
-	"repobridge/internal/codegraph"
 )
 
 func walkGo(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkGoNode(path, source, node, result, "")
 }
 
-func walkByLanguage(path string, source []byte, node *tree_sitter.Node, language codegraph.Language, result *ExtractionResult) {
+func walkByLanguage(path string, source []byte, node *tree_sitter.Node, language Language, result *ExtractionResult) {
 	switch language {
-	case codegraph.LanguageGo:
+	case LanguageGo:
 		walkGo(path, source, node, result)
-	case codegraph.LanguageJavaScript:
+	case LanguageJavaScript:
 		walkJavaScript(path, source, node, result)
-	case codegraph.LanguageTypeScript:
+	case LanguageTypeScript:
 		walkTypeScript(path, source, node, result)
-	case codegraph.LanguagePython:
+	case LanguagePython:
 		walkPython(path, source, node, result)
-	case codegraph.LanguageRust:
+	case LanguageRust:
 		walkRust(path, source, node, result)
-	case codegraph.LanguageJava:
+	case LanguageJava:
 		walkJava(path, source, node, result)
-	case codegraph.LanguageCSharp:
+	case LanguageCSharp:
 		walkCSharp(path, source, node, result)
 	}
 }
 
 type extractionConfig struct {
-	language       codegraph.Language
-	nodeKinds      map[string]codegraph.NodeKind
+	language       Language
+	nodeKinds      map[string]NodeKind
 	callKinds      map[string]bool
 	anonymousKinds map[string]bool
 }
 
 func walkJavaScript(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: codegraph.LanguageJavaScript,
-		nodeKinds: map[string]codegraph.NodeKind{
-			"function_declaration": codegraph.NodeKindFunction,
-			"method_definition":    codegraph.NodeKindMethod,
+		language: LanguageJavaScript,
+		nodeKinds: map[string]NodeKind{
+			"function_declaration": NodeKindFunction,
+			"method_definition":    NodeKindMethod,
 		},
 		callKinds: map[string]bool{
 			"call_expression": true,
@@ -57,10 +55,10 @@ func walkJavaScript(path string, source []byte, node *tree_sitter.Node, result *
 
 func walkTypeScript(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: codegraph.LanguageTypeScript,
-		nodeKinds: map[string]codegraph.NodeKind{
-			"function_declaration": codegraph.NodeKindFunction,
-			"method_definition":    codegraph.NodeKindMethod,
+		language: LanguageTypeScript,
+		nodeKinds: map[string]NodeKind{
+			"function_declaration": NodeKindFunction,
+			"method_definition":    NodeKindMethod,
 		},
 		callKinds: map[string]bool{
 			"call_expression": true,
@@ -74,9 +72,9 @@ func walkTypeScript(path string, source []byte, node *tree_sitter.Node, result *
 
 func walkPython(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: codegraph.LanguagePython,
-		nodeKinds: map[string]codegraph.NodeKind{
-			"function_definition": codegraph.NodeKindFunction,
+		language: LanguagePython,
+		nodeKinds: map[string]NodeKind{
+			"function_definition": NodeKindFunction,
 		},
 		callKinds: map[string]bool{
 			"call": true,
@@ -89,9 +87,9 @@ func walkPython(path string, source []byte, node *tree_sitter.Node, result *Extr
 
 func walkRust(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: codegraph.LanguageRust,
-		nodeKinds: map[string]codegraph.NodeKind{
-			"function_item": codegraph.NodeKindFunction,
+		language: LanguageRust,
+		nodeKinds: map[string]NodeKind{
+			"function_item": NodeKindFunction,
 		},
 		callKinds: map[string]bool{
 			"call_expression": true,
@@ -104,9 +102,9 @@ func walkRust(path string, source []byte, node *tree_sitter.Node, result *Extrac
 
 func walkJava(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: codegraph.LanguageJava,
-		nodeKinds: map[string]codegraph.NodeKind{
-			"method_declaration": codegraph.NodeKindMethod,
+		language: LanguageJava,
+		nodeKinds: map[string]NodeKind{
+			"method_declaration": NodeKindMethod,
 		},
 		callKinds: map[string]bool{
 			"method_invocation": true,
@@ -119,9 +117,9 @@ func walkJava(path string, source []byte, node *tree_sitter.Node, result *Extrac
 
 func walkCSharp(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	walkConfiguredNode(path, source, node, result, "", extractionConfig{
-		language: codegraph.LanguageCSharp,
-		nodeKinds: map[string]codegraph.NodeKind{
-			"method_declaration": codegraph.NodeKindMethod,
+		language: LanguageCSharp,
+		nodeKinds: map[string]NodeKind{
+			"method_declaration": NodeKindMethod,
 		},
 		callKinds: map[string]bool{
 			"invocation_expression": true,
@@ -161,11 +159,11 @@ func walkGoNode(path string, source []byte, node *tree_sitter.Node, result *Extr
 
 	switch node.Kind() {
 	case "function_declaration":
-		if id := appendGoNode(path, source, node, codegraph.NodeKindFunction, result); id != "" {
+		if id := appendGoNode(path, source, node, NodeKindFunction, result); id != "" {
 			currentNodeID = id
 		}
 	case "method_declaration":
-		if id := appendGoNode(path, source, node, codegraph.NodeKindMethod, result); id != "" {
+		if id := appendGoNode(path, source, node, NodeKindMethod, result); id != "" {
 			currentNodeID = id
 		}
 	case "func_literal":
@@ -181,7 +179,7 @@ func walkGoNode(path string, source []byte, node *tree_sitter.Node, result *Extr
 	}
 }
 
-func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind codegraph.NodeKind, result *ExtractionResult) string {
+func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind NodeKind, result *ExtractionResult) string {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
 		return ""
@@ -191,13 +189,13 @@ func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind codeg
 	end := node.EndPosition()
 	startLine := int(start.Row) + 1
 	id := stableNodeID(path, kind, name, startLine)
-	result.Nodes = append(result.Nodes, codegraph.GraphNode{
+	result.Nodes = append(result.Nodes, GraphNode{
 		ID:            id,
 		Kind:          kind,
 		Name:          name,
 		QualifiedName: name,
 		FilePath:      path,
-		Language:      codegraph.LanguageGo,
+		Language:      LanguageGo,
 		StartLine:     startLine,
 		EndLine:       int(end.Row) + 1,
 		StartColumn:   int(start.Column),
@@ -207,7 +205,7 @@ func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind codeg
 	return id
 }
 
-func appendLanguageNode(path string, source []byte, node *tree_sitter.Node, kind codegraph.NodeKind, language codegraph.Language, result *ExtractionResult) string {
+func appendLanguageNode(path string, source []byte, node *tree_sitter.Node, kind NodeKind, language Language, result *ExtractionResult) string {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
 		return ""
@@ -217,7 +215,7 @@ func appendLanguageNode(path string, source []byte, node *tree_sitter.Node, kind
 	end := node.EndPosition()
 	startLine := int(start.Row) + 1
 	id := stableNodeID(path, kind, name, startLine)
-	result.Nodes = append(result.Nodes, codegraph.GraphNode{
+	result.Nodes = append(result.Nodes, GraphNode{
 		ID:            id,
 		Kind:          kind,
 		Name:          name,
@@ -245,28 +243,28 @@ func appendGoCall(path string, source []byte, node *tree_sitter.Node, result *Ex
 	}
 
 	start := functionNode.StartPosition()
-	result.Unresolved = append(result.Unresolved, codegraph.UnresolvedReference{
+	result.Unresolved = append(result.Unresolved, UnresolvedReference{
 		FromNodeID:    fromNodeID,
 		ReferenceName: name,
-		ReferenceKind: codegraph.EdgeKindCalls,
+		ReferenceKind: EdgeKindCalls,
 		FilePath:      path,
-		Language:      codegraph.LanguageGo,
+		Language:      LanguageGo,
 		Line:          int(start.Row) + 1,
 		Column:        int(start.Column),
 	})
 }
 
-func appendLanguageCall(path string, source []byte, node *tree_sitter.Node, language codegraph.Language, result *ExtractionResult, fromNodeID string) {
+func appendLanguageCall(path string, source []byte, node *tree_sitter.Node, language Language, result *ExtractionResult, fromNodeID string) {
 	nameNode, name, ok := callReference(source, node)
 	if !ok {
 		return
 	}
 
 	start := nameNode.StartPosition()
-	result.Unresolved = append(result.Unresolved, codegraph.UnresolvedReference{
+	result.Unresolved = append(result.Unresolved, UnresolvedReference{
 		FromNodeID:    fromNodeID,
 		ReferenceName: name,
-		ReferenceKind: codegraph.EdgeKindCalls,
+		ReferenceKind: EdgeKindCalls,
 		FilePath:      path,
 		Language:      language,
 		Line:          int(start.Row) + 1,
