@@ -37,7 +37,7 @@ jobs:
             objectbox-config: linux-aarch64
           - goos: darwin
             goarch: amd64
-            runner: macos-13
+            runner: macos-15-intel
             objectbox-config: macos-universal
           - goos: darwin
             goarch: arm64
