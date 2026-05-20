@@ -63,6 +63,7 @@ func Scan(root string, opts Options) (Result, error) {
 	state.scanGoMod()
 	state.scanCargoToml()
 	state.scanPom()
+	state.scanGradle()
 	state.scanCSProj()
 	if opts.IncludeImports {
 		state.scanImports()
@@ -354,6 +355,83 @@ func (s *scanState) scanPom() {
 			s.add("maven:"+dep.GroupID+":"+dep.ArtifactID+"@"+dep.Version, "maven", 88, "pom.xml dependency", path)
 		}
 	})
+}
+
+func (s *scanState) scanGradle() {
+	configPattern := regexp.MustCompile(`\b(?:implementation|api|compileOnly|runtimeOnly|testImplementation|testRuntimeOnly|annotationProcessor|kapt)\b`)
+	coordinatePattern := regexp.MustCompile(`['"]([A-Za-z0-9_.-]+(?:\.[A-Za-z0-9_.-]+)+:[A-Za-z0-9_.-]+:[^'"]+)['"]`)
+	visit := func(path string) {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			s.warnings = append(s.warnings, fmt.Sprintf("could not read %s: %v", path, err))
+			return
+		}
+		for _, line := range strings.Split(string(content), "\n") {
+			line = stripGradleLineComment(line)
+			if !configPattern.MatchString(line) {
+				continue
+			}
+			for _, match := range coordinatePattern.FindAllStringSubmatch(line, -1) {
+				if spec := gradleCoordinateSpec(match[1]); spec != "" {
+					s.add(spec, "maven", 86, "Gradle dependency", path)
+				}
+			}
+			if spec := gradleMapNotationSpec(line); spec != "" {
+				s.add(spec, "maven", 86, "Gradle dependency", path)
+			}
+		}
+	}
+	s.walkNamed("build.gradle", visit)
+	s.walkNamed("build.gradle.kts", visit)
+}
+
+func stripGradleLineComment(line string) string {
+	if comment := strings.Index(line, "//"); comment >= 0 {
+		return line[:comment]
+	}
+	return line
+}
+
+func gradleCoordinateSpec(coordinate string) string {
+	parts := strings.Split(coordinate, ":")
+	if len(parts) != 3 {
+		return ""
+	}
+	groupID, artifactID, version := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), strings.TrimSpace(parts[2])
+	if !validStaticGradlePart(groupID) || !validStaticGradlePart(artifactID) || !validStaticGradleVersion(version) {
+		return ""
+	}
+	return "maven:" + groupID + ":" + artifactID + "@" + version
+}
+
+func gradleMapNotationSpec(line string) string {
+	groupID := gradleNamedArgument(line, "group")
+	artifactID := gradleNamedArgument(line, "name")
+	version := gradleNamedArgument(line, "version")
+	if !validStaticGradlePart(groupID) || !validStaticGradlePart(artifactID) || !validStaticGradleVersion(version) {
+		return ""
+	}
+	return "maven:" + groupID + ":" + artifactID + "@" + version
+}
+
+func gradleNamedArgument(line, name string) string {
+	pattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\s*[:=]\s*['"]([^'"]+)['"]`)
+	match := pattern.FindStringSubmatch(line)
+	if len(match) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(match[1])
+}
+
+func validStaticGradlePart(value string) bool {
+	return value != "" && !strings.ContainsAny(value, `$ {}:"'()`)
+}
+
+func validStaticGradleVersion(version string) bool {
+	if !validStaticGradlePart(version) {
+		return false
+	}
+	return !strings.ContainsAny(version, "+[]@,")
 }
 
 func (s *scanState) scanCSProj() {

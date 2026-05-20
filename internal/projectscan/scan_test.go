@@ -114,6 +114,48 @@ serde = "1.0.217"
 	assertCandidate(t, result, "nuget:Newtonsoft.Json@13.0.3", "nuget", ".csproj PackageReference")
 }
 
+func TestScanProjectDetectsGradleDependencies(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "build.gradle.kts", `
+dependencies {
+	implementation("org.jetbrains.kotlin:kotlin-stdlib:2.1.0")
+	api(platform("org.springframework.boot:spring-boot-dependencies:3.4.1"))
+	testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+	kapt("com.google.dagger:dagger-compiler:2.55")
+	runtimeOnly("org.postgresql:postgresql:$postgresVersion")
+	implementation(project(":shared"))
+	compileOnly(files("libs/local.jar"))
+}
+`)
+	writeFile(t, root, "subproject/build.gradle", `
+dependencies {
+	implementation 'com.google.guava:guava:33.4.0-jre'
+	compileOnly group: 'org.slf4j', name: 'slf4j-api', version: '2.0.16'
+	testRuntimeOnly('org.junit.platform:junit-platform-launcher:1.11.4')
+	api "org.apache.commons:commons-lang3:${commonsLangVersion}"
+}
+`)
+
+	result, err := Scan(root, Options{})
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	assertCandidate(t, result, "maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0", "maven", "Gradle dependency")
+	assertCandidate(t, result, "maven:org.springframework.boot:spring-boot-dependencies@3.4.1", "maven", "Gradle dependency")
+	assertCandidate(t, result, "maven:org.junit.jupiter:junit-jupiter@5.11.4", "maven", "Gradle dependency")
+	assertCandidate(t, result, "maven:com.google.dagger:dagger-compiler@2.55", "maven", "Gradle dependency")
+	assertCandidate(t, result, "maven:com.google.guava:guava@33.4.0-jre", "maven", "Gradle dependency")
+	assertCandidate(t, result, "maven:org.slf4j:slf4j-api@2.0.16", "maven", "Gradle dependency")
+	assertCandidate(t, result, "maven:org.junit.platform:junit-platform-launcher@1.11.4", "maven", "Gradle dependency")
+	if hasCandidate(result, "maven:org.postgresql:postgresql@$postgresVersion") {
+		t.Fatalf("dynamic Gradle version was reported as candidate: %#v", result.Candidates)
+	}
+	if hasCandidate(result, "maven:org.apache.commons:commons-lang3@${commonsLangVersion}") {
+		t.Fatalf("dynamic Gradle version was reported as candidate: %#v", result.Candidates)
+	}
+}
+
 func writeFile(t *testing.T, root, name, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(name))
