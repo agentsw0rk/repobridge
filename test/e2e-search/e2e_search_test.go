@@ -29,11 +29,91 @@ const (
 )
 
 func TestSearchKotlinRepoE2E(t *testing.T) {
+	env := setupSearchE2E(t)
+
+	t.Logf("using repobridge binary: %s", env.binary)
+	t.Logf("using REPOBRIDGE_HOME: %s", env.home)
+	t.Logf("searching pinned Kotlin repo: %s", kotlinComposeSpec)
+
+	results := runSearchJSON(t, env.binary, env.home, kotlinComposeSpec, `lang:kotlin kind:function name:up calls:exec path:DockerCompose.kt`)
+	assertKotlinUpResult(t, results)
+
+	secondResults := runSearchJSON(t, env.binary, env.home, kotlinComposeSpec, `lang:kotlin kind:function name:up path:DockerCompose.kt`)
+	assertKotlinUpResult(t, secondResults)
+}
+
+func TestSearchOutputBudgetReportE2E(t *testing.T) {
+	env := setupSearchE2E(t)
+	tasks := []searchBudgetTask{
+		{
+			Name:        "Find Kotlin up function",
+			SearchQuery: `lang:kotlin kind:function name:up path:DockerCompose.kt`,
+			RGPattern:   `fun up`,
+		},
+		{
+			Name:        "Find functions calling exec",
+			SearchQuery: `lang:kotlin kind:function calls:exec path:DockerCompose.kt`,
+			RGPattern:   `exec\(`,
+		},
+		{
+			Name:        "Find functions calling ps",
+			SearchQuery: `lang:kotlin kind:function calls:ps path:DockerCompose.kt`,
+			RGPattern:   `ps\(`,
+		},
+		{
+			Name:        "Find docker compose resolver",
+			SearchQuery: `lang:kotlin kind:function name:findDockerCompose path:DockerCompose.kt`,
+			RGPattern:   `findDockerCompose`,
+		},
+	}
+
+	report := newSearchBudgetReport(env)
+	for _, task := range tasks {
+		searchOutput := runSearchRaw(t, env.binary, env.home, kotlinComposeSpec, task.SearchQuery)
+		var results []codegraph.SearchResult
+		if err := json.Unmarshal(searchOutput, &results); err != nil {
+			t.Fatalf("could not parse search JSON for %s: %v\n%s", task.Name, err, string(searchOutput))
+		}
+		if len(results) == 0 {
+			t.Fatalf("search task %q returned no results", task.Name)
+		}
+
+		rgOutput := runRG(t, env.sourceDir, task.RGPattern)
+		row := searchBudgetRow{
+			Task:         task,
+			SearchMetric: measureOutput(searchOutput),
+			RGMetric:     measureOutput(rgOutput),
+			ResultCount:  len(results),
+		}
+		if row.SearchMetric.EstimatedTokens >= row.RGMetric.EstimatedTokens {
+			t.Fatalf("%s did not reduce estimated tokens: search=%d rg=%d", task.Name, row.SearchMetric.EstimatedTokens, row.RGMetric.EstimatedTokens)
+		}
+		report.Rows = append(report.Rows, row)
+	}
+
+	reportPath := filepath.Join(env.workspace, "results", "search-output-budget.md")
+	writeSearchBudgetReport(t, reportPath, report)
+	t.Logf("search output budget report written to: %s", reportPath)
+}
+
+type searchE2EEnv struct {
+	root      string
+	workspace string
+	binary    string
+	home      string
+	sourceDir string
+}
+
+func setupSearchE2E(t *testing.T) searchE2EEnv {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping e2e search test in short mode")
 	}
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Fatalf("git is required for e2e search test: %v", err)
+	}
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Fatalf("rg is required for e2e search budget test: %v", err)
 	}
 
 	root := repoRoot(t)
@@ -46,23 +126,15 @@ func TestSearchKotlinRepoE2E(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(workspace, "results"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	binary := buildRepoBridge(t, root, workspace)
 	home := filepath.Join(workspace, "home")
 	t.Setenv("REPOBRIDGE_HOME", home)
-	checkoutCachedRepo(t, home)
-	t.Logf("using repobridge binary: %s", binary)
-	t.Logf("using REPOBRIDGE_HOME: %s", home)
-	t.Logf("searching pinned Kotlin repo: %s", kotlinComposeSpec)
-
-	results := runSearchJSON(t, binary, home, kotlinComposeSpec, `lang:kotlin kind:function name:up calls:exec path:DockerCompose.kt`)
-	assertKotlinUpResult(t, results)
-
-	secondResults := runSearchJSON(t, binary, home, kotlinComposeSpec, `lang:kotlin kind:function name:up path:DockerCompose.kt`)
-	assertKotlinUpResult(t, secondResults)
+	sourceDir := checkoutCachedRepo(t, home)
+	return searchE2EEnv{root: root, workspace: workspace, binary: binary, home: home, sourceDir: sourceDir}
 }
 
 func repoRoot(t *testing.T) string {
@@ -88,7 +160,7 @@ func buildRepoBridge(t *testing.T, root, workspace string) string {
 	return binary
 }
 
-func checkoutCachedRepo(t *testing.T, home string) {
+func checkoutCachedRepo(t *testing.T, home string) string {
 	t.Helper()
 	relativePath := cache.RepoRelativePath(kotlinComposeDisplayName, kotlinComposeCommit)
 	repoDir := filepath.Join(home, filepath.FromSlash(relativePath))
@@ -115,6 +187,7 @@ func checkoutCachedRepo(t *testing.T, home string) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
+	return repoDir
 }
 
 func currentCommit(repoDir string) string {
@@ -152,13 +225,23 @@ func writeSparseCheckout(t *testing.T, repoDir string, paths []string) {
 
 func runSearchJSON(t *testing.T, binary, home, spec, query string) []codegraph.SearchResult {
 	t.Helper()
-	output := runCommand(t, filepath.Dir(binary), []string{"REPOBRIDGE_HOME=" + home}, 4*time.Minute, binary, "search", "--json", "--limit", "20", spec, query)
+	output := runSearchRaw(t, binary, home, spec, query)
 	var results []codegraph.SearchResult
 	if err := json.Unmarshal(output, &results); err != nil {
 		t.Fatalf("could not parse search JSON: %v\n%s", err, string(output))
 	}
 	t.Logf("search query %q returned %d result(s)", query, len(results))
 	return results
+}
+
+func runSearchRaw(t *testing.T, binary, home, spec, query string) []byte {
+	t.Helper()
+	return runCommand(t, filepath.Dir(binary), []string{"REPOBRIDGE_HOME=" + home}, 4*time.Minute, binary, "search", "--json", "--limit", "20", spec, query)
+}
+
+func runRG(t *testing.T, sourceDir, pattern string) []byte {
+	t.Helper()
+	return runCommand(t, sourceDir, nil, time.Minute, "rg", "-n", "-C", "3", "--no-heading", "--color", "never", pattern, sourceDir)
 }
 
 func assertKotlinUpResult(t *testing.T, results []codegraph.SearchResult) {
@@ -189,6 +272,95 @@ func contains(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+type searchBudgetTask struct {
+	Name        string
+	SearchQuery string
+	RGPattern   string
+}
+
+type outputMetric struct {
+	Bytes           int
+	Lines           int
+	EstimatedTokens int
+}
+
+type searchBudgetRow struct {
+	Task         searchBudgetTask
+	SearchMetric outputMetric
+	RGMetric     outputMetric
+	ResultCount  int
+}
+
+type searchBudgetReport struct {
+	GeneratedAt time.Time
+	Spec        string
+	SourceDir   string
+	Rows        []searchBudgetRow
+}
+
+func newSearchBudgetReport(env searchE2EEnv) searchBudgetReport {
+	return searchBudgetReport{
+		GeneratedAt: time.Now().UTC(),
+		Spec:        kotlinComposeSpec,
+		SourceDir:   env.sourceDir,
+	}
+}
+
+func measureOutput(output []byte) outputMetric {
+	return outputMetric{
+		Bytes:           len(output),
+		Lines:           bytes.Count(output, []byte("\n")),
+		EstimatedTokens: estimateTokens(output),
+	}
+}
+
+func estimateTokens(output []byte) int {
+	if len(output) == 0 {
+		return 0
+	}
+	return (len(output) + 3) / 4
+}
+
+func writeSearchBudgetReport(t *testing.T, path string, report searchBudgetReport) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var markdown strings.Builder
+	markdown.WriteString("# RepoBridge Search Output Budget\n\n")
+	markdown.WriteString(fmt.Sprintf("- Generated: `%s`\n", report.GeneratedAt.Format(time.RFC3339)))
+	markdown.WriteString(fmt.Sprintf("- Spec: `%s`\n", report.Spec))
+	markdown.WriteString(fmt.Sprintf("- Source: `%s`\n", report.SourceDir))
+	markdown.WriteString("- Token estimate: UTF-8 bytes divided by 4. Use model API usage or a model tokenizer for exact accounting.\n\n")
+	markdown.WriteString("| Task | Results | RepoBridge bytes | RepoBridge est. tokens | rg bytes | rg est. tokens | Estimated reduction |\n")
+	markdown.WriteString("| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n")
+	for _, row := range report.Rows {
+		reduction := 0.0
+		if row.RGMetric.EstimatedTokens > 0 {
+			reduction = 100 * (1 - float64(row.SearchMetric.EstimatedTokens)/float64(row.RGMetric.EstimatedTokens))
+		}
+		markdown.WriteString(fmt.Sprintf(
+			"| %s | %d | %d | %d | %d | %d | %.1f%% |\n",
+			row.Task.Name,
+			row.ResultCount,
+			row.SearchMetric.Bytes,
+			row.SearchMetric.EstimatedTokens,
+			row.RGMetric.Bytes,
+			row.RGMetric.EstimatedTokens,
+			reduction,
+		))
+	}
+	markdown.WriteString("\n## Search Tasks\n\n")
+	for _, row := range report.Rows {
+		markdown.WriteString(fmt.Sprintf("### %s\n\n", row.Task.Name))
+		markdown.WriteString(fmt.Sprintf("- RepoBridge query: `%s`\n", row.Task.SearchQuery))
+		markdown.WriteString(fmt.Sprintf("- rg command: `rg -n -C 3 --no-heading --color never %q <source>`\n\n", row.Task.RGPattern))
+	}
+	if err := os.WriteFile(path, []byte(markdown.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func runCommand(t *testing.T, dir string, env []string, timeout time.Duration, name string, args ...string) []byte {

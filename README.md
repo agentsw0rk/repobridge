@@ -164,11 +164,13 @@ Project scanning also has an opt-in end-to-end test that clones pinned public Gi
 go test -tags=e2e ./test/e2e-scan -count=1
 ```
 
-Codegraph search has an opt-in end-to-end test that checks the real `repobridge search` CLI against a pinned Kotlin repository:
+Codegraph search has an opt-in end-to-end test that checks the real `repobridge search` CLI against a pinned Kotlin repository and writes a Markdown output-budget report comparing `repobridge search` with `rg -C 3`:
 
 ```bash
 go test -tags=e2e ./test/e2e-search -count=1 -v
 ```
+
+The report is written to `e2e/search/results/search-output-budget.md`.
 
 Use verbose mode to see each repository, commit, sparse checkout path, expected specs, and scanner results:
 
