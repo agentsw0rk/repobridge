@@ -762,8 +762,11 @@
             <span class="line">&nbsp;</span>
             <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge search react@19.0.0 "calls:createRoot"</span></span>
             <span class="line out">function render src/client/ReactDOMRoot.js:92</span>
+            <span class="line">&nbsp;</span>
+            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge callers react@19.0.0 createRoot --depth 2</span></span>
+            <span class="line out">method ReactDOMRoot.render src/client/ReactDOMRoot.js:86</span>
             <div class="terminal-grid">
-              <div class="terminal-chip">AST nodes · calls</div>
+              <div class="terminal-chip">AST nodes · callgraph</div>
               <div class="terminal-chip">Go · Java · Kotlin</div>
               <div class="terminal-chip">C# · JS · TS</div>
               <div class="terminal-chip">Python · Rust</div>
@@ -795,7 +798,14 @@ repobridge scan --cwd . --fetch --limit 10
 
 repobridge search react@19.0.0 "kind:function calls:createRoot"
 repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
-repobridge search github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 "lang:kotlin calls:exec"</code></pre>
+repobridge search github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 "lang:kotlin calls:exec"
+
+repobridge status github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8
+repobridge files github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 --path src --limit 10
+repobridge node github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 up --source-lines 12
+
+repobridge callers github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 exec --include-unresolved
+repobridge callees github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 findDockerCompose --depth 2</code></pre>
         </div>
         <div class="input-table budget-panel" aria-label="Search output budget benchmark">
           <table>
@@ -866,6 +876,20 @@ repobridge search github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afd
             <p>Query cached source graphs by symbol name, node kind, path, language, and function calls without touching dependency code.</p>
             <div class="tag-row">
               <span class="tag">search</span><span class="tag">calls:</span><span class="tag">lang:kotlin</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <h3>Inspect graph evidence</h3>
+            <p>Use <code>status</code>, <code>files</code>, and <code>node</code> to check graph freshness, list indexed files, and cite exact symbols with optional source lines.</p>
+            <div class="tag-row">
+              <span class="tag">status</span><span class="tag">files</span><span class="tag">node</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <h3>Trace call relationships</h3>
+            <p>Use <code>callers</code>, <code>callees</code>, and <code>impact</code> to follow stored graph edges instead of asking the agent to rediscover call flow.</p>
+            <div class="tag-row">
+              <span class="tag">callers</span><span class="tag">callees</span><span class="tag">impact</span>
             </div>
           </article>
         </div>
@@ -954,6 +978,16 @@ repobridge search github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afd
               <p>Searches the local AST graph, rebuilding missing or stale graph data when needed.</p>
               <p><code>--json</code> · <code>--limit</code> · <code>--kind</code> · <code>--lang</code> · <code>--calls</code></p>
             </article>
+            <article class="reference-card">
+              <h3><code>status · files · node</code></h3>
+              <p>Inspects graph health, indexed files, and individual symbols with optional source line output.</p>
+              <p><code>--json</code> · <code>--path</code> · <code>--source-lines</code> · <code>--no-sync-index</code></p>
+            </article>
+            <article class="reference-card">
+              <h3><code>callers · callees · impact</code></h3>
+              <p>Traverses call and impact relationships from the stored AST graph with deterministic, compact output.</p>
+              <p><code>--depth</code> · <code>--limit</code> · <code>--include-unresolved</code> · <code>--json</code></p>
+            </article>
           </div>
           <div class="code-panel">
             <div class="copy-row">
@@ -969,7 +1003,15 @@ repobridge path --cwd . github.com/spf13/cobra
 
 repobridge search react@19.0.0 "kind:function calls:createRoot"
 repobridge search pypi:requests==2.32.3 "calls:send lang:python"
-repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"</code></pre>
+repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
+
+repobridge status react@19.0.0
+repobridge files react@19.0.0 --path packages/react-dom --limit 10
+repobridge node react@19.0.0 createRoot --source-lines 20
+
+repobridge callers react@19.0.0 createRoot --depth 2
+repobridge callees react@19.0.0 createRoot --include-unresolved
+repobridge impact react@19.0.0 createRoot --json</code></pre>
           </div>
         </div>
       </section>
@@ -999,9 +1041,23 @@ repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin ki
           </article>
           <article class="feature-card">
             <h3>Fresh results</h3>
-            <p><code>search</code> detects missing or stale graphs and rebuilds them synchronously unless <code>--no-sync-index</code> is set.</p>
+            <p><code>search</code>, graph inspection, and callgraph commands detect missing or stale graphs and rebuild them synchronously unless <code>--no-sync-index</code> is set.</p>
             <div class="tag-row">
               <span class="tag">stale check</span><span class="tag">--no-sync-index</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <h3>Graph inspection</h3>
+            <p><code>status</code> reports graph path and counts, <code>files</code> lists indexed files, and <code>node</code> returns one symbol with calls and optional source lines.</p>
+            <div class="tag-row">
+              <span class="tag">ready</span><span class="tag">stale</span><span class="tag">source-lines</span>
+            </div>
+          </article>
+          <article class="feature-card">
+            <h3>Callgraph traversal</h3>
+            <p><code>callers</code>, <code>callees</code>, and <code>impact</code> walk stored graph edges with bounded depth, limits, and unresolved call references.</p>
+            <div class="tag-row">
+              <span class="tag">depth</span><span class="tag">limit</span><span class="tag">unresolved</span>
             </div>
           </article>
         </div>
@@ -1037,6 +1093,13 @@ repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin ki
               <p>Run <code>repobridge search &lt;spec&gt; "kind:function calls:send"</code> to get compact, structured results for the agent context.</p>
             </div>
           </article>
+          <article class="workflow">
+            <span class="step">04</span>
+            <div>
+              <h3>Inspect and trace the graph</h3>
+              <p>Run <code>repobridge node &lt;spec&gt; &lt;symbol&gt;</code>, <code>repobridge callers &lt;spec&gt; &lt;symbol&gt;</code>, or <code>repobridge impact &lt;spec&gt; &lt;symbol&gt;</code> when the agent needs exact evidence.</p>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -1063,7 +1126,7 @@ repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin ki
           </article>
           <article class="trouble">
             <h3>Missing graph data</h3>
-            <p>Run <code>repobridge search</code> without <code>--no-sync-index</code>; it rebuilds missing or stale AST graphs before returning results.</p>
+            <p>Run <code>repobridge search</code>, <code>status</code>, or a callgraph command without <code>--no-sync-index</code>; it rebuilds missing or stale AST graphs before returning results.</p>
           </article>
         </div>
       </section>
