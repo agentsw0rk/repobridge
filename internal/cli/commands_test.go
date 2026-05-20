@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"repobridge/internal/cache"
 	"repobridge/internal/codegraph"
+	"repobridge/internal/codegraph/store"
 	"repobridge/internal/source"
 )
 
@@ -118,7 +120,7 @@ type commandResult struct {
 	err    error
 }
 
-func assertCommandWaitsForIndexer(t *testing.T, opts Options, indexer *blockingWaitIndexer, args ...string) commandResult {
+func assertCommandDoesNotWaitForIndexer(t *testing.T, opts Options, indexer *blockingWaitIndexer, args ...string) commandResult {
 	t.Helper()
 	results := make(chan commandResult, 1)
 	go func() {
@@ -127,27 +129,16 @@ func assertCommandWaitsForIndexer(t *testing.T, opts Options, indexer *blockingW
 	}()
 
 	select {
-	case <-indexer.waitStarted:
-	case result := <-results:
-		t.Fatalf("command returned before Wait started: stdout=%q stderr=%q err=%v", result.stdout, result.stderr, result.err)
-	case <-time.After(time.Second):
-		t.Fatal("command did not call Wait")
-	}
-
-	select {
-	case result := <-results:
-		t.Fatalf("command returned while Wait was blocked: stdout=%q stderr=%q err=%v", result.stdout, result.stderr, result.err)
-	default:
-	}
-
-	close(indexer.releaseWait)
-	select {
 	case result := <-results:
 		return result
+	case <-indexer.waitStarted:
+		close(indexer.releaseWait)
+		t.Fatal("command called Wait on indexer")
 	case <-time.After(time.Second):
-		t.Fatal("command did not return after Wait was released")
+		t.Fatal("command did not return")
 		return commandResult{}
 	}
+	return commandResult{}
 }
 
 func withHome(t *testing.T) string {
@@ -164,6 +155,43 @@ func TestRootVersion(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "test-version") {
 		t.Fatalf("stdout = %q, want version", stdout)
+	}
+}
+
+func TestIndexOutcomePathMarksGraphFailedWhenIndexingFails(t *testing.T) {
+	sourceDir := t.TempDir()
+	originalIndexSourcePath := indexSourcePath
+	indexSourcePath = func(sourcePath string) (codegraph.IndexResult, error) {
+		return codegraph.IndexResult{}, errors.New("parse failed")
+	}
+	defer func() {
+		indexSourcePath = originalIndexSourcePath
+	}()
+
+	err := indexOutcomePath(sourceDir)
+	if err == nil {
+		t.Fatal("indexOutcomePath() error = nil, want index error")
+	}
+
+	graphDir, graphErr := cache.GraphDirForSource(sourceDir)
+	if graphErr != nil {
+		t.Fatal(graphErr)
+	}
+	graph, graphErr := store.Open(graphDir)
+	if graphErr != nil {
+		t.Fatal(graphErr)
+	}
+	defer graph.Close()
+
+	status, graphErr := graph.Status()
+	if graphErr != nil {
+		t.Fatal(graphErr)
+	}
+	if status.Status != "failed" || status.SourcePath != sourceDir || status.SchemaVersion != codegraph.SchemaVersion {
+		t.Fatalf("status = %#v, want failed status for source", status)
+	}
+	if status.ErrorText != "parse failed" {
+		t.Fatalf("error text = %q, want parse failed", status.ErrorText)
 	}
 }
 
@@ -257,20 +285,20 @@ func TestPathSchedulesIndexAfterSuccessfulOutcome(t *testing.T) {
 	}
 }
 
-func TestPathWaitsForIndexerBeforeReturning(t *testing.T) {
+func TestPathDoesNotWaitForIndexerBeforeReturning(t *testing.T) {
 	outcome := source.Outcome{Path: filepath.Join(t.TempDir(), "zod")}
 	app := &fakeApp{outcomes: map[string]source.Outcome{
 		"zod@3.22.4": outcome,
 	}}
 	indexer := newBlockingWaitIndexer()
 
-	result := assertCommandWaitsForIndexer(t, Options{App: app, Indexer: indexer}, indexer, "path", "zod@3.22.4")
+	result := assertCommandDoesNotWaitForIndexer(t, Options{App: app, Indexer: indexer}, indexer, "path", "zod@3.22.4")
 
 	if result.err != nil {
 		t.Fatalf("Execute() error = %v", result.err)
 	}
-	if !indexer.waitedForIndexing() {
-		t.Fatal("indexer Wait was not marked")
+	if indexer.waitedForIndexing() {
+		t.Fatal("indexer Wait was called")
 	}
 }
 
@@ -332,20 +360,20 @@ func TestFetchQuietStillSchedulesIndex(t *testing.T) {
 	}
 }
 
-func TestFetchWaitsForIndexerBeforeReturning(t *testing.T) {
+func TestFetchDoesNotWaitForIndexerBeforeReturning(t *testing.T) {
 	outcome := source.Outcome{Name: "zod", Version: "3.22.4", SourceLabel: "npm", Path: "/cache/zod"}
 	app := &fakeApp{outcomes: map[string]source.Outcome{
 		"zod@3.22.4": outcome,
 	}}
 	indexer := newBlockingWaitIndexer()
 
-	result := assertCommandWaitsForIndexer(t, Options{App: app, Indexer: indexer}, indexer, "fetch", "--quiet", "zod@3.22.4")
+	result := assertCommandDoesNotWaitForIndexer(t, Options{App: app, Indexer: indexer}, indexer, "fetch", "--quiet", "zod@3.22.4")
 
 	if result.err != nil {
 		t.Fatalf("Execute() error = %v", result.err)
 	}
-	if !indexer.waitedForIndexing() {
-		t.Fatal("indexer Wait was not marked")
+	if indexer.waitedForIndexing() {
+		t.Fatal("indexer Wait was called")
 	}
 }
 
@@ -423,7 +451,7 @@ func TestScanFetchSchedulesIndexForSuccessfulCandidates(t *testing.T) {
 	}
 }
 
-func TestScanFetchWaitsForIndexerBeforeReturning(t *testing.T) {
+func TestScanFetchDoesNotWaitForIndexerBeforeReturning(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"react":"19.0.0"}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -434,13 +462,13 @@ func TestScanFetchWaitsForIndexerBeforeReturning(t *testing.T) {
 	}}
 	indexer := newBlockingWaitIndexer()
 
-	result := assertCommandWaitsForIndexer(t, Options{App: app, Indexer: indexer}, indexer, "scan", "--cwd", dir, "--fetch", "--no-imports")
+	result := assertCommandDoesNotWaitForIndexer(t, Options{App: app, Indexer: indexer}, indexer, "scan", "--cwd", dir, "--fetch", "--no-imports")
 
 	if result.err != nil {
 		t.Fatalf("Execute() error = %v", result.err)
 	}
-	if !indexer.waitedForIndexing() {
-		t.Fatal("indexer Wait was not marked")
+	if indexer.waitedForIndexing() {
+		t.Fatal("indexer Wait was called")
 	}
 }
 

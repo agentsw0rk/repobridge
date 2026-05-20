@@ -1,11 +1,15 @@
 package codegraph
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
 	"repobridge/internal/cache"
+	"repobridge/internal/codegraph/parser"
 	"repobridge/internal/source"
 )
 
@@ -39,6 +43,7 @@ type GraphStatus struct {
 type GraphStore interface {
 	Close()
 	Status() (GraphStatus, error)
+	Files() ([]GraphFile, error)
 	Replace(IndexResult) error
 	Search(SearchQuery) ([]SearchResult, error)
 }
@@ -109,6 +114,23 @@ func (s *SearchService) Search(spec, rawQuery string, opts SearchOptions) ([]Sea
 		if err := graph.Replace(result); err != nil {
 			return nil, err
 		}
+	} else {
+		stale, err := s.graphIsStale(graph, outcome.Path)
+		if err != nil {
+			return nil, err
+		}
+		if stale {
+			if !opts.SyncIndex {
+				return nil, fmt.Errorf("codegraph stale for %s; enable sync index to rebuild it", spec)
+			}
+			result, err := s.indexer.Index(outcome.Path)
+			if err != nil {
+				return nil, err
+			}
+			if err := graph.Replace(result); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	query := ParseSearchQuery(rawQuery)
@@ -131,6 +153,57 @@ func (s *SearchService) Search(spec, rawQuery string, opts SearchOptions) ([]Sea
 
 func needsIndex(status GraphStatus) bool {
 	return status.Status != "complete" || status.SchemaVersion != SchemaVersion
+}
+
+func (s *SearchService) graphIsStale(graph GraphStore, sourcePath string) (bool, error) {
+	stored, err := graph.Files()
+	if err != nil {
+		return false, err
+	}
+	current, err := currentGraphFiles(sourcePath, parser.Options{MaxFileSize: s.indexer.opts.MaxFileSize})
+	if err != nil {
+		return false, err
+	}
+	if len(stored) != len(current) {
+		return true, nil
+	}
+	currentByPath := make(map[string]GraphFile, len(current))
+	for _, file := range current {
+		currentByPath[file.Path] = file
+	}
+	for _, storedFile := range stored {
+		currentFile, ok := currentByPath[storedFile.Path]
+		if !ok {
+			return true, nil
+		}
+		if storedFile.ContentHash != currentFile.ContentHash || storedFile.Size != currentFile.Size {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func currentGraphFiles(sourcePath string, opts parser.Options) ([]GraphFile, error) {
+	sourceFiles, err := parser.ScanSourceFiles(sourcePath, opts)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]GraphFile, 0, len(sourceFiles))
+	for _, sourceFile := range sourceFiles {
+		content, err := os.ReadFile(sourceFile.AbsolutePath)
+		if err != nil {
+			return nil, err
+		}
+		hash := sha256.Sum256(content)
+		files = append(files, GraphFile{
+			Path:        sourceFile.RelativePath,
+			Language:    sourceFile.Language,
+			ContentHash: hex.EncodeToString(hash[:]),
+			Size:        sourceFile.Size,
+			ModifiedAt:  sourceFile.ModifiedAt,
+		})
+	}
+	return files, nil
 }
 
 func shouldReplaceResultSource(resultSource, sourcePath string) bool {

@@ -102,6 +102,150 @@ func TestSearchServiceUsesCompleteGraphWithoutReindexing(t *testing.T) {
 	writeCodegraphFixture(t, sourceDir, "main.go", `package main
 func Different() {}
 `)
+	result, err := codegraph.NewIndexer(codegraph.IndexOptions{}).Index(sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result.Nodes = []codegraph.GraphNode{{
+		ID:            "stored-function",
+		Kind:          codegraph.NodeKindFunction,
+		Name:          "StoredFunction",
+		QualifiedName: "StoredFunction",
+		FilePath:      "main.go",
+		Language:      codegraph.LanguageGo,
+		StartLine:     3,
+		EndLine:       5,
+	}}
+	replaceStoredGraph(t, sourceDir, result)
+
+	resolver := &fakeSourceResolver{
+		outcome: source.Outcome{Path: sourceDir, Name: "demo", Version: "v1", SourceLabel: "repo"},
+	}
+	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{
+		Resolver:    resolver,
+		StoreOpener: openGraphStore,
+	})
+
+	results, err := service.Search("demo@v1", `name:StoredFunction`, codegraph.SearchOptions{SyncIndex: true, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Name != "StoredFunction" {
+		t.Fatalf("results = %#v, want pre-populated StoredFunction", results)
+	}
+	if results[0].Path != "main.go" {
+		t.Fatalf("result path = %q, want main.go from existing graph", results[0].Path)
+	}
+}
+
+func TestSearchServiceReindexesStaleGraphWhenSyncEnabled(t *testing.T) {
+	sourceDir := t.TempDir()
+	writeCodegraphFixture(t, sourceDir, "main.go", `package main
+func OldName() {}
+`)
+	result, err := codegraph.NewIndexer(codegraph.IndexOptions{}).Index(sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceStoredGraph(t, sourceDir, result)
+
+	writeCodegraphFixture(t, sourceDir, "main.go", `package main
+func NewName() {}
+`)
+
+	resolver := &fakeSourceResolver{
+		outcome: source.Outcome{Path: sourceDir, Name: "demo", Version: "v1", SourceLabel: "repo"},
+	}
+	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{
+		Resolver:    resolver,
+		StoreOpener: openGraphStore,
+	})
+
+	results, err := service.Search("demo@v1", `name:NewName`, codegraph.SearchOptions{SyncIndex: true, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Name != "NewName" {
+		t.Fatalf("results = %#v, want reindexed NewName", results)
+	}
+}
+
+func TestSearchServiceNoSyncReturnsClearErrorWhenGraphStale(t *testing.T) {
+	sourceDir := t.TempDir()
+	writeCodegraphFixture(t, sourceDir, "main.go", `package main
+func OldName() {}
+`)
+	result, err := codegraph.NewIndexer(codegraph.IndexOptions{}).Index(sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceStoredGraph(t, sourceDir, result)
+
+	writeCodegraphFixture(t, sourceDir, "extra.go", `package main
+func Extra() {}
+`)
+
+	resolver := &fakeSourceResolver{
+		outcome: source.Outcome{Path: sourceDir, Name: "demo", Version: "v1", SourceLabel: "repo"},
+	}
+	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{
+		Resolver:    resolver,
+		StoreOpener: openGraphStore,
+	})
+
+	_, err = service.Search("demo@v1", `name:OldName`, codegraph.SearchOptions{SyncIndex: false, Limit: 10})
+	if err == nil {
+		t.Fatal("Search() error = nil, want stale graph error")
+	}
+	message := strings.ToLower(err.Error())
+	if !strings.Contains(message, "stale") {
+		t.Fatalf("Search() error = %q, want stale graph message", err)
+	}
+	if !strings.Contains(message, "sync") {
+		t.Fatalf("Search() error = %q, want sync index guidance", err)
+	}
+}
+
+func TestSearchServiceTreatsRemovedSourceFileAsStale(t *testing.T) {
+	sourceDir := t.TempDir()
+	writeCodegraphFixture(t, sourceDir, "main.go", `package main
+func main() {}
+`)
+	writeCodegraphFixture(t, sourceDir, "gone.go", `package main
+func Gone() {}
+`)
+	result, err := codegraph.NewIndexer(codegraph.IndexOptions{}).Index(sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceStoredGraph(t, sourceDir, result)
+
+	if err := os.Remove(filepath.Join(sourceDir, "gone.go")); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := &fakeSourceResolver{
+		outcome: source.Outcome{Path: sourceDir, Name: "demo", Version: "v1", SourceLabel: "repo"},
+	}
+	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{
+		Resolver:    resolver,
+		StoreOpener: openGraphStore,
+	})
+
+	_, err = service.Search("demo@v1", `name:Gone`, codegraph.SearchOptions{SyncIndex: false, Limit: 10})
+	if err == nil {
+		t.Fatal("Search() error = nil, want stale graph error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "stale") {
+		t.Fatalf("Search() error = %q, want stale graph message", err)
+	}
+}
+
+func TestSearchServiceDetectsCompleteGraphWithMismatchedFilesAsStale(t *testing.T) {
+	sourceDir := t.TempDir()
+	writeCodegraphFixture(t, sourceDir, "main.go", `package main
+func Different() {}
+`)
 	replaceStoredGraph(t, sourceDir, codegraph.IndexResult{
 		SourcePath:    sourceDir,
 		SchemaVersion: codegraph.SchemaVersion,
@@ -126,15 +270,12 @@ func Different() {}
 		StoreOpener: openGraphStore,
 	})
 
-	results, err := service.Search("demo@v1", `name:StoredFunction`, codegraph.SearchOptions{SyncIndex: true, Limit: 10})
-	if err != nil {
-		t.Fatal(err)
+	_, err := service.Search("demo@v1", `name:StoredFunction`, codegraph.SearchOptions{SyncIndex: false, Limit: 10})
+	if err == nil {
+		t.Fatal("Search() error = nil, want stale graph error")
 	}
-	if len(results) != 1 || results[0].Name != "StoredFunction" {
-		t.Fatalf("results = %#v, want pre-populated StoredFunction", results)
-	}
-	if results[0].Path != "stored.go" {
-		t.Fatalf("result path = %q, want stored.go from existing graph", results[0].Path)
+	if !strings.Contains(strings.ToLower(err.Error()), "stale") {
+		t.Fatalf("Search() error = %q, want stale graph message", err)
 	}
 }
 

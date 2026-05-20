@@ -26,7 +26,6 @@ func newFetchCommand(opts Options) *cobra.Command {
 			out := cmd.OutOrStdout()
 			errOut := cmd.ErrOrStderr()
 			indexer := opts.indexer()
-			defer waitForIndexer(indexer)
 			fetched, cached, failed := 0, 0, 0
 			for _, spec := range args {
 				outcome, err := opts.app().EnsureCached(spec, source.Options{CWD: cwd, Verbose: !quiet})
@@ -75,7 +74,6 @@ func newPathCommand(opts Options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			indexer := opts.indexer()
-			defer waitForIndexer(indexer)
 			for _, spec := range args {
 				outcome, err := opts.app().EnsureCached(spec, source.Options{CWD: cwd, Verbose: verbose})
 				if err != nil {
@@ -118,7 +116,6 @@ func newScanCommand(opts Options) *cobra.Command {
 			}
 			if fetch {
 				indexer := opts.indexer()
-				defer waitForIndexer(indexer)
 				for _, candidate := range result.Candidates {
 					outcome, err := opts.app().EnsureCached(candidate.Spec, source.Options{CWD: cwd, Verbose: !jsonOutput})
 					if err != nil {

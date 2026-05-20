@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -117,6 +118,117 @@ func TestStoreStatusReportsMissingAndComplete(t *testing.T) {
 	}
 	if !status.CompletedAt.Equal(completedAt) {
 		t.Fatalf("completed at = %s, want %s", status.CompletedAt, completedAt)
+	}
+}
+
+func TestStoreFilesReturnsStoredFileMetadata(t *testing.T) {
+	graph := openTestStore(t)
+	modifiedAt := time.Now().UTC().Truncate(time.Millisecond)
+	indexedAt := modifiedAt.Add(time.Second)
+
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   indexedAt,
+		Files: []codegraph.GraphFile{{
+			Path:        "main.go",
+			Language:    codegraph.LanguageGo,
+			ContentHash: "abc123",
+			Size:        42,
+			ModifiedAt:  modifiedAt,
+			IndexedAt:   indexedAt,
+			NodeCount:   3,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := graph.Files()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []codegraph.GraphFile{{
+		Path:        "main.go",
+		Language:    codegraph.LanguageGo,
+		ContentHash: "abc123",
+		Size:        42,
+		ModifiedAt:  modifiedAt,
+		IndexedAt:   indexedAt,
+		NodeCount:   3,
+	}}
+	if !reflect.DeepEqual(files, want) {
+		t.Fatalf("files = %#v, want %#v", files, want)
+	}
+}
+
+func TestStoreReplacePersistsWarningsInStatusErrorText(t *testing.T) {
+	graph := openTestStore(t)
+
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   time.Now(),
+		Warnings:      []string{"main.go: unsupported syntax", "src/app.ts: extract failed"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := graph.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != "complete" {
+		t.Fatalf("status = %#v, want complete", status)
+	}
+	if got, want := status.ErrorText, "main.go: unsupported syntax\nsrc/app.ts: extract failed"; got != want {
+		t.Fatalf("error text = %q, want %q", got, want)
+	}
+}
+
+func TestStoreMarkFailedUpdatesStatusWithoutRemovingGraphData(t *testing.T) {
+	graph := openTestStore(t)
+
+	err := graph.Replace(codegraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   time.Now(),
+		Nodes: []codegraph.GraphNode{{
+			ID:            "n1",
+			Kind:          codegraph.NodeKindFunction,
+			Name:          "Existing",
+			QualifiedName: "Existing",
+			FilePath:      "main.go",
+			Language:      codegraph.LanguageGo,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startedAt := time.Now().UTC().Truncate(time.Millisecond)
+	if err := graph.MarkFailed("/cache/repo", startedAt, errors.New("boom")); err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := graph.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != "failed" || status.SourcePath != "/cache/repo" || status.SchemaVersion != codegraph.SchemaVersion {
+		t.Fatalf("status = %#v, want failed current schema for /cache/repo", status)
+	}
+	if status.ErrorText != "boom" {
+		t.Fatalf("error text = %q, want boom", status.ErrorText)
+	}
+
+	results, err := graph.Search(codegraph.SearchQuery{NameFilters: []string{"Existing"}, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Name != "Existing" {
+		t.Fatalf("results after MarkFailed = %#v, want existing graph data", results)
 	}
 }
 

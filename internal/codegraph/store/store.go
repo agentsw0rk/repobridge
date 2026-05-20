@@ -1,9 +1,11 @@
 package store
 
 import (
+	"fmt"
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/objectbox/objectbox-go/objectbox"
 
@@ -21,12 +23,30 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 
-	ob, err := objectbox.NewBuilder().Directory(dir).Model(ObjectBoxModel()).Build()
+	ob, err := openObjectBox(dir)
 	if err != nil {
-		return nil, err
+		if _, statErr := os.Stat(dir); statErr != nil {
+			return nil, err
+		}
+		corruptDir := fmt.Sprintf("%s.corrupt.%d", dir, time.Now().UnixNano())
+		if renameErr := os.Rename(dir, corruptDir); renameErr != nil {
+			return nil, fmt.Errorf("open codegraph store failed: %v; failed to move corrupt store to %s: %w", err, corruptDir, renameErr)
+		}
+		if mkdirErr := os.MkdirAll(dir, 0o755); mkdirErr != nil {
+			return nil, fmt.Errorf("open codegraph store failed: %v; moved corrupt store to %s but failed to recreate graph dir: %w", err, corruptDir, mkdirErr)
+		}
+		retry, retryErr := openObjectBox(dir)
+		if retryErr != nil {
+			return nil, fmt.Errorf("open codegraph store failed: %v; moved corrupt store to %s but retry failed: %w", err, corruptDir, retryErr)
+		}
+		ob = retry
 	}
 
 	return &Store{ob: ob}, nil
+}
+
+func openObjectBox(dir string) (*objectbox.ObjectBox, error) {
+	return objectbox.NewBuilder().Directory(dir).Model(ObjectBoxModel()).Build()
 }
 
 func (s *Store) Close() {
@@ -121,11 +141,52 @@ func (s *Store) Replace(result codegraph.IndexResult) error {
 			SchemaVersion: result.SchemaVersion,
 			SourcePath:    result.SourcePath,
 			Status:        "complete",
+			ErrorText:     strings.Join(result.Warnings, "\n"),
 			StartedAt:     result.StartedAt,
 			CompletedAt:   result.CompletedAt,
 		})
 		return err
 	})
+}
+
+func (s *Store) MarkFailed(sourcePath string, startedAt time.Time, indexErr error) error {
+	errorText := ""
+	if indexErr != nil {
+		errorText = indexErr.Error()
+	}
+	completedAt := time.Now().UTC()
+	return s.ob.RunInWriteTx(func() error {
+		metadataBox := BoxForMetadataEntity(s.ob)
+		if err := metadataBox.RemoveAll(); err != nil {
+			return err
+		}
+		_, err := metadataBox.Put(&MetadataEntity{
+			SchemaVersion: codegraph.SchemaVersion,
+			SourcePath:    sourcePath,
+			Status:        "failed",
+			ErrorText:     errorText,
+			StartedAt:     startedAt,
+			CompletedAt:   completedAt,
+		})
+		return err
+	})
+}
+
+func (s *Store) Files() ([]codegraph.GraphFile, error) {
+	var files []codegraph.GraphFile
+	err := s.ob.RunInReadTx(func() error {
+		entities, err := BoxForFileEntity(s.ob).GetAll()
+		if err != nil {
+			return err
+		}
+		files = make([]codegraph.GraphFile, 0, len(entities))
+		for _, entity := range entities {
+			files = append(files, graphFileFromEntity(entity))
+		}
+		sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+		return nil
+	})
+	return files, err
 }
 
 func (s *Store) Search(query codegraph.SearchQuery) ([]codegraph.SearchResult, error) {
@@ -287,6 +348,18 @@ func fileEntities(files []codegraph.GraphFile) []*FileEntity {
 		})
 	}
 	return entities
+}
+
+func graphFileFromEntity(file *FileEntity) codegraph.GraphFile {
+	return codegraph.GraphFile{
+		Path:        file.Path,
+		Language:    codegraph.Language(file.Language),
+		ContentHash: file.ContentHash,
+		Size:        file.Size,
+		ModifiedAt:  file.ModifiedAt,
+		IndexedAt:   file.IndexedAt,
+		NodeCount:   file.NodeCount,
+	}
 }
 
 func nodeEntities(nodes []codegraph.GraphNode) []*NodeEntity {

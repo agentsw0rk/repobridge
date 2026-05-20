@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"repobridge/internal/cache"
@@ -27,10 +30,6 @@ type App interface {
 
 type IndexScheduler interface {
 	Schedule(source.Outcome)
-}
-
-type waitableIndexScheduler interface {
-	Wait()
 }
 
 type defaultApp struct{}
@@ -74,11 +73,16 @@ func (o Options) indexer() IndexScheduler {
 	if o.Indexer != nil {
 		return o.Indexer
 	}
-	return codegraph.NewScheduler(codegraph.SchedulerOptions{IndexFunc: indexOutcome})
+	return newProcessIndexScheduler()
 }
 
 func indexOutcome(outcome source.Outcome) error {
-	graphDir, err := cache.GraphDirForSource(outcome.Path)
+	return indexOutcomePath(outcome.Path)
+}
+
+func indexOutcomePath(sourcePath string) error {
+	startedAt := time.Now().UTC()
+	graphDir, err := cache.GraphDirForSource(sourcePath)
 	if err != nil {
 		return err
 	}
@@ -88,19 +92,43 @@ func indexOutcome(outcome source.Outcome) error {
 	}
 	defer graph.Close()
 
-	index, err := codegraph.NewIndexer(codegraph.IndexOptions{}).Index(outcome.Path)
+	index, err := indexSourcePath(sourcePath)
 	if err != nil {
+		_ = graph.MarkFailed(sourcePath, startedAt, err)
 		return err
 	}
 	return graph.Replace(index)
 }
 
-func waitForIndexer(indexer IndexScheduler) {
-	waiter, ok := indexer.(waitableIndexScheduler)
-	if !ok {
+var indexSourcePath = func(sourcePath string) (codegraph.IndexResult, error) {
+	return codegraph.NewIndexer(codegraph.IndexOptions{}).Index(sourcePath)
+}
+
+type processIndexScheduler struct {
+	executable string
+}
+
+func newProcessIndexScheduler() IndexScheduler {
+	executable, err := os.Executable()
+	if err != nil {
+		return processIndexScheduler{}
+	}
+	return processIndexScheduler{executable: executable}
+}
+
+func (s processIndexScheduler) Schedule(outcome source.Outcome) {
+	if strings.TrimSpace(s.executable) == "" || strings.TrimSpace(outcome.Path) == "" {
 		return
 	}
-	waiter.Wait()
+	cmd := exec.Command(s.executable, "__codegraph-index", outcome.Path)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	if err := cmd.Start(); err != nil {
+		return
+	}
+	if err := cmd.Process.Release(); err != nil {
+		_ = cmd.Process.Kill()
+	}
 }
 
 func NewRootCommand(opts Options) *cobra.Command {
@@ -130,6 +158,18 @@ func NewRootCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newListCommand(opts))
 	cmd.AddCommand(newRemoveCommand(opts))
 	cmd.AddCommand(newCleanCommand(opts))
+	cmd.AddCommand(newCodegraphIndexCommand())
 
 	return cmd
+}
+
+func newCodegraphIndexCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:    "__codegraph-index <source-path>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return indexOutcomePath(args[0])
+		},
+	}
 }
