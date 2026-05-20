@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"repobridge/internal/cache"
 	"repobridge/internal/source"
@@ -47,11 +49,93 @@ func (a *fakeApp) EnsureCached(spec string, opts source.Options) (source.Outcome
 }
 
 type fakeIndexer struct {
+	mu       sync.Mutex
 	outcomes []source.Outcome
+	waited   bool
 }
 
 func (i *fakeIndexer) Schedule(outcome source.Outcome) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	i.outcomes = append(i.outcomes, outcome)
+}
+
+func (i *fakeIndexer) Wait() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.waited = true
+}
+
+func (i *fakeIndexer) scheduledOutcomes() []source.Outcome {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return append([]source.Outcome(nil), i.outcomes...)
+}
+
+func (i *fakeIndexer) waitedForIndexing() bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.waited
+}
+
+type blockingWaitIndexer struct {
+	fakeIndexer
+	waitStarted chan struct{}
+	releaseWait chan struct{}
+	once        sync.Once
+}
+
+func newBlockingWaitIndexer() *blockingWaitIndexer {
+	return &blockingWaitIndexer{
+		waitStarted: make(chan struct{}),
+		releaseWait: make(chan struct{}),
+	}
+}
+
+func (i *blockingWaitIndexer) Wait() {
+	i.fakeIndexer.Wait()
+	i.once.Do(func() {
+		close(i.waitStarted)
+	})
+	<-i.releaseWait
+}
+
+type commandResult struct {
+	stdout string
+	stderr string
+	err    error
+}
+
+func assertCommandWaitsForIndexer(t *testing.T, opts Options, indexer *blockingWaitIndexer, args ...string) commandResult {
+	t.Helper()
+	results := make(chan commandResult, 1)
+	go func() {
+		stdout, stderr, err := executeForTestWithOptions(opts, args...)
+		results <- commandResult{stdout: stdout, stderr: stderr, err: err}
+	}()
+
+	select {
+	case <-indexer.waitStarted:
+	case result := <-results:
+		t.Fatalf("command returned before Wait started: stdout=%q stderr=%q err=%v", result.stdout, result.stderr, result.err)
+	case <-time.After(time.Second):
+		t.Fatal("command did not call Wait")
+	}
+
+	select {
+	case result := <-results:
+		t.Fatalf("command returned while Wait was blocked: stdout=%q stderr=%q err=%v", result.stdout, result.stderr, result.err)
+	default:
+	}
+
+	close(indexer.releaseWait)
+	select {
+	case result := <-results:
+		return result
+	case <-time.After(time.Second):
+		t.Fatal("command did not return after Wait was released")
+		return commandResult{}
+	}
 }
 
 func withHome(t *testing.T) string {
@@ -152,11 +236,29 @@ func TestPathSchedulesIndexAfterSuccessfulOutcome(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	if len(indexer.outcomes) != 1 {
-		t.Fatalf("scheduled outcomes = %#v, want one", indexer.outcomes)
+	outcomes := indexer.scheduledOutcomes()
+	if len(outcomes) != 1 {
+		t.Fatalf("scheduled outcomes = %#v, want one", outcomes)
 	}
-	if indexer.outcomes[0] != outcome {
-		t.Fatalf("scheduled outcome = %#v, want %#v", indexer.outcomes[0], outcome)
+	if outcomes[0] != outcome {
+		t.Fatalf("scheduled outcome = %#v, want %#v", outcomes[0], outcome)
+	}
+}
+
+func TestPathWaitsForIndexerBeforeReturning(t *testing.T) {
+	outcome := source.Outcome{Path: filepath.Join(t.TempDir(), "zod")}
+	app := &fakeApp{outcomes: map[string]source.Outcome{
+		"zod@3.22.4": outcome,
+	}}
+	indexer := newBlockingWaitIndexer()
+
+	result := assertCommandWaitsForIndexer(t, Options{App: app, Indexer: indexer}, indexer, "path", "zod@3.22.4")
+
+	if result.err != nil {
+		t.Fatalf("Execute() error = %v", result.err)
+	}
+	if !indexer.waitedForIndexing() {
+		t.Fatal("indexer Wait was not marked")
 	}
 }
 
@@ -209,11 +311,29 @@ func TestFetchQuietStillSchedulesIndex(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	if len(indexer.outcomes) != 1 {
-		t.Fatalf("scheduled outcomes = %#v, want one", indexer.outcomes)
+	outcomes := indexer.scheduledOutcomes()
+	if len(outcomes) != 1 {
+		t.Fatalf("scheduled outcomes = %#v, want one", outcomes)
 	}
-	if indexer.outcomes[0] != outcome {
-		t.Fatalf("scheduled outcome = %#v, want %#v", indexer.outcomes[0], outcome)
+	if outcomes[0] != outcome {
+		t.Fatalf("scheduled outcome = %#v, want %#v", outcomes[0], outcome)
+	}
+}
+
+func TestFetchWaitsForIndexerBeforeReturning(t *testing.T) {
+	outcome := source.Outcome{Name: "zod", Version: "3.22.4", SourceLabel: "npm", Path: "/cache/zod"}
+	app := &fakeApp{outcomes: map[string]source.Outcome{
+		"zod@3.22.4": outcome,
+	}}
+	indexer := newBlockingWaitIndexer()
+
+	result := assertCommandWaitsForIndexer(t, Options{App: app, Indexer: indexer}, indexer, "fetch", "--quiet", "zod@3.22.4")
+
+	if result.err != nil {
+		t.Fatalf("Execute() error = %v", result.err)
+	}
+	if !indexer.waitedForIndexing() {
+		t.Fatal("indexer Wait was not marked")
 	}
 }
 
@@ -282,11 +402,33 @@ func TestScanFetchSchedulesIndexForSuccessfulCandidates(t *testing.T) {
 	if !strings.Contains(stdout, "Fetched react@19.0.0 from npm") {
 		t.Fatalf("stdout = %q, want fetch output", stdout)
 	}
-	if len(indexer.outcomes) != 1 {
-		t.Fatalf("scheduled outcomes = %#v, want one", indexer.outcomes)
+	outcomes := indexer.scheduledOutcomes()
+	if len(outcomes) != 1 {
+		t.Fatalf("scheduled outcomes = %#v, want one", outcomes)
 	}
-	if indexer.outcomes[0] != outcome {
-		t.Fatalf("scheduled outcome = %#v, want %#v", indexer.outcomes[0], outcome)
+	if outcomes[0] != outcome {
+		t.Fatalf("scheduled outcome = %#v, want %#v", outcomes[0], outcome)
+	}
+}
+
+func TestScanFetchWaitsForIndexerBeforeReturning(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"react":"19.0.0"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outcome := source.Outcome{Name: "react", Version: "19.0.0", SourceLabel: "npm", Path: "/cache/react"}
+	app := &fakeApp{outcomes: map[string]source.Outcome{
+		"react@19.0.0": outcome,
+	}}
+	indexer := newBlockingWaitIndexer()
+
+	result := assertCommandWaitsForIndexer(t, Options{App: app, Indexer: indexer}, indexer, "scan", "--cwd", dir, "--fetch", "--no-imports")
+
+	if result.err != nil {
+		t.Fatalf("Execute() error = %v", result.err)
+	}
+	if !indexer.waitedForIndexing() {
+		t.Fatal("indexer Wait was not marked")
 	}
 }
 

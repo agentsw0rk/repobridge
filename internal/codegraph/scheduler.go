@@ -51,18 +51,18 @@ func (s *Scheduler) Schedule(outcome source.Outcome) {
 		return
 	}
 
+	// Schedule owns the lifecycle for every accepted outcome: once it returns,
+	// a later Wait call must observe and wait for that indexing job.
 	s.wg.Add(1)
-	select {
-	case s.queue <- outcome:
-	default:
-		s.wg.Done()
-	}
+	s.queue <- outcome
 }
 
 func (s *Scheduler) Wait() {
 	if s == nil {
 		return
 	}
+	// Wait is intended to be called after commands finish scheduling outcomes.
+	// It waits for all accepted jobs; it does not stop the reusable workers.
 	s.wg.Wait()
 }
 

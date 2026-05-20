@@ -34,13 +34,18 @@ func TestSchedulerStartsBackgroundIndex(t *testing.T) {
 	}
 }
 
-func TestSchedulerDoesNotBlockWhenQueueIsFull(t *testing.T) {
+func TestSchedulerWaitProcessesAllScheduledJobsWhenQueueFills(t *testing.T) {
 	block := make(chan struct{})
+	var mu sync.Mutex
+	var calls int
 	scheduler := NewScheduler(SchedulerOptions{
 		WorkerLimit: 1,
 		QueueSize:   1,
 		IndexFunc: func(source.Outcome) error {
 			<-block
+			mu.Lock()
+			calls++
+			mu.Unlock()
 			return nil
 		},
 	})
@@ -51,19 +56,28 @@ func TestSchedulerDoesNotBlockWhenQueueIsFull(t *testing.T) {
 	returned := make(chan struct{})
 	go func() {
 		defer close(returned)
-		for i := 0; i < 32; i++ {
-			scheduler.Schedule(source.Outcome{Path: t.TempDir()})
-		}
+		scheduler.Schedule(source.Outcome{Path: t.TempDir()})
 	}()
 
 	select {
 	case <-returned:
-	case <-time.After(time.Second):
-		t.Fatal("Schedule blocked when queue was full")
+		t.Fatal("Schedule returned before there was queue capacity")
+	case <-time.After(10 * time.Millisecond):
 	}
 
 	close(block)
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("Schedule did not return after queue capacity was available")
+	}
 	scheduler.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 3 {
+		t.Fatalf("calls = %d, want 3", calls)
+	}
 }
 
 func TestSchedulerIgnoresEmptyPath(t *testing.T) {
