@@ -74,51 +74,40 @@ go build -o ./bin/repobridge ./cmd/repobridge
 
 ## Quick Start
 
-Fetch source and print its cache path:
+RepoBridge is designed to sit behind a coding agent. The agent uses it to fetch dependency sources, build AST-Graph Engine indexes, and ask targeted questions without reading entire repositories.
+
+Install the bundled RepoBridge skill for a coding agent:
 
 ```bash
-repobridge path react
-repobridge path pypi:requests==2.32.3
-repobridge path crates:serde@1.0.217
-repobridge path maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0
-repobridge path nuget:Newtonsoft.Json@13.0.3
-repobridge path dotnet:Serilog@3.1.1
-repobridge path github.com/vercel/next.js
+repobridge install-agent --target codex --version v0.6.0
+repobridge install-agent --target codex --dry-run
+repobridge install-agent --target codex --print-config
 ```
 
-Use `fetch` when you only need to populate the cache:
+`install-agent` writes skill files only. It does not install MCP configuration.
+
+From a project root, scan dependencies and fetch source references for the agent:
 
 ```bash
-repobridge fetch react@19.0.0 vercel/next.js
-```
-
-Scan a project for dependencies that can be fetched as source references:
-
-```bash
-repobridge scan --cwd .
-repobridge scan --cwd . --json
 repobridge scan --cwd . --fetch --limit 10
 ```
 
-Search cached source graphs:
+You can also prepare specific sources manually:
+
+```bash
+repobridge fetch react@19.0.0 vercel/next.js
+repobridge path react
+repobridge path pypi:requests==2.32.3
+repobridge path github.com/vercel/next.js
+```
+
+Use the CLI directly when you want to inspect what the agent can query:
 
 ```bash
 repobridge search react@19.0.0 "kind:function name:render"
 repobridge search pypi:requests==2.32.3 "calls:send lang:python"
-repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
-repobridge search github.com/vercel/next.js "path:packages kind:method"
-repobridge search github.com/acme/service "kind:route path:/login"
-repobridge search github.com/acme/web "kind:component_route path:/settings"
-```
-
-Search framework entry points directly:
-
-```bash
-repobridge search github.com/acme/service "kind:route path:/api/users"
-repobridge search github.com/acme/service "kind:route lang:python path:/items"
-repobridge search github.com/acme/web "kind:component_route path:/dashboard"
-repobridge callers github.com/acme/service UsersController.Get --depth 1
-repobridge context github.com/acme/service "GET /api/users" --budget small
+repobridge context react@19.0.0 "createRoot render flow" --budget small
+repobridge callers react@19.0.0 createRoot --depth 2
 ```
 
 Route indexing covers Spring Java/Kotlin annotations, Express and React Router routes, FastAPI/Flask/Django routes, Gin/chi/gorilla/mux registrations, ASP.NET controller and Minimal API routes, and Rust Axum/actix/Rocket-style route shapes.
@@ -131,32 +120,20 @@ repobridge files react@19.0.0 --path packages/react-dom --limit 10
 repobridge node react@19.0.0 createRoot --source-lines 20
 ```
 
-Trace call relationships:
+Trace deeper relationships when needed:
 
 ```bash
-repobridge callers react@19.0.0 createRoot --depth 2
 repobridge callers github.com/acme/service AuthController.login --depth 1
 repobridge callees react@19.0.0 createRoot --include-unresolved
 repobridge impact react@19.0.0 createRoot --json
 ```
 
-Build task context for an agent:
+Build broader task context:
 
 ```bash
-repobridge context react@19.0.0 "createRoot render flow" --budget small
 repobridge context github.com/acme/service "POST /login" --budget small
 repobridge explore github.com/vercel/next.js "AppRouter cache invalidation" --budget large --depth 2
 ```
-
-Install the bundled RepoBridge skill for a coding agent:
-
-```bash
-repobridge install-agent --target codex --version v0.6.0
-repobridge install-agent --target codex --dry-run
-repobridge install-agent --target codex --print-config
-```
-
-`install-agent` writes skill files only. It does not install MCP configuration.
 
 Inspect and clean cached sources:
 
