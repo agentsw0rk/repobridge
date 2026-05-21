@@ -17,14 +17,16 @@ import (
 )
 
 type fakeFetcher struct {
-	packageResult FetchResult
-	repoResult    FetchResult
-	packageCalls  int
-	repoCalls     int
+	packageResult   FetchResult
+	repoResult      FetchResult
+	packageCalls    int
+	repoCalls       int
+	packageRequests []registry.ResolvedPackage
 }
 
 func (f *fakeFetcher) FetchPackage(pkg registry.ResolvedPackage) FetchResult {
 	f.packageCalls++
+	f.packageRequests = append(f.packageRequests, pkg)
 	if f.packageResult.Success || f.packageResult.Error != nil {
 		return f.packageResult
 	}
@@ -209,6 +211,48 @@ func TestEnsureCachedReturnsExistingNuGetPackageCacheEntry(t *testing.T) {
 	}
 	if got.Name != "Serilog" || got.Version != "3.1.1" || got.SourceLabel != "NuGet" {
 		t.Fatalf("outcome = %#v", got)
+	}
+}
+
+func TestEnsureCachedResolvesMavenUsingRepositoriesFromCWD(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+	t.Setenv("HOME", t.TempDir())
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "pom.xml"), []byte(`<project>
+  <repositories>
+    <repository>
+      <id>internal</id>
+      <url>https://repo.example.com/internal</url>
+    </repository>
+  </repositories>
+</project>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fetcher := &fakeFetcher{packageResult: FetchResult{
+		Package:  "org.example:demo",
+		Version:  "1.0.0",
+		Registry: registry.Maven,
+		Path:     "repos/maven/org.example/demo/1.0.0",
+		Success:  true,
+	}}
+
+	_, err := EnsureCached("maven:org.example:demo@1.0.0", Options{CWD: project, Fetcher: fetcher})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetcher.packageCalls != 1 {
+		t.Fatalf("package calls = %d, want 1", fetcher.packageCalls)
+	}
+	got := fetcher.packageRequests[0]
+	if len(got.ArtifactCandidates) < 2 {
+		t.Fatalf("ArtifactCandidates = %#v, want internal plus Maven Central", got.ArtifactCandidates)
+	}
+	if got.ArtifactCandidates[0].RepositoryID != "internal" {
+		t.Fatalf("first repository = %q, want internal", got.ArtifactCandidates[0].RepositoryID)
+	}
+	if got.ArtifactCandidates[0].SourceArchiveURL != "https://repo.example.com/internal/org/example/demo/1.0.0/demo-1.0.0-sources.jar" {
+		t.Fatalf("first source URL = %q", got.ArtifactCandidates[0].SourceArchiveURL)
 	}
 }
 
@@ -429,6 +473,134 @@ func TestGitFetcherResolvesMavenSCMWhenSourceArchiveMissing(t *testing.T) {
 	}
 	if got.Path != "repos/github.com/owner/repo/1.0.0" {
 		t.Fatalf("Path = %q", got.Path)
+	}
+}
+
+func TestGitFetcherTriesMavenSourceCandidatesInOrder(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+
+	body := zipBytes(t, map[string]string{
+		"src/main/java/App.java": "class App {}",
+	})
+	paths := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/repo-one/demo-1.0.0-sources.jar":
+			http.NotFound(w, r)
+		case "/repo-two/demo-1.0.0-sources.jar":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(body)
+		default:
+			t.Fatalf("unexpected path = %q", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	got := GitFetcher{Client: server.Client()}.FetchPackage(registry.ResolvedPackage{
+		Registry: registry.Maven,
+		Name:     "org.example:demo",
+		Version:  "1.0.0",
+		ArtifactCandidates: []registry.ArtifactCandidate{
+			{RepositoryID: "one", SourceArchiveURL: server.URL + "/repo-one/demo-1.0.0-sources.jar"},
+			{RepositoryID: "two", SourceArchiveURL: server.URL + "/repo-two/demo-1.0.0-sources.jar"},
+		},
+	})
+	if got.Error != nil {
+		t.Fatal(got.Error)
+	}
+	if !got.Success {
+		t.Fatal("Success = false, want true")
+	}
+	if got.Path != "repos/maven/org.example/demo/1.0.0" {
+		t.Fatalf("Path = %q", got.Path)
+	}
+	if len(paths) != 2 || paths[0] != "/repo-one/demo-1.0.0-sources.jar" || paths[1] != "/repo-two/demo-1.0.0-sources.jar" {
+		t.Fatalf("paths = %#v", paths)
+	}
+}
+
+func TestGitFetcherTriesMavenPOMCandidatesInOrderAfterSourcesMissing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+
+	paths := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/repo-one/demo-1.0.0-sources.jar", "/repo-two/demo-1.0.0-sources.jar":
+			http.NotFound(w, r)
+		case "/repo-one/demo-1.0.0.pom":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<project></project>`))
+		case "/repo-two/demo-1.0.0.pom":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<project><scm><connection>scm:git:https://github.com/Owner/repo.git</connection></scm></project>`))
+		default:
+			t.Fatalf("unexpected path = %q", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	target := filepath.Join(home, "repos/github.com/owner/repo/1.0.0")
+	cloneCalled := false
+	oldCloneAtTag := cloneAtTag
+	cloneAtTag = func(repoURL, gotTarget, version string) git.CloneResult {
+		cloneCalled = true
+		if repoURL != "https://github.com/owner/repo" {
+			t.Fatalf("repoURL = %q", repoURL)
+		}
+		if gotTarget != target {
+			t.Fatalf("target = %q, want %q", gotTarget, target)
+		}
+		if version != "1.0.0" {
+			t.Fatalf("clone ref = %q, want 1.0.0", version)
+		}
+		if err := os.MkdirAll(gotTarget, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return git.CloneResult{Success: true}
+	}
+	t.Cleanup(func() { cloneAtTag = oldCloneAtTag })
+
+	got := GitFetcher{Client: server.Client()}.FetchPackage(registry.ResolvedPackage{
+		Registry: registry.Maven,
+		Name:     "org.example:demo",
+		Version:  "1.0.0",
+		GitTag:   "v1.0.0",
+		ArtifactCandidates: []registry.ArtifactCandidate{
+			{
+				RepositoryID:      "one",
+				SourceArchiveURL:  server.URL + "/repo-one/demo-1.0.0-sources.jar",
+				SourceMetadataURL: server.URL + "/repo-one/demo-1.0.0.pom",
+			},
+			{
+				RepositoryID:      "two",
+				SourceArchiveURL:  server.URL + "/repo-two/demo-1.0.0-sources.jar",
+				SourceMetadataURL: server.URL + "/repo-two/demo-1.0.0.pom",
+			},
+		},
+	})
+	if got.Error != nil {
+		t.Fatal(got.Error)
+	}
+	if !cloneCalled {
+		t.Fatal("cloneAtTag was not called")
+	}
+	wantPaths := []string{
+		"/repo-one/demo-1.0.0-sources.jar",
+		"/repo-two/demo-1.0.0-sources.jar",
+		"/repo-one/demo-1.0.0.pom",
+		"/repo-two/demo-1.0.0.pom",
+	}
+	if len(paths) != len(wantPaths) {
+		t.Fatalf("paths = %#v, want %#v", paths, wantPaths)
+	}
+	for i := range wantPaths {
+		if paths[i] != wantPaths[i] {
+			t.Fatalf("paths = %#v, want %#v", paths, wantPaths)
+		}
 	}
 }
 

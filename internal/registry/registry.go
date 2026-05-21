@@ -52,13 +52,20 @@ type PackageSpec struct {
 }
 
 type ResolvedPackage struct {
-	Registry          Registry
-	Name              string
-	Version           string
-	RepoURL           string
-	RepoDirectory     string
-	GitTag            string
-	GitRef            string
+	Registry           Registry
+	Name               string
+	Version            string
+	RepoURL            string
+	RepoDirectory      string
+	GitTag             string
+	GitRef             string
+	SourceArchiveURL   string
+	SourceMetadataURL  string
+	ArtifactCandidates []ArtifactCandidate
+}
+
+type ArtifactCandidate struct {
+	RepositoryID      string
 	SourceArchiveURL  string
 	SourceMetadataURL string
 }

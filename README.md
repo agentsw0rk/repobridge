@@ -159,7 +159,9 @@ repobridge clean --repos
 
 Package inputs default to npm. Use a registry prefix for non-npm packages.
 
-Maven inputs use `groupId:artifactId@version`. RepoBridge prefers the published `*-sources.jar` and falls back to SCM metadata from the POM when needed.
+Maven inputs use `groupId:artifactId@version`. RepoBridge reads Maven repositories from `pom.xml`, local parent POMs, active Maven profiles, and `settings.xml` mirrors under `--cwd`, then tries source JARs in repository order. It falls back to SCM metadata from the POM only after source JAR lookup misses in the configured repositories. If no project repository configuration is found, Maven's default Central repository is used.
+
+Maven repository support is intentionally lightweight. It does not resolve remote parent POMs, decrypt Maven server credentials, apply proxy settings, or build a full Maven effective model.
 
 NuGet inputs use package IDs with an optional version. RepoBridge selects the latest stable version when omitted, reads repository metadata from the `.nupkg`, and caches only the matching source repository.
 

@@ -26,29 +26,62 @@ var cloneAtTagStrict = git.CloneAtTagStrict
 var cloneAtRef = git.CloneAtRef
 
 func (f GitFetcher) FetchPackage(pkg registry.ResolvedPackage) FetchResult {
-	if pkg.SourceArchiveURL != "" {
-		result := FetchPackageArchive(pkg, f.Client)
-		if result.Error == nil {
-			return result
-		}
-		var notFound *sourceArchiveNotFoundError
-		if !errors.As(result.Error, &notFound) {
-			return result
-		}
-		if pkg.RepoURL == "" && pkg.Registry == registry.Maven && pkg.SourceMetadataURL != "" {
-			repoURL, err := maven.ResolveSCMURL(f.Client, pkg.SourceMetadataURL, pkg.Name, pkg.Version)
-			if err != nil {
-				return FetchResult{Error: err}
+	candidates := artifactCandidates(pkg)
+	if len(candidates) > 0 {
+		for _, candidate := range candidates {
+			if candidate.SourceArchiveURL == "" {
+				continue
 			}
-			pkg.RepoURL = repoURL
+			candidatePkg := pkg
+			candidatePkg.SourceArchiveURL = candidate.SourceArchiveURL
+			result := FetchPackageArchive(candidatePkg, f.Client)
+			if result.Error == nil {
+				return result
+			}
+			var notFound *sourceArchiveNotFoundError
+			if !errors.As(result.Error, &notFound) {
+				return result
+			}
 		}
-		if pkg.RepoURL == "" {
+		if pkg.RepoURL == "" && pkg.Registry == registry.Maven {
+			for _, candidate := range candidates {
+				if candidate.SourceMetadataURL == "" {
+					continue
+				}
+				repoURL, err := maven.ResolveSCMURL(f.Client, candidate.SourceMetadataURL, pkg.Name, pkg.Version)
+				if err != nil {
+					var versionNotFound repobridge.VersionNotFoundError
+					if errors.As(err, &versionNotFound) {
+						continue
+					}
+					return FetchResult{Error: err}
+				}
+				if repoURL != "" {
+					pkg.RepoURL = repoURL
+					break
+				}
+			}
+		}
+		if pkg.RepoURL == "" && pkg.Registry == registry.Maven {
 			return FetchResult{Error: repobridge.NoRepoURLError{
 				Message: fmt.Sprintf("No Maven source JAR found for %q and no usable SCM URL found in the POM", pkg.Name+"@"+pkg.Version),
 			}}
 		}
 	}
 	return FetchPackageWithGit(pkg)
+}
+
+func artifactCandidates(pkg registry.ResolvedPackage) []registry.ArtifactCandidate {
+	if len(pkg.ArtifactCandidates) > 0 {
+		return pkg.ArtifactCandidates
+	}
+	if pkg.SourceArchiveURL == "" && pkg.SourceMetadataURL == "" {
+		return nil
+	}
+	return []registry.ArtifactCandidate{{
+		SourceArchiveURL:  pkg.SourceArchiveURL,
+		SourceMetadataURL: pkg.SourceMetadataURL,
+	}}
 }
 
 func (GitFetcher) FetchRepo(displayName, repoURL, gitRef string) FetchResult {
