@@ -62,7 +62,7 @@ func walkJava(path string, source []byte, node *tree_sitter.Node, result *Extrac
 }
 
 func walkKotlin(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
-	walkKotlinNode(path, source, node, result, "", "", "")
+	walkKotlinNode(path, source, node, result, "", "", "", kotlinPackageName(source, node))
 }
 
 func walkCSharp(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
@@ -216,7 +216,7 @@ func walkJavaNode(path string, source []byte, node *tree_sitter.Node, result *Ex
 	}
 }
 
-func walkKotlinNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID, routePrefix, className string) {
+func walkKotlinNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID, routePrefix, className, packageName string) {
 	if node == nil {
 		return
 	}
@@ -226,16 +226,23 @@ func walkKotlinNode(path string, source []byte, node *tree_sitter.Node, result *
 		if prefix, ok := springRoutePrefixFromAnnotations(source, directAnnotations(node)); ok {
 			routePrefix = combineRoutePatterns(routePrefix, prefix)
 		}
+	case "import":
+		appendKotlinImportNode(path, source, node, result)
 	case "class_declaration", "object_declaration":
 		if name := declarationName(source, node); name != "" {
 			className = name
+			appendKotlinClassNode(path, source, node, result, name, packageName)
 		}
 	case "infix_expression":
 		if name := kotlinClassLikeName(source, node); name != "" {
 			className = name
 		}
+	case "type_alias", "typealias":
+		if name := declarationName(source, node); name != "" {
+			appendKotlinClassNode(path, source, node, result, name, packageName)
+		}
 	case "function_declaration":
-		if id := appendSpringHandlerOrKotlinFunction(path, source, node, result, routePrefix, className); id != "" {
+		if id := appendSpringHandlerOrKotlinFunction(path, source, node, result, routePrefix, className, packageName); id != "" {
 			currentNodeID = id
 		}
 	case "anonymous_function", "lambda_literal":
@@ -247,7 +254,7 @@ func walkKotlinNode(path string, source []byte, node *tree_sitter.Node, result *
 	}
 
 	for i := uint(0); i < node.NamedChildCount(); i++ {
-		walkKotlinNode(path, source, node.NamedChild(i), result, currentNodeID, routePrefix, className)
+		walkKotlinNode(path, source, node.NamedChild(i), result, currentNodeID, routePrefix, className, packageName)
 	}
 }
 
@@ -349,6 +356,10 @@ func appendLanguageNode(path string, source []byte, node *tree_sitter.Node, kind
 }
 
 func appendScopedLanguageNode(path string, source []byte, node *tree_sitter.Node, kind model.NodeKind, language model.Language, result *ExtractionResult, receiverType string) string {
+	return appendPackageScopedLanguageNode(path, source, node, kind, language, result, receiverType, "")
+}
+
+func appendPackageScopedLanguageNode(path string, source []byte, node *tree_sitter.Node, kind model.NodeKind, language model.Language, result *ExtractionResult, receiverType, packageName string) string {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
 		return ""
@@ -361,7 +372,7 @@ func appendScopedLanguageNode(path string, source []byte, node *tree_sitter.Node
 	start := node.StartPosition()
 	end := node.EndPosition()
 	startLine := int(start.Row) + 1
-	qualifiedName := qualifiedMemberName(metadata.receiverType, name)
+	qualifiedName := packageQualifiedName(packageName, qualifiedMemberName(metadata.receiverType, name))
 	id := stableNodeID(path, kind, qualifiedName, startLine)
 	result.Nodes = append(result.Nodes, model.GraphNode{
 		ID:             id,
@@ -383,6 +394,55 @@ func appendScopedLanguageNode(path string, source []byte, node *tree_sitter.Node
 	return id
 }
 
+func appendKotlinClassNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, name, packageName string) string {
+	start := node.StartPosition()
+	end := node.EndPosition()
+	startLine := int(start.Row) + 1
+	qualifiedName := packageQualifiedName(packageName, name)
+	id := stableNodeID(path, model.NodeKindClass, qualifiedName, startLine)
+	result.Nodes = append(result.Nodes, model.GraphNode{
+		ID:             id,
+		Kind:           model.NodeKindClass,
+		Name:           name,
+		QualifiedName:  qualifiedName,
+		ParameterCount: -1,
+		FilePath:       path,
+		Language:       model.LanguageKotlin,
+		StartLine:      startLine,
+		EndLine:        int(end.Row) + 1,
+		StartColumn:    int(start.Column),
+		EndColumn:      int(end.Column),
+		Signature:      strings.TrimSpace(nodeText(source, node)),
+	})
+	return id
+}
+
+func appendKotlinImportNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) string {
+	qualifiedName := kotlinImportPath(source, node)
+	if qualifiedName == "" {
+		return ""
+	}
+	name := importSimpleName(qualifiedName)
+	start := node.StartPosition()
+	end := node.EndPosition()
+	startLine := int(start.Row) + 1
+	id := stableNodeID(path, model.NodeKindImport, qualifiedName, startLine)
+	result.Nodes = append(result.Nodes, model.GraphNode{
+		ID:            id,
+		Kind:          model.NodeKindImport,
+		Name:          name,
+		QualifiedName: qualifiedName,
+		FilePath:      path,
+		Language:      model.LanguageKotlin,
+		StartLine:     startLine,
+		EndLine:       int(end.Row) + 1,
+		StartColumn:   int(start.Column),
+		EndColumn:     int(end.Column),
+		Signature:     strings.TrimSpace(nodeText(source, node)),
+	})
+	return id
+}
+
 func appendSpringHandlerOrJavaMethod(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, routePrefix, className string) string {
 	routes := springRoutesFromAnnotations(source, directAnnotations(node), routePrefix)
 	if len(routes) == 0 {
@@ -391,10 +451,10 @@ func appendSpringHandlerOrJavaMethod(path string, source []byte, node *tree_sitt
 	return appendSpringHandler(path, source, node, result, model.LanguageJava, className, routes)
 }
 
-func appendSpringHandlerOrKotlinFunction(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, routePrefix, className string) string {
+func appendSpringHandlerOrKotlinFunction(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, routePrefix, className, packageName string) string {
 	routes := springRoutesFromAnnotations(source, directAnnotations(node), routePrefix)
 	if len(routes) == 0 {
-		return appendScopedLanguageNode(path, source, node, model.NodeKindFunction, model.LanguageKotlin, result, className)
+		return appendPackageScopedLanguageNode(path, source, node, model.NodeKindFunction, model.LanguageKotlin, result, className, packageName)
 	}
 	return appendSpringHandler(path, source, node, result, model.LanguageKotlin, className, routes)
 }
@@ -497,6 +557,9 @@ func appendLanguageCall(path string, source []byte, node *tree_sitter.Node, lang
 	if !ok {
 		return
 	}
+	if details.receiverText == "" && isFunctionTypedParameterCall(result, fromNodeID, details.name) {
+		return
+	}
 
 	start := details.nameNode.StartPosition()
 	result.Unresolved = append(result.Unresolved, model.UnresolvedReference{
@@ -546,6 +609,15 @@ func referenceName(source []byte, node *tree_sitter.Node) (*tree_sitter.Node, st
 	case "identifier", "property_identifier", "field_identifier":
 		name := strings.TrimSpace(nodeText(source, node))
 		return node, name, "", name != ""
+	case "navigation_expression":
+		for i := node.NamedChildCount(); i > 0; i-- {
+			child := node.NamedChild(i - 1)
+			nameNode, name, _, ok := referenceName(source, child)
+			if ok {
+				return nameNode, name, receiverTextBeforeName(source, node, nameNode), true
+			}
+		}
+		return nil, "", "", false
 	case "attribute", "field_expression", "member_access_expression", "member_expression", "scoped_identifier", "selector_expression":
 		for _, field := range []string{"name", "field", "attribute", "property"} {
 			child := node.ChildByFieldName(field)
@@ -595,7 +667,7 @@ func nodeSignatureMetadata(source []byte, node *tree_sitter.Node, name string) n
 	parameters := parameterListTextAfterName(signature, name)
 	parameterTypes := parameterTypesFromList(parameters)
 	return nodeMetadata{
-		receiverType:   extensionReceiverTypeFromHeader(signature, name),
+		receiverType:   extensionReceiverType(source, node, name, signature),
 		parameterCount: len(parameterTypes),
 		parameterTypes: parameterTypes,
 		returnType:     returnTypeFromHeader(signature, name),
@@ -670,8 +742,9 @@ func parameterType(parameter string) string {
 	if i := strings.Index(parameter, "="); i >= 0 {
 		parameter = strings.TrimSpace(parameter[:i])
 	}
-	if i := strings.LastIndex(parameter, ":"); i >= 0 {
-		return strings.TrimSpace(parameter[i+1:])
+	if name, typ, ok := splitParameterNameType(parameter); ok {
+		_ = name
+		return typ
 	}
 	fields := strings.Fields(parameter)
 	if len(fields) == 0 {
@@ -681,6 +754,65 @@ func parameterType(parameter string) string {
 		return fields[0]
 	}
 	return strings.TrimSpace(fields[len(fields)-1])
+}
+
+func isFunctionTypedParameterCall(result *ExtractionResult, fromNodeID, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	for _, node := range result.Nodes {
+		if node.ID != fromNodeID {
+			continue
+		}
+		_, ok := functionTypedParameterNames(node.Signature, node.Name)[name]
+		return ok
+	}
+	return false
+}
+
+func functionTypedParameterNames(signature, functionName string) map[string]struct{} {
+	names := map[string]struct{}{}
+	parameters := parameterListTextAfterName(signature, functionName)
+	if parameters == "" {
+		return names
+	}
+	for _, parameter := range splitTopLevel(parameters, ',') {
+		name, typ, ok := splitParameterNameType(parameter)
+		if !ok || name == "" || !strings.Contains(typ, "->") {
+			continue
+		}
+		names[name] = struct{}{}
+	}
+	return names
+}
+
+func splitParameterNameType(parameter string) (string, string, bool) {
+	parameter = strings.TrimSpace(parameter)
+	if parameter == "" {
+		return "", "", false
+	}
+	depth := 0
+	for i, r := range parameter {
+		switch r {
+		case '(', '[', '<':
+			depth++
+		case ')', ']', '>':
+			if depth > 0 {
+				depth--
+			}
+		case ':':
+			if depth == 0 {
+				name := strings.TrimSpace(parameter[:i])
+				typ := strings.TrimSpace(parameter[i+1:])
+				if name == "" || typ == "" {
+					return "", "", false
+				}
+				return name, typ, true
+			}
+		}
+	}
+	return "", "", false
 }
 
 func returnTypeFromHeader(header, name string) string {
@@ -743,6 +875,45 @@ func extensionReceiverTypeFromHeader(header, name string) string {
 	return strings.TrimSpace(receiver)
 }
 
+func extensionReceiverType(source []byte, node *tree_sitter.Node, name, signature string) string {
+	if receiver := extensionReceiverTypeFromAST(source, node); receiver != "" {
+		return receiver
+	}
+	return extensionReceiverTypeFromHeader(signature, name)
+}
+
+func extensionReceiverTypeFromAST(source []byte, node *tree_sitter.Node) string {
+	nameNode := node.ChildByFieldName("name")
+	if nameNode == nil {
+		return ""
+	}
+	var previous *tree_sitter.Node
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		if sameNodeRange(child, nameNode) {
+			if previous != nil && isTypeNode(previous) {
+				return strings.TrimSpace(nodeText(source, previous))
+			}
+			return ""
+		}
+		previous = child
+	}
+	return ""
+}
+
+func sameNodeRange(left, right *tree_sitter.Node) bool {
+	return left != nil && right != nil && left.StartByte() == right.StartByte() && left.EndByte() == right.EndByte()
+}
+
+func isTypeNode(node *tree_sitter.Node) bool {
+	switch node.Kind() {
+	case "user_type", "nullable_type", "function_type", "parenthesized_type", "type_identifier", "generic_type":
+		return true
+	default:
+		return false
+	}
+}
+
 func qualifiedMemberName(receiverType, name string) string {
 	receiverType = strings.TrimSpace(receiverType)
 	name = strings.TrimSpace(name)
@@ -750,6 +921,55 @@ func qualifiedMemberName(receiverType, name string) string {
 		return name
 	}
 	return receiverType + "." + name
+}
+
+func packageQualifiedName(packageName, qualifiedName string) string {
+	packageName = strings.TrimSpace(packageName)
+	qualifiedName = strings.TrimSpace(qualifiedName)
+	if packageName == "" || qualifiedName == "" || strings.HasPrefix(qualifiedName, packageName+".") {
+		return qualifiedName
+	}
+	return packageName + "." + qualifiedName
+}
+
+func kotlinPackageName(source []byte, node *tree_sitter.Node) string {
+	if node == nil {
+		return ""
+	}
+	if node.Kind() == "package_header" {
+		text := strings.TrimSpace(nodeText(source, node))
+		text = strings.TrimSpace(strings.TrimPrefix(text, "package"))
+		return strings.TrimSpace(text)
+	}
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		if packageName := kotlinPackageName(source, node.NamedChild(i)); packageName != "" {
+			return packageName
+		}
+	}
+	return ""
+}
+
+func kotlinImportPath(source []byte, node *tree_sitter.Node) string {
+	text := strings.TrimSpace(nodeText(source, node))
+	text = strings.TrimSpace(strings.TrimPrefix(text, "import"))
+	if before, _, ok := strings.Cut(text, " as "); ok {
+		text = strings.TrimSpace(before)
+	}
+	return strings.TrimSpace(text)
+}
+
+func importSimpleName(qualifiedName string) string {
+	qualifiedName = strings.TrimSpace(qualifiedName)
+	if qualifiedName == "" {
+		return ""
+	}
+	if strings.HasSuffix(qualifiedName, ".*") {
+		return "*"
+	}
+	if i := strings.LastIndex(qualifiedName, "."); i >= 0 {
+		return qualifiedName[i+1:]
+	}
+	return qualifiedName
 }
 
 func goReceiverType(source []byte, node *tree_sitter.Node) string {
@@ -770,18 +990,19 @@ func goReceiverType(source []byte, node *tree_sitter.Node) string {
 
 func argumentTexts(source []byte, callNode *tree_sitter.Node) []string {
 	args := argumentListNode(callNode)
-	if args == nil {
-		return nil
-	}
-	values := make([]string, 0, args.NamedChildCount())
-	for i := uint(0); i < args.NamedChildCount(); i++ {
-		child := args.NamedChild(i)
-		text := strings.TrimSpace(nodeText(source, child))
-		if text == "" {
-			continue
+	var values []string
+	if args != nil {
+		values = make([]string, 0, args.NamedChildCount())
+		for i := uint(0); i < args.NamedChildCount(); i++ {
+			child := args.NamedChild(i)
+			text := strings.TrimSpace(nodeText(source, child))
+			if text == "" {
+				continue
+			}
+			values = append(values, text)
 		}
-		values = append(values, text)
 	}
+	values = append(values, trailingLambdaTexts(source, callNode)...)
 	return values
 }
 
@@ -799,6 +1020,22 @@ func argumentListNode(node *tree_sitter.Node) *tree_sitter.Node {
 		}
 	}
 	return nil
+}
+
+func trailingLambdaTexts(source []byte, callNode *tree_sitter.Node) []string {
+	var values []string
+	for i := uint(0); i < callNode.NamedChildCount(); i++ {
+		child := callNode.NamedChild(i)
+		if child.Kind() != "annotated_lambda" && child.Kind() != "lambda_literal" {
+			continue
+		}
+		text := strings.TrimSpace(nodeText(source, child))
+		if text == "" {
+			continue
+		}
+		values = append(values, text)
+	}
+	return values
 }
 
 func receiverText(source []byte, node *tree_sitter.Node, name string) string {
@@ -819,6 +1056,19 @@ func receiverText(source []byte, node *tree_sitter.Node, name string) string {
 		}
 	}
 	return ""
+}
+
+func receiverTextBeforeName(source []byte, node, nameNode *tree_sitter.Node) string {
+	start := int(node.StartByte())
+	end := int(nameNode.StartByte())
+	if start < 0 || end < start || end > len(source) {
+		return ""
+	}
+	receiver := strings.TrimSpace(string(source[start:end]))
+	for _, suffix := range []string{"?.", "::", "."} {
+		receiver = strings.TrimSpace(strings.TrimSuffix(receiver, suffix))
+	}
+	return receiver
 }
 
 func splitTopLevel(text string, delimiter rune) []string {

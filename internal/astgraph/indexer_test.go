@@ -112,6 +112,226 @@ func TestIndexerResolvesOverloadedCallsByArgumentCount(t *testing.T) {
 	}
 }
 
+func TestIndexerResolvesJavaScriptCallsWithOmittedOptionalArguments(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "clone.js", `function baseClone(value, bitmask, customizer, key, object, stack) {
+  return value;
+}
+function clone(value) {
+  return baseClone(value, 4);
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cloneID := nodeIDByName(t, result.Nodes, NodeKindFunction, "clone")
+	baseCloneID := nodeIDByName(t, result.Nodes, NodeKindFunction, "baseClone")
+	if !hasEdge(result.Edges, cloneID, baseCloneID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want clone -> baseClone with omitted optional arguments", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, cloneID, "baseClone") {
+		t.Fatalf("Unresolved = %#v, baseClone should have resolved", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesTypeScriptCallsWithOmittedOptionalArguments(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "parse.ts", `function parseValue(value: unknown, options: object, ctx: object) {
+  return value;
+}
+function parse(value: unknown) {
+  return parseValue(value);
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parseID := nodeIDByName(t, result.Nodes, NodeKindFunction, "parse")
+	parseValueID := nodeIDByName(t, result.Nodes, NodeKindFunction, "parseValue")
+	if !hasEdge(result.Edges, parseID, parseValueID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want parse -> parseValue with omitted optional arguments", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, parseID, "parseValue") {
+		t.Fatalf("Unresolved = %#v, parseValue should have resolved", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesKotlinNavigationCallsByReceiverScope(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "Strings.kt", `fun String.substring(startIndex: Int): String { return this }
+fun Int.substring(startIndex: Int): Int { return this }
+fun String.dropFirst(): String { return this.substring(1) }
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dropID := nodeIDByName(t, result.Nodes, NodeKindFunction, "dropFirst")
+	stringSubstringID := nodeIDByNameAndReceiver(t, result.Nodes, NodeKindFunction, "substring", "String")
+	if !hasEdge(result.Edges, dropID, stringSubstringID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want String.dropFirst -> String.substring", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, dropID, "substring") {
+		t.Fatalf("Unresolved = %#v, substring should have resolved", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesKotlinTrailingLambdaCallsByArgumentCount(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "Contracts.kt", `fun contract(builder: ContractBuilder.() -> Unit) {}
+fun run() { contract { returns() } }
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	contractID := nodeIDByName(t, result.Nodes, NodeKindFunction, "contract")
+	if !hasEdge(result.Edges, runID, contractID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want run -> contract", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "contract") {
+		t.Fatalf("Unresolved = %#v, contract should have resolved", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesKotlinConstructorCallsToClasses(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "Classes.kt", `class NoSuchElementException
+annotation class ReplaceWith(val expression: String)
+fun run() {
+  NoSuchElementException("missing")
+  ReplaceWith("value")
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	exceptionID := nodeIDByName(t, result.Nodes, NodeKindClass, "NoSuchElementException")
+	replaceWithID := nodeIDByName(t, result.Nodes, NodeKindClass, "ReplaceWith")
+	if !hasEdge(result.Edges, runID, exceptionID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want run -> NoSuchElementException", result.Edges)
+	}
+	if !hasEdge(result.Edges, runID, replaceWithID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want run -> ReplaceWith", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "NoSuchElementException") || hasUnresolved(result.Unresolved, runID, "ReplaceWith") {
+		t.Fatalf("Unresolved = %#v, constructor calls should have resolved", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesKotlinCallsThroughWildcardImports(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "contracts/Contract.kt", `package kotlin.contracts
+fun contract(builder: ContractBuilder.() -> Unit) {}
+`)
+	writeASTGraphFixture(t, root, "demo/Use.kt", `package demo
+import kotlin.contracts.*
+fun run() { contract { returns() } }
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	contractID := nodeIDByQualifiedName(t, result.Nodes, NodeKindFunction, "kotlin.contracts.contract")
+	if !hasEdge(result.Edges, runID, contractID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want demo.run -> kotlin.contracts.contract", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "contract") {
+		t.Fatalf("Unresolved = %#v, contract should have resolved through wildcard import", result.Unresolved)
+	}
+}
+
+func TestIndexerPrefersKotlinSamePackageTargets(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "a/Box.kt", `package a
+class Box
+`)
+	writeASTGraphFixture(t, root, "a/Use.kt", `package a
+fun run() { Box() }
+`)
+	writeASTGraphFixture(t, root, "b/Box.kt", `package b
+class Box
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByQualifiedName(t, result.Nodes, NodeKindFunction, "a.run")
+	boxID := nodeIDByQualifiedName(t, result.Nodes, NodeKindClass, "a.Box")
+	if !hasEdge(result.Edges, runID, boxID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want a.run -> a.Box", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "Box") {
+		t.Fatalf("Unresolved = %#v, Box should have resolved to same package", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesKotlinDefaultImports(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "kotlin/Errors.kt", `package kotlin
+class NoSuchElementException
+class IllegalArgumentException
+`)
+	writeASTGraphFixture(t, root, "kotlin/collections/Lists.kt", `package kotlin.collections
+class ArrayList
+`)
+	writeASTGraphFixture(t, root, "demo/Use.kt", `package demo
+fun run() {
+  NoSuchElementException("missing")
+  IllegalArgumentException("bad")
+  ArrayList()
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByQualifiedName(t, result.Nodes, NodeKindFunction, "demo.run")
+	exceptionID := nodeIDByQualifiedName(t, result.Nodes, NodeKindClass, "kotlin.NoSuchElementException")
+	argumentID := nodeIDByQualifiedName(t, result.Nodes, NodeKindClass, "kotlin.IllegalArgumentException")
+	arrayListID := nodeIDByQualifiedName(t, result.Nodes, NodeKindClass, "kotlin.collections.ArrayList")
+	for _, targetID := range []string{exceptionID, argumentID, arrayListID} {
+		if !hasEdge(result.Edges, runID, targetID, EdgeKindCalls) {
+			t.Fatalf("Edges = %#v, want demo.run -> %s", result.Edges, targetID)
+		}
+	}
+	for _, name := range []string{"NoSuchElementException", "IllegalArgumentException", "ArrayList"} {
+		if hasUnresolved(result.Unresolved, runID, name) {
+			t.Fatalf("Unresolved = %#v, %s should have resolved through Kotlin default imports", result.Unresolved, name)
+		}
+	}
+}
+
 func TestIndexerSetsResultAndFileMetadata(t *testing.T) {
 	root := t.TempDir()
 	writeASTGraphFixture(t, root, "main.go", `package main
@@ -215,6 +435,28 @@ func nodeIDByNameAndParamCount(t *testing.T, nodes []GraphNode, kind NodeKind, n
 		}
 	}
 	t.Fatalf("node %s %s with %d params not found in %#v", kind, name, parameterCount, nodes)
+	return ""
+}
+
+func nodeIDByNameAndReceiver(t *testing.T, nodes []GraphNode, kind NodeKind, name, receiver string) string {
+	t.Helper()
+	for _, node := range nodes {
+		if node.Kind == kind && node.Name == name && node.ReceiverType == receiver {
+			return node.ID
+		}
+	}
+	t.Fatalf("node %s %s with receiver %s not found in %#v", kind, name, receiver, nodes)
+	return ""
+}
+
+func nodeIDByQualifiedName(t *testing.T, nodes []GraphNode, kind NodeKind, qualifiedName string) string {
+	t.Helper()
+	for _, node := range nodes {
+		if node.Kind == kind && node.QualifiedName == qualifiedName {
+			return node.ID
+		}
+	}
+	t.Fatalf("node %s qualified %s not found in %#v", kind, qualifiedName, nodes)
 	return ""
 }
 

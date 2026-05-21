@@ -11,7 +11,7 @@ import (
 	"repobridge/internal/astgraph/parser"
 )
 
-const SchemaVersion = 5
+const SchemaVersion = 14
 
 type IndexOptions struct {
 	MaxFileSize int64
@@ -136,7 +136,7 @@ func resolveCallTarget(nodes []GraphNode, from GraphNode, ref UnresolvedReferenc
 	var best GraphNode
 	ambiguous := false
 	for _, candidate := range candidates {
-		score := callTargetScore(from, ref, candidate)
+		score := callTargetScore(nodes, from, ref, candidate)
 		if score > bestScore {
 			bestScore = score
 			best = candidate
@@ -170,8 +170,11 @@ func callTargetCandidates(nodes []GraphNode, from GraphNode, ref UnresolvedRefer
 	return candidates
 }
 
-func callTargetScore(from GraphNode, ref UnresolvedReference, target GraphNode) int {
+func callTargetScore(nodes []GraphNode, from GraphNode, ref UnresolvedReference, target GraphNode) int {
 	score := 0
+	score += importedTargetScore(nodes, from, ref, target)
+	score += samePackageTargetScore(from, target)
+	score += defaultImportedTargetScore(from, ref, target)
 	if target.FilePath == from.FilePath {
 		score += 100
 	}
@@ -190,9 +193,91 @@ func callTargetScore(from GraphNode, ref UnresolvedReference, target GraphNode) 
 	return score
 }
 
+func defaultImportedTargetScore(from GraphNode, ref UnresolvedReference, target GraphNode) int {
+	if from.Language != LanguageKotlin || target.Language != LanguageKotlin || strings.TrimSpace(ref.ReceiverText) != "" {
+		return 0
+	}
+	if target.Name != strings.TrimSpace(ref.ReferenceName) {
+		return 0
+	}
+	for _, packageName := range kotlinDefaultImportPackages {
+		if target.QualifiedName == packageName+"."+target.Name {
+			return 120
+		}
+	}
+	return 0
+}
+
+var kotlinDefaultImportPackages = []string{
+	"kotlin",
+	"kotlin.annotation",
+	"kotlin.collections",
+	"kotlin.comparisons",
+	"kotlin.io",
+	"kotlin.ranges",
+	"kotlin.sequences",
+	"kotlin.text",
+	"kotlin.jvm",
+	"kotlin.jvm.functions",
+}
+
+func samePackageTargetScore(from GraphNode, target GraphNode) int {
+	if from.Language != target.Language {
+		return 0
+	}
+	fromPackage := packageNameOf(from)
+	if fromPackage == "" || fromPackage != packageNameOf(target) {
+		return 0
+	}
+	return 150
+}
+
+func packageNameOf(node GraphNode) string {
+	qualifiedName := strings.TrimSpace(node.QualifiedName)
+	name := strings.TrimSpace(node.Name)
+	if qualifiedName == "" || name == "" {
+		return ""
+	}
+	if receiverType := strings.TrimSpace(node.ReceiverType); receiverType != "" {
+		suffix := "." + receiverType + "." + name
+		if strings.HasSuffix(qualifiedName, suffix) {
+			return strings.TrimSuffix(qualifiedName, suffix)
+		}
+	}
+	suffix := "." + name
+	if strings.HasSuffix(qualifiedName, suffix) {
+		return strings.TrimSuffix(qualifiedName, suffix)
+	}
+	return ""
+}
+
+func importedTargetScore(nodes []GraphNode, from GraphNode, ref UnresolvedReference, target GraphNode) int {
+	for _, node := range nodes {
+		if node.Kind != NodeKindImport || node.FilePath != from.FilePath || node.Language != from.Language {
+			continue
+		}
+		if importMatchesTarget(node, ref, target) {
+			return 200
+		}
+	}
+	return 0
+}
+
+func importMatchesTarget(importNode GraphNode, ref UnresolvedReference, target GraphNode) bool {
+	importPath := strings.TrimSpace(importNode.QualifiedName)
+	if importPath == "" {
+		return false
+	}
+	if strings.HasSuffix(importPath, ".*") {
+		prefix := strings.TrimSuffix(importPath, "*")
+		return target.Name == ref.ReferenceName && strings.HasPrefix(target.QualifiedName, prefix)
+	}
+	return importNode.Name == ref.ReferenceName && target.QualifiedName == importPath
+}
+
 func isCallableNode(kind NodeKind) bool {
 	switch kind {
-	case NodeKindFunction, NodeKindMethod, NodeKindHandler:
+	case NodeKindFunction, NodeKindMethod, NodeKindHandler, NodeKindClass:
 		return true
 	default:
 		return false
@@ -208,7 +293,22 @@ func callReferenceMatchesNode(reference string, node GraphNode) bool {
 }
 
 func callArgumentsMatchNode(ref UnresolvedReference, node GraphNode) bool {
+	if node.Kind == NodeKindClass {
+		return true
+	}
+	if isOptionalArityLanguage(node.Language) {
+		return ref.ArgumentCount <= node.ParameterCount
+	}
 	return ref.ArgumentCount == node.ParameterCount
+}
+
+func isOptionalArityLanguage(language Language) bool {
+	switch language {
+	case LanguageJavaScript, LanguageTypeScript:
+		return true
+	default:
+		return false
+	}
 }
 
 func receiverMatchesTarget(receiver string, node GraphNode) bool {
