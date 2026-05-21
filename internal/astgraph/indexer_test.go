@@ -607,6 +607,148 @@ fun run() {
 	}
 }
 
+func TestIndexerResolvesRustEnumVariantConstructors(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "lib.rs", `enum Token {
+    Str(&'static str),
+    I32(i32),
+}
+
+fn emit() {
+    Token::Str("value");
+    Token::I32(1);
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	emitID := nodeIDByName(t, result.Nodes, NodeKindFunction, "emit")
+	strID := nodeIDByQualifiedName(t, result.Nodes, NodeKindClass, "Token::Str")
+	i32ID := nodeIDByQualifiedName(t, result.Nodes, NodeKindClass, "Token::I32")
+	for _, targetID := range []string{strID, i32ID} {
+		if !hasEdge(result.Edges, emitID, targetID, EdgeKindCalls) {
+			t.Fatalf("Edges = %#v, want emit -> %s", result.Edges, targetID)
+		}
+	}
+	if hasUnresolved(result.Unresolved, emitID, "Str") || hasUnresolved(result.Unresolved, emitID, "I32") {
+		t.Fatalf("Unresolved = %#v, enum variants should resolve", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesRustImplCallsByReceiverType(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "lib.rs", `struct Formatter;
+
+impl Formatter {
+    fn write_str(&mut self, value: &str) {}
+}
+
+fn run(formatter: &mut Formatter) {
+    formatter.write_str("value");
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	writeStrID := nodeIDByNameAndReceiver(t, result.Nodes, NodeKindMethod, "write_str", "Formatter")
+	if !hasEdge(result.Edges, runID, writeStrID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want run -> Formatter::write_str", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "write_str") {
+		t.Fatalf("Unresolved = %#v, write_str should resolve through typed Rust receiver", result.Unresolved)
+	}
+}
+
+func TestIndexerClassifiesRustPreludeAndReceiverCallsAsExternal(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "lib.rs", `fn run(values: Vec<i32>) {
+    Some(1);
+    Ok(1);
+    Err(());
+    Box::new(1);
+    values.iter().map(|value| value);
+    missing();
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	for _, name := range []string{"Some", "Ok", "Err", "new", "iter", "map"} {
+		if hasUnresolved(result.Unresolved, runID, name) {
+			t.Fatalf("Unresolved = %#v, %s should have been classified as a Rust external call", result.Unresolved, name)
+		}
+	}
+	for _, qualifiedName := range []string{
+		"external:rust.prelude.Some",
+		"external:rust.prelude.Ok",
+		"external:rust.prelude.Err",
+		"external:Box::new",
+		"external:values.iter",
+		"external:values.iter.map",
+	} {
+		externalID := nodeIDByQualifiedName(t, result.Nodes, NodeKindExternal, qualifiedName)
+		if !hasEdge(result.Edges, runID, externalID, EdgeKindCalls) {
+			t.Fatalf("Edges = %#v, want run -> %s", result.Edges, qualifiedName)
+		}
+	}
+	if !hasUnresolved(result.Unresolved, runID, "missing") {
+		t.Fatalf("Unresolved = %#v, missing internal call should remain unresolved", result.Unresolved)
+	}
+}
+
+func TestIndexerClassifiesRustImportedCallsAsExternal(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "lib.rs", `use serde_test::{assert_de_tokens, assert_ser_tokens, Token};
+
+fn run() {
+    assert_de_tokens(&[Token::Str("value"), Token::I32(1)]);
+    assert_ser_tokens(&[Token::Str("value")]);
+    missing();
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	for _, name := range []string{"assert_de_tokens", "assert_ser_tokens", "Str", "I32"} {
+		if hasUnresolved(result.Unresolved, runID, name) {
+			t.Fatalf("Unresolved = %#v, %s should have been classified through Rust imports", result.Unresolved, name)
+		}
+	}
+	for _, qualifiedName := range []string{
+		"external:serde_test::assert_de_tokens",
+		"external:serde_test::assert_ser_tokens",
+		"external:serde_test::Token::Str",
+		"external:serde_test::Token::I32",
+	} {
+		externalID := nodeIDByQualifiedName(t, result.Nodes, NodeKindExternal, qualifiedName)
+		if !hasEdge(result.Edges, runID, externalID, EdgeKindCalls) {
+			t.Fatalf("Edges = %#v, want run -> %s", result.Edges, qualifiedName)
+		}
+	}
+	if !hasUnresolved(result.Unresolved, runID, "missing") {
+		t.Fatalf("Unresolved = %#v, missing internal call should remain unresolved", result.Unresolved)
+	}
+}
+
 func TestIndexerSetsResultAndFileMetadata(t *testing.T) {
 	root := t.TempDir()
 	writeASTGraphFixture(t, root, "main.go", `package main

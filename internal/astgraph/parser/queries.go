@@ -58,7 +58,7 @@ func walkPython(path string, source []byte, node *tree_sitter.Node, result *Extr
 
 func walkRust(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
 	pending := []frameworkRoute{}
-	walkRustNode(path, source, node, result, "", &pending)
+	walkRustNode(path, source, node, result, "", &pending, "", "")
 }
 
 func walkJava(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
@@ -157,7 +157,7 @@ func walkPythonNode(path string, source []byte, node *tree_sitter.Node, result *
 	}
 }
 
-func walkRustNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID string, pendingRoutes *[]frameworkRoute) {
+func walkRustNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID string, pendingRoutes *[]frameworkRoute, implType, enumType string) {
 	if node == nil {
 		return
 	}
@@ -168,13 +168,23 @@ func walkRustNode(path string, source []byte, node *tree_sitter.Node, result *Ex
 			*pendingRoutes = append(*pendingRoutes, route)
 		}
 		return
+	case "use_declaration":
+		appendRustImportNodes(path, source, node, result)
+	case "struct_item":
+		appendRustStructNode(path, source, node, result)
+	case "enum_item":
+		enumType = declarationName(source, node)
+	case "enum_variant":
+		appendRustEnumVariantNode(path, source, node, result, enumType)
+	case "impl_item":
+		implType = rustImplType(source, node)
 	case "function_item":
 		if len(*pendingRoutes) > 0 {
 			if id := appendRustAttributedHandler(path, source, node, result, *pendingRoutes); id != "" {
 				currentNodeID = id
 			}
 			*pendingRoutes = nil
-		} else if id := appendLanguageNode(path, source, node, model.NodeKindFunction, model.LanguageRust, result); id != "" {
+		} else if id := appendRustFunctionOrMethodNode(path, source, node, result, implType); id != "" {
 			currentNodeID = id
 		}
 	case "closure_expression":
@@ -186,7 +196,7 @@ func walkRustNode(path string, source []byte, node *tree_sitter.Node, result *Ex
 	}
 
 	for i := uint(0); i < node.NamedChildCount(); i++ {
-		walkRustNode(path, source, node.NamedChild(i), result, currentNodeID, pendingRoutes)
+		walkRustNode(path, source, node.NamedChild(i), result, currentNodeID, pendingRoutes, implType, enumType)
 	}
 }
 
@@ -970,6 +980,215 @@ func appendPackageScopedLanguageNode(path string, source []byte, node *tree_sitt
 	return id
 }
 
+func appendRustFunctionOrMethodNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, receiverType string) string {
+	name := declarationName(source, node)
+	if name == "" {
+		return ""
+	}
+	kind := model.NodeKindFunction
+	qualifiedName := name
+	if receiverType != "" {
+		kind = model.NodeKindMethod
+		qualifiedName = receiverType + "::" + name
+	}
+	metadata := rustFunctionMetadata(source, node, name)
+	metadata.receiverType = receiverType
+	start := node.StartPosition()
+	end := node.EndPosition()
+	startLine := int(start.Row) + 1
+	id := stableNodeID(path, kind, qualifiedName, startLine)
+	result.Nodes = append(result.Nodes, model.GraphNode{
+		ID:             id,
+		Kind:           kind,
+		Name:           name,
+		QualifiedName:  qualifiedName,
+		ReceiverType:   metadata.receiverType,
+		ParameterCount: metadata.parameterCount,
+		ParameterTypes: metadata.parameterTypes,
+		ReturnType:     metadata.returnType,
+		FilePath:       path,
+		Language:       model.LanguageRust,
+		StartLine:      startLine,
+		EndLine:        int(end.Row) + 1,
+		StartColumn:    int(start.Column),
+		EndColumn:      int(end.Column),
+		Signature:      strings.TrimSpace(nodeText(source, node)),
+	})
+	return id
+}
+
+func appendRustStructNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) string {
+	name := declarationName(source, node)
+	if name == "" {
+		return ""
+	}
+	start := node.StartPosition()
+	end := node.EndPosition()
+	startLine := int(start.Row) + 1
+	id := stableNodeID(path, model.NodeKindClass, name, startLine)
+	result.Nodes = append(result.Nodes, model.GraphNode{
+		ID:             id,
+		Kind:           model.NodeKindClass,
+		Name:           name,
+		QualifiedName:  name,
+		ParameterCount: -1,
+		FilePath:       path,
+		Language:       model.LanguageRust,
+		StartLine:      startLine,
+		EndLine:        int(end.Row) + 1,
+		StartColumn:    int(start.Column),
+		EndColumn:      int(end.Column),
+		Signature:      strings.TrimSpace(nodeText(source, node)),
+	})
+	return id
+}
+
+func appendRustEnumVariantNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, enumType string) string {
+	if enumType == "" {
+		return ""
+	}
+	name := declarationName(source, node)
+	if name == "" {
+		return ""
+	}
+	metadata := rustEnumVariantMetadata(source, node, name)
+	start := node.StartPosition()
+	end := node.EndPosition()
+	startLine := int(start.Row) + 1
+	qualifiedName := enumType + "::" + name
+	id := stableNodeID(path, model.NodeKindClass, qualifiedName, startLine)
+	result.Nodes = append(result.Nodes, model.GraphNode{
+		ID:             id,
+		Kind:           model.NodeKindClass,
+		Name:           name,
+		QualifiedName:  qualifiedName,
+		ReceiverType:   enumType,
+		ParameterCount: metadata.parameterCount,
+		ParameterTypes: metadata.parameterTypes,
+		FilePath:       path,
+		Language:       model.LanguageRust,
+		StartLine:      startLine,
+		EndLine:        int(end.Row) + 1,
+		StartColumn:    int(start.Column),
+		EndColumn:      int(end.Column),
+		Signature:      strings.TrimSpace(nodeText(source, node)),
+	})
+	return id
+}
+
+func appendRustImportNodes(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
+	start := node.StartPosition()
+	line := int(start.Row) + 1
+	column := int(start.Column)
+	for _, importPath := range expandRustUsePaths(rustUseSpec(nodeText(source, node))) {
+		name := rustImportName(importPath)
+		qualifiedName := rustImportQualifiedName(importPath)
+		if name == "" {
+			continue
+		}
+		id := stableNodeID(path, model.NodeKindImport, qualifiedName, line)
+		result.Nodes = append(result.Nodes, model.GraphNode{
+			ID:            id,
+			Kind:          model.NodeKindImport,
+			Name:          name,
+			QualifiedName: qualifiedName,
+			FilePath:      path,
+			Language:      model.LanguageRust,
+			StartLine:     line,
+			EndLine:       line,
+			StartColumn:   column,
+			EndColumn:     column,
+			Signature:     strings.TrimSpace(nodeText(source, node)),
+		})
+	}
+}
+
+func rustUseSpec(text string) string {
+	text = strings.TrimSpace(text)
+	text = strings.TrimPrefix(text, "pub ")
+	text = strings.TrimPrefix(text, "use ")
+	text = strings.TrimSuffix(text, ";")
+	return strings.TrimSpace(text)
+}
+
+func expandRustUsePaths(spec string) []string {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return nil
+	}
+	open := strings.Index(spec, "{")
+	if open < 0 {
+		return []string{rustCanonicalImportPath(spec)}
+	}
+	close := matchingBrace(spec, open)
+	if close < 0 {
+		return []string{rustCanonicalImportPath(spec)}
+	}
+	prefix := strings.TrimSuffix(strings.TrimSpace(spec[:open]), "::")
+	suffix := strings.TrimSpace(spec[close+1:])
+	var paths []string
+	for _, part := range splitTopLevel(spec[open+1:close], ',') {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		for _, expanded := range expandRustUsePaths(part) {
+			if expanded == "self" {
+				paths = append(paths, rustCanonicalImportPath(prefix+suffix))
+				continue
+			}
+			paths = append(paths, rustCanonicalImportPath(prefix+"::"+expanded+suffix))
+		}
+	}
+	return paths
+}
+
+func matchingBrace(text string, open int) int {
+	depth := 0
+	for i := open; i < len(text); i++ {
+		switch text[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func rustCanonicalImportPath(importPath string) string {
+	importPath = strings.TrimSpace(importPath)
+	if before, after, ok := strings.Cut(importPath, " as "); ok {
+		return strings.TrimSpace(before) + " as " + strings.TrimSpace(after)
+	}
+	return importPath
+}
+
+func rustImportName(importPath string) string {
+	importPath = strings.TrimSpace(importPath)
+	if _, alias, ok := strings.Cut(importPath, " as "); ok {
+		return strings.TrimSpace(alias)
+	}
+	if strings.HasSuffix(importPath, "::*") {
+		return "*"
+	}
+	if i := strings.LastIndex(importPath, "::"); i >= 0 {
+		return strings.TrimSpace(importPath[i+2:])
+	}
+	return strings.TrimSpace(importPath)
+}
+
+func rustImportQualifiedName(importPath string) string {
+	importPath = strings.TrimSpace(importPath)
+	if before, _, ok := strings.Cut(importPath, " as "); ok {
+		return strings.TrimSpace(before)
+	}
+	return importPath
+}
+
 func appendKotlinClassNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, name, packageName string) string {
 	start := node.StartPosition()
 	end := node.EndPosition()
@@ -1248,6 +1467,83 @@ func nodeSignatureMetadata(source []byte, node *tree_sitter.Node, name string) n
 		parameterTypes: parameterTypes,
 		returnType:     returnTypeFromHeader(signature, name),
 	}
+}
+
+func rustFunctionMetadata(source []byte, node *tree_sitter.Node, name string) nodeMetadata {
+	signature := declarationHeader(source, node)
+	parameters := parameterListTextAfterName(signature, name)
+	parameterTypes := rustParameterTypesFromList(parameters)
+	return nodeMetadata{
+		parameterCount: len(parameterTypes),
+		parameterTypes: parameterTypes,
+		returnType:     rustReturnTypeFromHeader(signature, name),
+	}
+}
+
+func rustEnumVariantMetadata(source []byte, node *tree_sitter.Node, name string) nodeMetadata {
+	parameters := parameterListTextAfterName(strings.TrimSpace(nodeText(source, node)), name)
+	parameterTypes := rustParameterTypesFromList(parameters)
+	return nodeMetadata{
+		parameterCount: len(parameterTypes),
+		parameterTypes: parameterTypes,
+	}
+}
+
+func rustParameterTypesFromList(parameters string) []string {
+	parameters = strings.TrimSpace(parameters)
+	if parameters == "" {
+		return nil
+	}
+	parts := splitTopLevel(parameters, ',')
+	types := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || rustSelfParameter(part) {
+			continue
+		}
+		if _, typ, ok := splitParameterNameType(part); ok {
+			types = append(types, typ)
+			continue
+		}
+		types = append(types, part)
+	}
+	return types
+}
+
+func rustSelfParameter(parameter string) bool {
+	parameter = strings.TrimSpace(parameter)
+	parameter = strings.TrimPrefix(parameter, "&")
+	parameter = strings.TrimSpace(parameter)
+	parameter = strings.TrimPrefix(parameter, "'_")
+	parameter = strings.TrimSpace(parameter)
+	parameter = strings.TrimPrefix(parameter, "mut ")
+	parameter = strings.TrimSpace(parameter)
+	return parameter == "self" || strings.HasPrefix(parameter, "self:")
+}
+
+func rustReturnTypeFromHeader(header, name string) string {
+	nameIndex := strings.Index(header, name)
+	if nameIndex < 0 {
+		return ""
+	}
+	open := strings.Index(header[nameIndex+len(name):], "(")
+	if open < 0 {
+		return ""
+	}
+	open += nameIndex + len(name)
+	close := matchingParen(header, open)
+	if close < 0 || close+1 >= len(header) {
+		return ""
+	}
+	after := strings.TrimSpace(header[close+1:])
+	if !strings.HasPrefix(after, "->") {
+		return ""
+	}
+	after = strings.TrimSpace(strings.TrimPrefix(after, "->"))
+	if i := strings.IndexAny(after, "{;"); i >= 0 {
+		after = after[:i]
+	}
+	return strings.TrimSpace(after)
 }
 
 func declarationHeader(source []byte, node *tree_sitter.Node) string {
@@ -1907,6 +2203,45 @@ func declarationName(source []byte, node *tree_sitter.Node) string {
 		}
 	}
 	return ""
+}
+
+func rustImplType(source []byte, node *tree_sitter.Node) string {
+	if node == nil {
+		return ""
+	}
+	if typ := node.ChildByFieldName("type"); typ != nil {
+		return rustNormalizeTypeName(nodeText(source, typ))
+	}
+	var lastType string
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		switch child.Kind() {
+		case "type_identifier", "generic_type", "scoped_type_identifier":
+			lastType = rustNormalizeTypeName(nodeText(source, child))
+		}
+	}
+	return lastType
+}
+
+func rustNormalizeTypeName(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "&")
+	value = strings.TrimSpace(value)
+	for strings.HasPrefix(value, "mut ") || strings.HasPrefix(value, "'") {
+		if strings.HasPrefix(value, "mut ") {
+			value = strings.TrimSpace(strings.TrimPrefix(value, "mut "))
+			continue
+		}
+		fields := strings.Fields(value)
+		if len(fields) <= 1 || !strings.HasPrefix(fields[0], "'") {
+			break
+		}
+		value = strings.TrimSpace(strings.Join(fields[1:], " "))
+	}
+	if i := strings.Index(value, "<"); i >= 0 {
+		value = strings.TrimSpace(value[:i])
+	}
+	return strings.TrimSpace(value)
 }
 
 func kotlinClassLikeName(source []byte, node *tree_sitter.Node) string {

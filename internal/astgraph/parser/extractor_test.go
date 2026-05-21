@@ -234,6 +234,74 @@ func TestExtractFromSourceFindsRustFunctionAndCall(t *testing.T) {
 	assertUnresolvedFrom(t, result.Unresolved, "helper", runID)
 }
 
+func TestExtractFromSourceFindsRustConstructorsMethodsAndReceivers(t *testing.T) {
+	source := []byte(`enum Token {
+    Str(&'static str),
+    I32(i32),
+}
+
+struct Formatter;
+
+impl Formatter {
+    fn write_str(&mut self, value: &str) {}
+}
+
+fn run(formatter: &mut Formatter) {
+    Token::Str("value");
+    formatter.write_str("value");
+}`)
+
+	result, err := ExtractFromSource("lib.rs", source, model.LanguageRust)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	str := findNode(t, result.Nodes, model.NodeKindClass, "Str")
+	if str.QualifiedName != "Token::Str" || str.ReceiverType != "Token" {
+		t.Fatalf("Str variant node = %#v, want Token::Str receiver Token", str)
+	}
+	if str.ParameterCount != 1 || !reflect.DeepEqual(str.ParameterTypes, []string{"&'static str"}) {
+		t.Fatalf("Str parameters = %d %#v, want 1 [&'static str]", str.ParameterCount, str.ParameterTypes)
+	}
+
+	writeStr := findNode(t, result.Nodes, model.NodeKindMethod, "write_str")
+	if writeStr.QualifiedName != "Formatter::write_str" || writeStr.ReceiverType != "Formatter" {
+		t.Fatalf("write_str node = %#v, want Formatter::write_str receiver Formatter", writeStr)
+	}
+	if writeStr.ParameterCount != 1 || !reflect.DeepEqual(writeStr.ParameterTypes, []string{"&str"}) {
+		t.Fatalf("write_str parameters = %d %#v, want 1 [&str]", writeStr.ParameterCount, writeStr.ParameterTypes)
+	}
+
+	runID := findNodeID(t, result.Nodes, model.NodeKindFunction, "run")
+	strRef := findUnresolvedFrom(t, result.Unresolved, "Str", runID)
+	if strRef.ReceiverText != "Token" || strRef.ArgumentCount != 1 {
+		t.Fatalf("Str call = %#v, want receiver Token and one argument", strRef)
+	}
+	writeRef := findUnresolvedFrom(t, result.Unresolved, "write_str", runID)
+	if writeRef.ReceiverText != "formatter" || writeRef.ArgumentCount != 1 {
+		t.Fatalf("write_str call = %#v, want receiver formatter and one argument", writeRef)
+	}
+}
+
+func TestExtractFromSourceFindsRustUseImports(t *testing.T) {
+	source := []byte(`use serde_test::{assert_de_tokens, assert_ser_tokens, Token};
+use crate::de::Error as DeError;
+
+fn run() {
+    assert_de_tokens(&Token::Str("value"));
+}`)
+
+	result, err := ExtractFromSource("lib.rs", source, model.LanguageRust)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertQualifiedNode(t, result.Nodes, model.NodeKindImport, "assert_de_tokens", "serde_test::assert_de_tokens")
+	assertQualifiedNode(t, result.Nodes, model.NodeKindImport, "assert_ser_tokens", "serde_test::assert_ser_tokens")
+	assertQualifiedNode(t, result.Nodes, model.NodeKindImport, "Token", "serde_test::Token")
+	assertQualifiedNode(t, result.Nodes, model.NodeKindImport, "DeError", "crate::de::Error")
+}
+
 func TestExtractFromSourceFindsRustFrameworkRoutes(t *testing.T) {
 	source := []byte(`#[get("/health")]
 async fn health_check() {}

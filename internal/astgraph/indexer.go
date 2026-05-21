@@ -12,7 +12,7 @@ import (
 	"repobridge/internal/astgraph/parser"
 )
 
-const SchemaVersion = 23
+const SchemaVersion = 24
 
 type IndexOptions struct {
 	MaxFileSize int64
@@ -147,6 +147,9 @@ type externalCall struct {
 }
 
 func externalCallTarget(nodes []GraphNode, from GraphNode, ref UnresolvedReference) (externalCall, bool) {
+	if ref.Language == LanguageRust && ref.ReferenceKind == EdgeKindCalls {
+		return rustExternalCallTarget(nodes, from, ref)
+	}
 	if ref.Language != LanguageGo || ref.ReferenceKind != EdgeKindCalls {
 		return externalCall{}, false
 	}
@@ -190,6 +193,117 @@ func externalCallTarget(nodes []GraphNode, from GraphNode, ref UnresolvedReferen
 		}, true
 	}
 	return externalCall{}, false
+}
+
+func rustExternalCallTarget(nodes []GraphNode, from GraphNode, ref UnresolvedReference) (externalCall, bool) {
+	referenceName := strings.TrimSpace(ref.ReferenceName)
+	if referenceName == "" {
+		return externalCall{}, false
+	}
+	receiver := cleanExternalReceiver(ref.ReceiverText)
+	if importPath, ok := rustImportPathForCall(nodes, ref.FilePath, receiver, referenceName); ok {
+		return externalCall{
+			name:          referenceName,
+			qualifiedName: "external:" + importPath,
+			receiver:      rustExternalReceiver(importPath),
+			importPath:    importPath,
+			provenance:    "rust-external-import",
+		}, true
+	}
+	if receiver == "" && isRustPreludeCall(referenceName) {
+		return externalCall{
+			name:          referenceName,
+			qualifiedName: "external:rust.prelude." + referenceName,
+			receiver:      "rust.prelude",
+			importPath:    "std::prelude",
+			provenance:    "rust-prelude",
+		}, true
+	}
+	if receiver == "" || len(callTargetCandidates(nodes, from, ref)) > 0 {
+		return externalCall{}, false
+	}
+	separator := "."
+	if rustTypeLikeReceiver(receiver) {
+		separator = "::"
+	}
+	return externalCall{
+		name:          referenceName,
+		qualifiedName: "external:" + receiver + separator + referenceName,
+		receiver:      receiver,
+		importPath:    "unknown",
+		provenance:    "rust-external-receiver",
+	}, true
+}
+
+func rustImportPathForCall(nodes []GraphNode, filePath, receiver, referenceName string) (string, bool) {
+	receiver = strings.TrimSpace(receiver)
+	referenceName = strings.TrimSpace(referenceName)
+	if referenceName == "" {
+		return "", false
+	}
+	if receiver != "" {
+		if importPath, ok := rustImportPathForName(nodes, filePath, receiver); ok {
+			return importPath + "::" + referenceName, true
+		}
+		return "", false
+	}
+	return rustImportPathForName(nodes, filePath, referenceName)
+}
+
+func rustImportPathForName(nodes []GraphNode, filePath, name string) (string, bool) {
+	for _, node := range nodes {
+		if node.Kind != NodeKindImport || node.Language != LanguageRust || node.FilePath != filePath {
+			continue
+		}
+		if node.Name == name {
+			return node.QualifiedName, true
+		}
+	}
+	for _, node := range nodes {
+		if node.Kind != NodeKindImport || node.Language != LanguageRust || node.FilePath != filePath || node.Name != "*" {
+			continue
+		}
+		prefix := strings.TrimSuffix(node.QualifiedName, "::*")
+		if prefix != "" {
+			return prefix + "::" + name, true
+		}
+	}
+	return "", false
+}
+
+func rustExternalReceiver(importPath string) string {
+	if before, _, ok := strings.Cut(importPath, "::"); ok {
+		return before
+	}
+	return importPath
+}
+
+func rustTypeLikeReceiver(receiver string) bool {
+	receiver = strings.TrimSpace(receiver)
+	if receiver == "" || strings.ContainsAny(receiver, ".()[]{}") {
+		return false
+	}
+	if strings.Contains(receiver, "::") {
+		return true
+	}
+	first := receiver[0]
+	return first >= 'A' && first <= 'Z'
+}
+
+func isRustPreludeCall(name string) bool {
+	_, ok := rustPreludeCalls[strings.TrimSpace(name)]
+	return ok
+}
+
+var rustPreludeCalls = map[string]struct{}{
+	"Some": {},
+	"None": {},
+	"Ok":   {},
+	"Err":  {},
+	"Box":  {},
+	"Vec":  {},
+	"Rc":   {},
+	"Arc":  {},
 }
 
 func goExternalReceiverFallback(nodes []GraphNode, from GraphNode, ref UnresolvedReference) bool {
@@ -313,6 +427,15 @@ func filterRemainingUnresolved(nodes []GraphNode, refs []UnresolvedReference) []
 }
 
 func shouldKeepUnresolved(nodes []GraphNode, ref UnresolvedReference) bool {
+	if ref.Language == LanguageRust && ref.ReferenceKind == EdgeKindCalls {
+		if len(callTargetCandidates(nodes, GraphNode{Language: ref.Language}, ref)) > 0 {
+			return true
+		}
+		if _, ok := externalCallTarget(nodes, GraphNode{Language: ref.Language}, ref); ok {
+			return false
+		}
+		return true
+	}
 	if ref.Language != LanguageGo || ref.ReferenceKind != EdgeKindCalls {
 		return true
 	}
@@ -411,6 +534,7 @@ func callTargetScore(nodes []GraphNode, from GraphNode, ref UnresolvedReference,
 	score += samePackageTargetScore(from, target)
 	score += defaultImportedTargetScore(from, ref, target)
 	score += goInferredReceiverTargetScore(nodes, from, ref, target)
+	score += rustInferredReceiverTargetScore(from, ref, target)
 	if target.FilePath == from.FilePath {
 		score += 100
 	}
@@ -441,6 +565,153 @@ func goInferredReceiverTargetScore(nodes []GraphNode, from GraphNode, ref Unreso
 		return 180
 	}
 	return 0
+}
+
+func rustInferredReceiverTargetScore(from GraphNode, ref UnresolvedReference, target GraphNode) int {
+	if from.Language != LanguageRust || target.Language != LanguageRust || strings.TrimSpace(ref.ReceiverText) == "" {
+		return 0
+	}
+	receiverType := inferRustReceiverType(from, ref)
+	if receiverType == "" {
+		return 0
+	}
+	if normalizeRustType(receiverType) == normalizeRustType(target.ReceiverType) {
+		return 180
+	}
+	return 0
+}
+
+func inferRustReceiverType(from GraphNode, ref UnresolvedReference) string {
+	receiver := strings.TrimSpace(ref.ReceiverText)
+	if receiver == "" || strings.ContainsAny(receiver, ".:()[]{}") {
+		return ""
+	}
+	for _, parameter := range rustSignatureParameters(from.Signature, from.Name) {
+		name, typ, ok := splitRustParameterNameType(parameter)
+		if ok && name == receiver {
+			return normalizeRustType(typ)
+		}
+	}
+	return ""
+}
+
+func rustSignatureParameters(signature, functionName string) []string {
+	signature = strings.TrimSpace(signature)
+	functionName = strings.TrimSpace(functionName)
+	if signature == "" || functionName == "" {
+		return nil
+	}
+	nameIndex := strings.Index(signature, functionName)
+	if nameIndex < 0 {
+		return nil
+	}
+	open := strings.Index(signature[nameIndex+len(functionName):], "(")
+	if open < 0 {
+		return nil
+	}
+	open += nameIndex + len(functionName)
+	close := matchingCloseParen(signature, open)
+	if close < 0 {
+		return nil
+	}
+	return splitTopLevelList(signature[open+1:close], ',')
+}
+
+func matchingCloseParen(text string, open int) int {
+	depth := 0
+	for i := open; i < len(text); i++ {
+		switch text[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func splitRustParameterNameType(parameter string) (string, string, bool) {
+	parameter = strings.TrimSpace(parameter)
+	if parameter == "" {
+		return "", "", false
+	}
+	depth := 0
+	for i, r := range parameter {
+		switch r {
+		case '(', '[', '<':
+			depth++
+		case ')', ']', '>':
+			if depth > 0 {
+				depth--
+			}
+		case ':':
+			if depth == 0 {
+				name := strings.TrimSpace(parameter[:i])
+				typ := strings.TrimSpace(parameter[i+1:])
+				name = strings.TrimPrefix(name, "mut ")
+				name = strings.TrimSpace(name)
+				if name == "" || typ == "" {
+					return "", "", false
+				}
+				return name, typ, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+func normalizeRustType(typ string) string {
+	typ = strings.TrimSpace(typ)
+	for strings.HasPrefix(typ, "&") || strings.HasPrefix(typ, "*") {
+		typ = strings.TrimPrefix(typ, "&")
+		typ = strings.TrimPrefix(typ, "*")
+		typ = strings.TrimSpace(typ)
+	}
+	for {
+		fields := strings.Fields(typ)
+		if len(fields) == 0 {
+			return ""
+		}
+		if fields[0] == "mut" || strings.HasPrefix(fields[0], "'") {
+			typ = strings.TrimSpace(strings.Join(fields[1:], " "))
+			continue
+		}
+		break
+	}
+	if i := strings.Index(typ, "<"); i >= 0 {
+		typ = strings.TrimSpace(typ[:i])
+	}
+	return strings.Trim(strings.ToLower(typ), "()")
+}
+
+func splitTopLevelList(text string, delimiter rune) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	var parts []string
+	start := 0
+	depth := 0
+	for i, r := range text {
+		switch r {
+		case '(', '[', '<':
+			depth++
+		case ')', ']', '>':
+			if depth > 0 {
+				depth--
+			}
+		default:
+			if r == delimiter && depth == 0 {
+				parts = append(parts, text[start:i])
+				start = i + len(string(r))
+			}
+		}
+	}
+	parts = append(parts, text[start:])
+	return parts
 }
 
 func inferGoReceiverType(nodes []GraphNode, from GraphNode, ref UnresolvedReference, receiverText string) string {
@@ -775,6 +1046,10 @@ func importMatchesTarget(importNode GraphNode, ref UnresolvedReference, target G
 	importPath := strings.TrimSpace(importNode.QualifiedName)
 	if importPath == "" {
 		return false
+	}
+	if strings.HasSuffix(importPath, "::*") {
+		prefix := strings.TrimSuffix(importPath, "*")
+		return target.Name == ref.ReferenceName && strings.HasPrefix(target.QualifiedName, prefix)
 	}
 	if strings.HasSuffix(importPath, ".*") {
 		prefix := strings.TrimSuffix(importPath, "*")
