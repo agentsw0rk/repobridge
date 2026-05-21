@@ -304,6 +304,55 @@ func TestExtractFromSourceFindsKotlinFunctionAndCall(t *testing.T) {
 	assertUnresolvedFrom(t, result.Unresolved, "helper", runID)
 }
 
+func TestExtractFromSourceFindsKotlinClassesAndConstructorCalls(t *testing.T) {
+	source := []byte(`class NoSuchElementException
+annotation class ReplaceWith(val expression: String)
+typealias ArrayList<E> = java.util.ArrayList<E>
+fun run() {
+  NoSuchElementException("missing")
+  ReplaceWith("value")
+}`)
+
+	result, err := ExtractFromSource("Classes.kt", source, model.LanguageKotlin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindClass, "NoSuchElementException", model.LanguageKotlin)
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindClass, "ReplaceWith", model.LanguageKotlin)
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindClass, "ArrayList", model.LanguageKotlin)
+
+	runID := findNodeID(t, result.Nodes, model.NodeKindFunction, "run")
+	exception := findUnresolvedFrom(t, result.Unresolved, "NoSuchElementException", runID)
+	if exception.ArgumentCount != 1 {
+		t.Fatalf("NoSuchElementException argumentCount = %d, want 1", exception.ArgumentCount)
+	}
+	replaceWith := findUnresolvedFrom(t, result.Unresolved, "ReplaceWith", runID)
+	if replaceWith.ArgumentCount != 1 {
+		t.Fatalf("ReplaceWith argumentCount = %d, want 1", replaceWith.ArgumentCount)
+	}
+}
+
+func TestExtractFromSourceFindsKotlinPackageQualifiedNamesAndImports(t *testing.T) {
+	source := []byte(`package demo
+import kotlin.contracts.*
+import kotlin.collections.ArrayList
+
+fun run() { contract { returns() }; ArrayList<String>() }`)
+
+	result, err := ExtractFromSource("Imports.kt", source, model.LanguageKotlin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	run := findNode(t, result.Nodes, model.NodeKindFunction, "run")
+	if run.QualifiedName != "demo.run" {
+		t.Fatalf("run qualifiedName = %q, want demo.run", run.QualifiedName)
+	}
+	assertQualifiedNode(t, result.Nodes, model.NodeKindImport, "*", "kotlin.contracts.*")
+	assertQualifiedNode(t, result.Nodes, model.NodeKindImport, "ArrayList", "kotlin.collections.ArrayList")
+}
+
 func TestExtractFromSourceAddsStructuredKotlinCallAndSignatureMetadata(t *testing.T) {
 	source := []byte(`class Box {
   fun pick(value: String): Int { return value.length }
@@ -340,7 +389,8 @@ func TestExtractFromSourceAddsStructuredKotlinCallAndSignatureMetadata(t *testin
 }
 
 func TestExtractFromSourceRecordsKotlinExtensionReceiver(t *testing.T) {
-	source := []byte(`fun String.words(limit: Int): List<String> { return split(" ").take(limit) }`)
+	source := []byte(`fun String.words(limit: Int): List<String> { return split(" ").take(limit) }
+fun <T> Array<out T>.isEmpty(): Boolean { return size == 0 }`)
 
 	result, err := ExtractFromSource("Extensions.kt", source, model.LanguageKotlin)
 	if err != nil {
@@ -357,6 +407,73 @@ func TestExtractFromSourceRecordsKotlinExtensionReceiver(t *testing.T) {
 	if words.ReturnType != "List<String>" {
 		t.Fatalf("extension returnType = %q, want List<String>", words.ReturnType)
 	}
+
+	isEmpty := findNode(t, result.Nodes, model.NodeKindFunction, "isEmpty")
+	if isEmpty.QualifiedName != "Array<out T>.isEmpty" || isEmpty.ReceiverType != "Array<out T>" {
+		t.Fatalf("generic extension node = %#v, want Array<out T>.isEmpty receiver Array<out T>", isEmpty)
+	}
+}
+
+func TestExtractFromSourceFindsKotlinNavigationExpressionCalls(t *testing.T) {
+	source := []byte(`fun run(xs: List<Int>) { xs.isEmpty() }
+fun String.dropFirst(): String { return this.substring(1) }`)
+
+	result, err := ExtractFromSource("Navigation.kt", source, model.LanguageKotlin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := findNodeID(t, result.Nodes, model.NodeKindFunction, "run")
+	isEmpty := findUnresolvedFrom(t, result.Unresolved, "isEmpty", runID)
+	if isEmpty.ReceiverText != "xs" {
+		t.Fatalf("isEmpty receiver = %q, want xs", isEmpty.ReceiverText)
+	}
+	if isEmpty.ArgumentCount != 0 {
+		t.Fatalf("isEmpty argumentCount = %d, want 0", isEmpty.ArgumentCount)
+	}
+
+	dropID := findNodeID(t, result.Nodes, model.NodeKindFunction, "dropFirst")
+	substring := findUnresolvedFrom(t, result.Unresolved, "substring", dropID)
+	if substring.ReceiverText != "this" {
+		t.Fatalf("substring receiver = %q, want this", substring.ReceiverText)
+	}
+	if substring.ArgumentCount != 1 || !reflect.DeepEqual(substring.ArgumentTexts, []string{"1"}) {
+		t.Fatalf("substring arguments = %d %#v, want 1 [1]", substring.ArgumentCount, substring.ArgumentTexts)
+	}
+}
+
+func TestExtractFromSourceCountsKotlinTrailingLambdaAsArgument(t *testing.T) {
+	source := []byte(`fun contract(builder: ContractBuilder.() -> Unit) {}
+fun run() { contract { returns() } }`)
+
+	result, err := ExtractFromSource("Contracts.kt", source, model.LanguageKotlin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := findNodeID(t, result.Nodes, model.NodeKindFunction, "run")
+	contract := findUnresolvedFrom(t, result.Unresolved, "contract", runID)
+	if contract.ArgumentCount != 1 || !reflect.DeepEqual(contract.ArgumentTexts, []string{"{ returns() }"}) {
+		t.Fatalf("contract arguments = %d %#v, want 1 [{ returns() }]", contract.ArgumentCount, contract.ArgumentTexts)
+	}
+}
+
+func TestExtractFromSourceFiltersKotlinFunctionTypedParameterCalls(t *testing.T) {
+	source := []byte(`fun <T> visit(items: Array<T>, predicate: (T) -> Boolean, action: () -> Unit, count: Int) {
+  if (predicate(items[0])) action()
+  helper(count)
+}
+fun helper(value: Int) {}`)
+
+	result, err := ExtractFromSource("Callbacks.kt", source, model.LanguageKotlin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	visitID := findNodeID(t, result.Nodes, model.NodeKindFunction, "visit")
+	assertNoUnresolvedFrom(t, result.Unresolved, "predicate", visitID)
+	assertNoUnresolvedFrom(t, result.Unresolved, "action", visitID)
+	assertUnresolvedFrom(t, result.Unresolved, "helper", visitID)
 }
 
 func TestExtractFromSourceFindsSpringKotlinRouteAndHandler(t *testing.T) {
