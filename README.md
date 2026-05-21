@@ -18,7 +18,7 @@
 
 ## Introduction
 
-`repobridge` is a small Go CLI for turning package or repository specs into local source trees and searchable AST code graphs. It supports npm, pypi, crates.io, maven, nuget, and common git repository hosts.
+`repobridge` is a small Go CLI for turning package or repository specs into local source trees and searchable AST-Graph Engine indexes. It supports npm, pypi, crates.io, maven, nuget, and common git repository hosts.
 
 ## Benchmark
 
@@ -38,7 +38,7 @@ The E2E Token-Reduction-Benchmark compares `repobridge search` with comparable `
 - Scan a project for dependency source specs from manifests, lockfiles, and imports.
 - Build local Tree-sitter AST graphs for cached sources and search them by symbol, kind, path, language, and calls.
 - Index framework routes and handlers as graph nodes, including HTTP method, route pattern, file, and line.
-- Inspect cached code graphs with `status`, `files`, and `node` without scanning source trees again.
+- Inspect cached AST-Graph Engine indexes with `status`, `files`, and `node` without scanning source trees again.
 - Traverse call graphs with `callers`, `callees`, and `impact` for focused agent investigations.
 - Build task-oriented agent context with `context` and broader graph explanations with `explore`.
 - Reuse a stable local cache across repeated agent/tool runs.
@@ -186,7 +186,7 @@ Maven inputs use explicit `groupId:artifactId@version` coordinates. RepoBridge d
 
 NuGet inputs use package IDs with an optional explicit version. Without a version, RepoBridge selects the latest stable NuGet version. RepoBridge downloads the `.nupkg` only to read `.nuspec` repository metadata, then fetches the matching Git repository by commit or version tag. It does not cache package binaries as source.
 
-AST codegraph indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust sources with Tree-sitter. Route indexing recognizes Spring Java/Kotlin annotations, Express and React Router routes, FastAPI/Flask/Django routes, Gin/chi/gorilla/mux registrations, ASP.NET controller and Minimal API routes, and Rust Axum/actix/Rocket-style route shapes. Route entries are stored as `route`, `handler`, or `component_route` nodes and linked with `handles`, `routes_to`, or `middleware` edges. Indexing runs in the background after successful `path`, `fetch`, and `scan --fetch` commands. `search`, graph inspection, callgraph, `context`, and `explore` rebuild a missing or stale graph synchronously before returning results unless `--no-sync-index` is set.
+AST-Graph Engine indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust sources with Tree-sitter. Route indexing recognizes Spring Java/Kotlin annotations, Express and React Router routes, FastAPI/Flask/Django routes, Gin/chi/gorilla/mux registrations, ASP.NET controller and Minimal API routes, and Rust Axum/actix/Rocket-style route shapes. Route entries are stored as `route`, `handler`, or `component_route` nodes and linked with `handles`, `routes_to`, or `middleware` edges. Indexing runs in the background after successful `path`, `fetch`, and `scan --fetch` commands. `search`, graph inspection, callgraph, `context`, and `explore` rebuild a missing or stale graph synchronously before returning results unless `--no-sync-index` is set.
 
 ## Commands
 
@@ -250,7 +250,7 @@ Project scanning also has an opt-in end-to-end test that clones pinned public Gi
 go test -tags=e2e ./test/e2e-scan -count=1
 ```
 
-Codegraph search has an opt-in end-to-end test that checks the real `repobridge search` CLI against a pinned Kotlin repository and writes a Markdown output-budget report comparing `repobridge search` with `rg -C 3`:
+AST-Graph Engine search has an opt-in end-to-end test that checks the real `repobridge search` CLI against a pinned Kotlin repository and writes a Markdown output-budget report comparing `repobridge search` with `rg -C 3`:
 
 ```bash
 go test -tags=e2e ./test/e2e-search -count=1 -v

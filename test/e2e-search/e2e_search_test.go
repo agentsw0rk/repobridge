@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"repobridge/internal/astgraph"
 	"repobridge/internal/cache"
-	"repobridge/internal/codegraph"
 )
 
 const (
@@ -48,7 +48,7 @@ func TestGraphCommandsAfterSearchE2E(t *testing.T) {
 	searchResults := runSearchJSON(t, env.binary, env.home, kotlinComposeSpec, `lang:kotlin kind:function name:up calls:exec path:DockerCompose.kt`)
 	upResult := findKotlinUpResult(t, searchResults)
 
-	var status codegraph.GraphInspectStatus
+	var status astgraph.GraphInspectStatus
 	runRepoBridgeJSON(t, env, &status, "status", "--json", "--no-sync-index", kotlinComposeSpec)
 	if status.Source != kotlinComposeSpec || status.Status != "ready" {
 		t.Fatalf("status = %#v, want ready status for %s", status, kotlinComposeSpec)
@@ -61,16 +61,16 @@ func TestGraphCommandsAfterSearchE2E(t *testing.T) {
 	}
 	t.Logf("verified status: %s files=%d nodes=%d edges=%d", status.Status, status.Counts.Files, status.Counts.Nodes, status.Counts.Edges)
 
-	var files codegraph.GraphFilesResult
+	var files astgraph.GraphFilesResult
 	runRepoBridgeJSON(t, env, &files, "files", "--json", "--no-sync-index", "--path", "DockerCompose.kt", "--limit", "5", kotlinComposeSpec)
 	assertKotlinDockerComposeFile(t, files)
 
-	var node codegraph.GraphNodeLookupResult
+	var node astgraph.GraphNodeLookupResult
 	runRepoBridgeJSON(t, env, &node, "node", "--json", "--no-sync-index", "--source-lines", "6", kotlinComposeSpec, upResult.ID)
 	if node.Node == nil {
 		t.Fatalf("node lookup returned no node: %#v", node)
 	}
-	if node.Node.ID != upResult.ID || node.Node.Name != "up" || node.Node.Kind != codegraph.NodeKindFunction {
+	if node.Node.ID != upResult.ID || node.Node.Name != "up" || node.Node.Kind != astgraph.NodeKindFunction {
 		t.Fatalf("node = %#v, want Kotlin up function with id %s", node.Node, upResult.ID)
 	}
 	if !sourceLinesContain(node.Node.Source, "fun up") {
@@ -78,9 +78,9 @@ func TestGraphCommandsAfterSearchE2E(t *testing.T) {
 	}
 	t.Logf("verified node: %s %s %s:%d", node.Node.Kind, node.Node.Name, node.Node.Path, node.Node.StartLine)
 
-	var callers codegraph.CallgraphResult
+	var callers astgraph.CallgraphResult
 	runRepoBridgeJSON(t, env, &callers, "callers", "--json", "--no-sync-index", "--include-unresolved", "--depth", "1", "--limit", "10", kotlinComposeSpec, "ps")
-	if callers.Direction != codegraph.CallgraphDirectionCallers || callers.Root == nil || callers.Root.Name != "ps" {
+	if callers.Direction != astgraph.CallgraphDirectionCallers || callers.Root == nil || callers.Root.Name != "ps" {
 		t.Fatalf("callers result = %#v, want callers of ps", callers)
 	}
 	if !callgraphHasCaller(callers.Edges, "up", "ps") {
@@ -88,13 +88,13 @@ func TestGraphCommandsAfterSearchE2E(t *testing.T) {
 	}
 	t.Logf("verified callers: %s has %d caller edge(s)", callers.Symbol, len(callers.Edges))
 
-	var contextResult codegraph.ContextResult
+	var contextResult astgraph.ContextResult
 	runRepoBridgeJSON(t, env, &contextResult, "context", "--json", "--no-sync-index", "--budget", "small", "--limit", "3", kotlinComposeSpec, "up exec ps")
-	assertContextLikeResult(t, contextResult, codegraph.ContextModeContext, "up exec ps")
+	assertContextLikeResult(t, contextResult, astgraph.ContextModeContext, "up exec ps")
 
-	var exploreResult codegraph.ContextResult
+	var exploreResult astgraph.ContextResult
 	runRepoBridgeJSON(t, env, &exploreResult, "explore", "--json", "--no-sync-index", "--budget", "small", "--limit", "3", kotlinComposeSpec, "docker compose up")
-	assertContextLikeResult(t, exploreResult, codegraph.ContextModeExplore, "docker compose up")
+	assertContextLikeResult(t, exploreResult, astgraph.ContextModeExplore, "docker compose up")
 }
 
 func TestSearchOutputBudgetReportE2E(t *testing.T) {
@@ -125,7 +125,7 @@ func TestSearchOutputBudgetReportE2E(t *testing.T) {
 	report := newSearchBudgetReport(env)
 	for _, task := range tasks {
 		searchOutput := runSearchRaw(t, env.binary, env.home, kotlinComposeSpec, task.SearchQuery)
-		var results []codegraph.SearchResult
+		var results []astgraph.SearchResult
 		if err := json.Unmarshal(searchOutput, &results); err != nil {
 			t.Fatalf("could not parse search JSON for %s: %v\n%s", task.Name, err, string(searchOutput))
 		}
@@ -278,10 +278,10 @@ func writeSparseCheckout(t *testing.T, repoDir string, paths []string) {
 	}
 }
 
-func runSearchJSON(t *testing.T, binary, home, spec, query string) []codegraph.SearchResult {
+func runSearchJSON(t *testing.T, binary, home, spec, query string) []astgraph.SearchResult {
 	t.Helper()
 	output := runSearchRaw(t, binary, home, spec, query)
-	var results []codegraph.SearchResult
+	var results []astgraph.SearchResult
 	if err := json.Unmarshal(output, &results); err != nil {
 		t.Fatalf("could not parse search JSON: %v\n%s", err, string(output))
 	}
@@ -309,18 +309,18 @@ func runRG(t *testing.T, sourceDir, pattern string) []byte {
 	return runCommand(t, sourceDir, nil, time.Minute, "rg", "-n", "-C", "3", "--no-heading", "--color", "never", pattern, sourceDir)
 }
 
-func assertKotlinUpResult(t *testing.T, results []codegraph.SearchResult) {
+func assertKotlinUpResult(t *testing.T, results []astgraph.SearchResult) {
 	t.Helper()
 	_ = findKotlinUpResult(t, results)
 }
 
-func findKotlinUpResult(t *testing.T, results []codegraph.SearchResult) codegraph.SearchResult {
+func findKotlinUpResult(t *testing.T, results []astgraph.SearchResult) astgraph.SearchResult {
 	t.Helper()
 	for _, result := range results {
-		if result.Language != codegraph.LanguageKotlin {
+		if result.Language != astgraph.LanguageKotlin {
 			continue
 		}
-		if result.Kind != codegraph.NodeKindFunction || result.Name != "up" {
+		if result.Kind != astgraph.NodeKindFunction || result.Name != "up" {
 			continue
 		}
 		if !strings.HasSuffix(filepath.ToSlash(result.Path), "DockerCompose.kt") {
@@ -333,13 +333,13 @@ func findKotlinUpResult(t *testing.T, results []codegraph.SearchResult) codegrap
 		return result
 	}
 	t.Fatalf("Kotlin function up with exec call not found in %#v", results)
-	return codegraph.SearchResult{}
+	return astgraph.SearchResult{}
 }
 
-func assertKotlinDockerComposeFile(t *testing.T, result codegraph.GraphFilesResult) {
+func assertKotlinDockerComposeFile(t *testing.T, result astgraph.GraphFilesResult) {
 	t.Helper()
 	for _, file := range result.Files {
-		if file.Language != codegraph.LanguageKotlin {
+		if file.Language != astgraph.LanguageKotlin {
 			continue
 		}
 		if !strings.HasSuffix(filepath.ToSlash(file.Path), "DockerCompose.kt") {
@@ -354,7 +354,7 @@ func assertKotlinDockerComposeFile(t *testing.T, result codegraph.GraphFilesResu
 	t.Fatalf("DockerCompose.kt Kotlin file not found in %#v", result.Files)
 }
 
-func sourceLinesContain(lines []codegraph.SourceLine, want string) bool {
+func sourceLinesContain(lines []astgraph.SourceLine, want string) bool {
 	for _, line := range lines {
 		if strings.Contains(line.Text, want) {
 			return true
@@ -363,7 +363,7 @@ func sourceLinesContain(lines []codegraph.SourceLine, want string) bool {
 	return false
 }
 
-func callgraphHasCaller(edges []codegraph.CallgraphEdge, callerName, referenceName string) bool {
+func callgraphHasCaller(edges []astgraph.CallgraphEdge, callerName, referenceName string) bool {
 	for _, edge := range edges {
 		if edge.From.Name == callerName && edge.ReferenceName == referenceName {
 			return true
@@ -372,7 +372,7 @@ func callgraphHasCaller(edges []codegraph.CallgraphEdge, callerName, referenceNa
 	return false
 }
 
-func assertContextLikeResult(t *testing.T, result codegraph.ContextResult, mode codegraph.ContextMode, query string) {
+func assertContextLikeResult(t *testing.T, result astgraph.ContextResult, mode astgraph.ContextMode, query string) {
 	t.Helper()
 	if result.Source != kotlinComposeSpec || result.Mode != mode || result.Query != query {
 		t.Fatalf("context result = %#v, want %s result for %q", result, mode, query)
@@ -395,7 +395,7 @@ func assertContextLikeResult(t *testing.T, result codegraph.ContextResult, mode 
 	)
 }
 
-func contextHasDockerComposeSnippet(snippets []codegraph.ContextSnippet) bool {
+func contextHasDockerComposeSnippet(snippets []astgraph.ContextSnippet) bool {
 	for _, snippet := range snippets {
 		if strings.HasSuffix(filepath.ToSlash(snippet.Path), "DockerCompose.kt") && len(snippet.Lines) > 0 {
 			return true

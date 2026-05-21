@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"repobridge/internal/astgraph"
+	"repobridge/internal/astgraph/store"
 	"repobridge/internal/cache"
-	"repobridge/internal/codegraph"
-	"repobridge/internal/codegraph/store"
 	"repobridge/internal/source"
 )
 
@@ -25,12 +25,12 @@ type Options struct {
 
 type App interface {
 	EnsureCached(spec string, opts source.Options) (source.Outcome, error)
-	SearchCode(spec, rawQuery string, opts codegraph.SearchOptions) ([]codegraph.SearchResult, error)
-	CodeGraphStatus(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphInspectStatus, error)
-	CodeGraphFiles(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphFilesResult, error)
-	CodeGraphNode(spec, lookup string, opts codegraph.GraphInspectOptions) (codegraph.GraphNodeLookupResult, error)
-	CodeGraphCallgraph(spec, symbol string, opts codegraph.CallgraphOptions) (codegraph.CallgraphResult, error)
-	CodeGraphContext(spec, query string, opts codegraph.ContextOptions) (codegraph.ContextResult, error)
+	SearchCode(spec, rawQuery string, opts astgraph.SearchOptions) ([]astgraph.SearchResult, error)
+	ASTGraphStatus(spec string, opts astgraph.GraphInspectOptions) (astgraph.GraphInspectStatus, error)
+	ASTGraphFiles(spec string, opts astgraph.GraphInspectOptions) (astgraph.GraphFilesResult, error)
+	ASTGraphNode(spec, lookup string, opts astgraph.GraphInspectOptions) (astgraph.GraphNodeLookupResult, error)
+	ASTGraphCallgraph(spec, symbol string, opts astgraph.CallgraphOptions) (astgraph.CallgraphResult, error)
+	ASTGraphContext(spec, query string, opts astgraph.ContextOptions) (astgraph.ContextResult, error)
 }
 
 type IndexScheduler interface {
@@ -43,50 +43,50 @@ func (defaultApp) EnsureCached(spec string, opts source.Options) (source.Outcome
 	return source.EnsureCached(spec, opts)
 }
 
-func (defaultApp) SearchCode(spec, rawQuery string, opts codegraph.SearchOptions) ([]codegraph.SearchResult, error) {
-	service := codegraph.NewSearchService(codegraph.SearchServiceOptions{
+func (defaultApp) SearchCode(spec, rawQuery string, opts astgraph.SearchOptions) ([]astgraph.SearchResult, error) {
+	service := astgraph.NewSearchService(astgraph.SearchServiceOptions{
 		Resolver: defaultApp{},
-		StoreOpener: func(dir string) (codegraph.GraphStore, error) {
+		StoreOpener: func(dir string) (astgraph.GraphStore, error) {
 			return store.Open(dir)
 		},
 	})
 	return service.Search(spec, rawQuery, opts)
 }
 
-func (defaultApp) CodeGraphStatus(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphInspectStatus, error) {
+func (defaultApp) ASTGraphStatus(spec string, opts astgraph.GraphInspectOptions) (astgraph.GraphInspectStatus, error) {
 	return defaultInspectService().Status(spec, opts)
 }
 
-func (defaultApp) CodeGraphFiles(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphFilesResult, error) {
+func (defaultApp) ASTGraphFiles(spec string, opts astgraph.GraphInspectOptions) (astgraph.GraphFilesResult, error) {
 	return defaultInspectService().Files(spec, opts)
 }
 
-func (defaultApp) CodeGraphNode(spec, lookup string, opts codegraph.GraphInspectOptions) (codegraph.GraphNodeLookupResult, error) {
+func (defaultApp) ASTGraphNode(spec, lookup string, opts astgraph.GraphInspectOptions) (astgraph.GraphNodeLookupResult, error) {
 	return defaultInspectService().Node(spec, lookup, opts)
 }
 
-func (defaultApp) CodeGraphCallgraph(spec, symbol string, opts codegraph.CallgraphOptions) (codegraph.CallgraphResult, error) {
-	return codegraph.NewCallgraphService(codegraph.SearchServiceOptions{
+func (defaultApp) ASTGraphCallgraph(spec, symbol string, opts astgraph.CallgraphOptions) (astgraph.CallgraphResult, error) {
+	return astgraph.NewCallgraphService(astgraph.SearchServiceOptions{
 		Resolver: defaultApp{},
-		StoreOpener: func(dir string) (codegraph.GraphStore, error) {
+		StoreOpener: func(dir string) (astgraph.GraphStore, error) {
 			return store.Open(dir)
 		},
 	}).Callgraph(spec, symbol, opts)
 }
 
-func (defaultApp) CodeGraphContext(spec, query string, opts codegraph.ContextOptions) (codegraph.ContextResult, error) {
-	return codegraph.NewContextService(codegraph.SearchServiceOptions{
+func (defaultApp) ASTGraphContext(spec, query string, opts astgraph.ContextOptions) (astgraph.ContextResult, error) {
+	return astgraph.NewContextService(astgraph.SearchServiceOptions{
 		Resolver: defaultApp{},
-		StoreOpener: func(dir string) (codegraph.GraphStore, error) {
+		StoreOpener: func(dir string) (astgraph.GraphStore, error) {
 			return store.Open(dir)
 		},
 	}).Context(spec, query, opts)
 }
 
-func defaultInspectService() *codegraph.InspectService {
-	return codegraph.NewInspectService(codegraph.SearchServiceOptions{
+func defaultInspectService() *astgraph.InspectService {
+	return astgraph.NewInspectService(astgraph.SearchServiceOptions{
 		Resolver: defaultApp{},
-		StoreOpener: func(dir string) (codegraph.GraphStore, error) {
+		StoreOpener: func(dir string) (astgraph.GraphStore, error) {
 			return store.Open(dir)
 		},
 	})
@@ -144,8 +144,8 @@ func indexOutcomePath(sourcePath string) error {
 	return graph.Replace(index)
 }
 
-var indexSourcePath = func(sourcePath string) (codegraph.IndexResult, error) {
-	return codegraph.NewIndexer(codegraph.IndexOptions{}).Index(sourcePath)
+var indexSourcePath = func(sourcePath string) (astgraph.IndexResult, error) {
+	return astgraph.NewIndexer(astgraph.IndexOptions{}).Index(sourcePath)
 }
 
 type processIndexScheduler struct {
@@ -164,7 +164,7 @@ func (s processIndexScheduler) Schedule(outcome source.Outcome) {
 	if strings.TrimSpace(s.executable) == "" || strings.TrimSpace(outcome.Path) == "" {
 		return
 	}
-	cmd := exec.Command(s.executable, "__codegraph-index", outcome.Path)
+	cmd := exec.Command(s.executable, "__astgraph-index", outcome.Path)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
@@ -211,14 +211,14 @@ func NewRootCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newListCommand(opts))
 	cmd.AddCommand(newRemoveCommand(opts))
 	cmd.AddCommand(newCleanCommand(opts))
-	cmd.AddCommand(newCodegraphIndexCommand())
+	cmd.AddCommand(newASTGraphIndexCommand())
 
 	return cmd
 }
 
-func newCodegraphIndexCommand() *cobra.Command {
+func newASTGraphIndexCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:    "__codegraph-index <source-path>",
+		Use:    "__astgraph-index <source-path>",
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

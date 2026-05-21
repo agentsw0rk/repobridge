@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"repobridge/internal/agentinstall"
+	"repobridge/internal/astgraph"
 	"repobridge/internal/cache"
-	"repobridge/internal/codegraph"
 	"repobridge/internal/projectscan"
 	"repobridge/internal/registry"
 	"repobridge/internal/registry/repo"
@@ -178,12 +178,12 @@ func newSearchCommand(opts Options) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "search <spec> <query>",
-		Short: "Search cached source code graph",
+		Short: "Search cached source with the AST-Graph Engine",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			query := appendSearchFilters(args[1], kinds, languages, paths, calls)
-			results, err := opts.app().SearchCode(args[0], query, codegraph.SearchOptions{
+			results, err := opts.app().SearchCode(args[0], query, astgraph.SearchOptions{
 				CWD:       cwd,
 				SyncIndex: !noSyncIndex,
 				Limit:     limit,
@@ -200,7 +200,7 @@ func newSearchCommand(opts Options) *cobra.Command {
 				return nil
 			}
 			if len(results) == 0 {
-				fmt.Fprintln(out, "No code graph results found.")
+				fmt.Fprintln(out, "No AST-Graph Engine results found.")
 				return nil
 			}
 			for _, result := range results {
@@ -216,7 +216,7 @@ func newSearchCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringArrayVar(&languages, "lang", nil, "filter by language")
 	cmd.Flags().StringArrayVar(&paths, "path", nil, "filter by path substring")
 	cmd.Flags().StringArrayVar(&calls, "calls", nil, "filter by called symbol")
-	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale code graph index")
+	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale AST-Graph Engine index")
 	return cmd
 }
 
@@ -227,11 +227,11 @@ func newGraphStatusCommand(opts Options) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "status <spec>",
-		Short: "Show cached code graph status",
+		Short: "Show cached AST-Graph Engine status",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			result, err := opts.app().CodeGraphStatus(args[0], codegraph.GraphInspectOptions{
+			result, err := opts.app().ASTGraphStatus(args[0], astgraph.GraphInspectOptions{
 				CWD:       cwd,
 				SyncIndex: !noSyncIndex,
 			})
@@ -247,7 +247,7 @@ func newGraphStatusCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print graph status as JSON")
-	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale code graph index")
+	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale AST-Graph Engine index")
 	return cmd
 }
 
@@ -260,11 +260,11 @@ func newGraphFilesCommand(opts Options) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "files <spec>",
-		Short: "List files in the cached code graph",
+		Short: "List files in the cached AST-Graph Engine index",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			result, err := opts.app().CodeGraphFiles(args[0], codegraph.GraphInspectOptions{
+			result, err := opts.app().ASTGraphFiles(args[0], astgraph.GraphInspectOptions{
 				CWD:        cwd,
 				SyncIndex:  !noSyncIndex,
 				Limit:      limit,
@@ -282,7 +282,7 @@ func newGraphFilesCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print graph files as JSON")
-	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale code graph index")
+	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale AST-Graph Engine index")
 	cmd.Flags().IntVar(&limit, "limit", 0, "limit number of files")
 	cmd.Flags().StringVar(&pathFilter, "path", "", "filter files by path substring")
 	return cmd
@@ -297,11 +297,11 @@ func newGraphNodeCommand(opts Options) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "node <spec> <id-or-name>",
-		Short: "Show details for one code graph node",
+		Short: "Show details for one AST-Graph Engine node",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			result, err := opts.app().CodeGraphNode(args[0], args[1], codegraph.GraphInspectOptions{
+			result, err := opts.app().ASTGraphNode(args[0], args[1], astgraph.GraphInspectOptions{
 				CWD:         cwd,
 				SyncIndex:   !noSyncIndex,
 				Limit:       limit,
@@ -319,33 +319,33 @@ func newGraphNodeCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print graph node as JSON")
-	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale code graph index")
+	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale AST-Graph Engine index")
 	cmd.Flags().IntVar(&limit, "limit", 0, "limit ambiguous node matches")
 	cmd.Flags().IntVar(&sourceLines, "source-lines", 0, "include up to this many source lines")
 	return cmd
 }
 
 func newCallersCommand(opts Options) *cobra.Command {
-	return newCallgraphCommand(opts, codegraph.CallgraphDirectionCallers)
+	return newCallgraphCommand(opts, astgraph.CallgraphDirectionCallers)
 }
 
 func newCalleesCommand(opts Options) *cobra.Command {
-	return newCallgraphCommand(opts, codegraph.CallgraphDirectionCallees)
+	return newCallgraphCommand(opts, astgraph.CallgraphDirectionCallees)
 }
 
 func newImpactCommand(opts Options) *cobra.Command {
-	return newCallgraphCommand(opts, codegraph.CallgraphDirectionImpact)
+	return newCallgraphCommand(opts, astgraph.CallgraphDirectionImpact)
 }
 
 func newContextCommand(opts Options) *cobra.Command {
-	return newContextLikeCommand(opts, codegraph.ContextModeContext)
+	return newContextLikeCommand(opts, astgraph.ContextModeContext)
 }
 
 func newExploreCommand(opts Options) *cobra.Command {
-	return newContextLikeCommand(opts, codegraph.ContextModeExplore)
+	return newContextLikeCommand(opts, astgraph.ContextModeExplore)
 }
 
-func newContextLikeCommand(opts Options, mode codegraph.ContextMode) *cobra.Command {
+func newContextLikeCommand(opts Options, mode astgraph.ContextMode) *cobra.Command {
 	var cwd string
 	var jsonOutput bool
 	var noSyncIndex bool
@@ -353,9 +353,9 @@ func newContextLikeCommand(opts Options, mode codegraph.ContextMode) *cobra.Comm
 	var depth int
 	var budget string
 
-	short := "Build focused task context from the cached code graph"
-	if mode == codegraph.ContextModeExplore {
-		short = "Explore broader code graph context for symbols and tasks"
+	short := "Build focused task context from the cached AST-Graph Engine"
+	if mode == astgraph.ContextModeExplore {
+		short = "Explore broader AST-Graph Engine context for symbols and tasks"
 	}
 
 	cmd := &cobra.Command{
@@ -364,7 +364,7 @@ func newContextLikeCommand(opts Options, mode codegraph.ContextMode) *cobra.Comm
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			result, err := opts.app().CodeGraphContext(args[0], args[1], codegraph.ContextOptions{
+			result, err := opts.app().ASTGraphContext(args[0], args[1], astgraph.ContextOptions{
 				CWD:       cwd,
 				SyncIndex: !noSyncIndex,
 				Limit:     limit,
@@ -384,14 +384,14 @@ func newContextLikeCommand(opts Options, mode codegraph.ContextMode) *cobra.Comm
 	}
 	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print context result as JSON")
-	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale code graph index")
+	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale AST-Graph Engine index")
 	cmd.Flags().IntVar(&limit, "limit", 0, "override budget search result limit")
 	cmd.Flags().IntVar(&depth, "depth", 0, "override budget relationship traversal depth")
 	cmd.Flags().StringVar(&budget, "budget", "", "context budget: small, medium, or large")
 	return cmd
 }
 
-func newCallgraphCommand(opts Options, direction codegraph.CallgraphDirection) *cobra.Command {
+func newCallgraphCommand(opts Options, direction astgraph.CallgraphDirection) *cobra.Command {
 	var cwd string
 	var jsonOutput bool
 	var noSyncIndex bool
@@ -404,11 +404,11 @@ func newCallgraphCommand(opts Options, direction codegraph.CallgraphDirection) *
 
 	cmd := &cobra.Command{
 		Use:   string(direction) + " <spec> <symbol>",
-		Short: "Traverse cached code graph " + string(direction),
+		Short: "Traverse cached AST-Graph Engine " + string(direction),
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
-			result, err := opts.app().CodeGraphCallgraph(args[0], args[1], codegraph.CallgraphOptions{
+			result, err := opts.app().ASTGraphCallgraph(args[0], args[1], astgraph.CallgraphOptions{
 				CWD:               cwd,
 				SyncIndex:         !noSyncIndex,
 				Limit:             limit,
@@ -431,7 +431,7 @@ func newCallgraphCommand(opts Options, direction codegraph.CallgraphDirection) *
 	}
 	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print call graph results as JSON")
-	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale code graph index")
+	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale AST-Graph Engine index")
 	cmd.Flags().BoolVar(&includeUnresolved, "include-unresolved", false, "include unresolved call references")
 	cmd.Flags().IntVar(&limit, "limit", 0, "limit number of call graph edges")
 	cmd.Flags().IntVar(&depth, "depth", 1, "call graph traversal depth")
@@ -441,18 +441,18 @@ func newCallgraphCommand(opts Options, direction codegraph.CallgraphDirection) *
 	return cmd
 }
 
-func parseNodeKinds(values []string) []codegraph.NodeKind {
-	kinds := make([]codegraph.NodeKind, 0, len(values))
+func parseNodeKinds(values []string) []astgraph.NodeKind {
+	kinds := make([]astgraph.NodeKind, 0, len(values))
 	for _, value := range values {
-		kinds = append(kinds, codegraph.NodeKind(value))
+		kinds = append(kinds, astgraph.NodeKind(value))
 	}
 	return kinds
 }
 
-func parseLanguages(values []string) []codegraph.Language {
-	languages := make([]codegraph.Language, 0, len(values))
+func parseLanguages(values []string) []astgraph.Language {
+	languages := make([]astgraph.Language, 0, len(values))
 	for _, value := range values {
-		languages = append(languages, codegraph.Language(value))
+		languages = append(languages, astgraph.Language(value))
 	}
 	return languages
 }
@@ -489,7 +489,7 @@ func printJSON(out io.Writer, value any) error {
 	return nil
 }
 
-func printGraphStatus(out io.Writer, result codegraph.GraphInspectStatus) {
+func printGraphStatus(out io.Writer, result astgraph.GraphInspectStatus) {
 	source := result.Source
 	if source == "" {
 		source = "(unknown source)"
@@ -518,7 +518,7 @@ func printGraphStatus(out io.Writer, result codegraph.GraphInspectStatus) {
 	}
 }
 
-func printGraphFiles(out io.Writer, result codegraph.GraphFilesResult) {
+func printGraphFiles(out io.Writer, result astgraph.GraphFilesResult) {
 	source := result.Source
 	if source == "" {
 		source = "(unknown source)"
@@ -533,7 +533,7 @@ func printGraphFiles(out io.Writer, result codegraph.GraphFilesResult) {
 	}
 }
 
-func printGraphNode(out io.Writer, lookup string, result codegraph.GraphNodeLookupResult) {
+func printGraphNode(out io.Writer, lookup string, result astgraph.GraphNodeLookupResult) {
 	source := result.Source
 	if source == "" {
 		source = "(unknown source)"
@@ -543,17 +543,17 @@ func printGraphNode(out io.Writer, lookup string, result codegraph.GraphNodeLook
 	case result.Node != nil:
 		printGraphNodeDetail(out, "  ", *result.Node)
 	case len(result.Matches) > 0:
-		fmt.Fprintf(out, "  Multiple code graph nodes matched %s:\n", lookup)
+		fmt.Fprintf(out, "  Multiple AST-Graph Engine nodes matched %s:\n", lookup)
 		for _, match := range result.Matches {
 			location := formatSearchLocation(match.Path, match.StartLine)
 			fmt.Fprintf(out, "    %s %s %s %s\n", match.ID, match.Kind, bestNodeDisplayName(match), location)
 		}
 	default:
-		fmt.Fprintf(out, "  No code graph node matched %s.\n", lookup)
+		fmt.Fprintf(out, "  No AST-Graph Engine node matched %s.\n", lookup)
 	}
 }
 
-func printGraphNodeDetail(out io.Writer, prefix string, node codegraph.GraphNodeDetail) {
+func printGraphNodeDetail(out io.Writer, prefix string, node astgraph.GraphNodeDetail) {
 	location := formatSearchLocation(node.Path, node.StartLine)
 	descriptor := strings.TrimSpace(fmt.Sprintf("%s %s", node.Kind, node.Name))
 	if location == "" {
@@ -584,10 +584,10 @@ func printGraphNodeDetail(out io.Writer, prefix string, node codegraph.GraphNode
 	}
 }
 
-func printCallgraphResult(out io.Writer, result codegraph.CallgraphResult) {
+func printCallgraphResult(out io.Writer, result astgraph.CallgraphResult) {
 	fmt.Fprintf(out, "%s of %s\n", result.Direction, result.Symbol)
 	if len(result.Matches) > 0 {
-		fmt.Fprintf(out, "  Multiple code graph nodes matched %s:\n", result.Symbol)
+		fmt.Fprintf(out, "  Multiple AST-Graph Engine nodes matched %s:\n", result.Symbol)
 		for _, match := range result.Matches {
 			location := formatSearchLocation(match.Path, match.StartLine)
 			fmt.Fprintf(out, "    %s %s %s %s\n", match.ID, match.Kind, bestNodeDisplayName(match), location)
@@ -615,7 +615,7 @@ func printCallgraphResult(out io.Writer, result codegraph.CallgraphResult) {
 	}
 }
 
-func printContextResult(out io.Writer, result codegraph.ContextResult) {
+func printContextResult(out io.Writer, result astgraph.ContextResult) {
 	fmt.Fprintf(out, "%s: %s\n", result.Mode, result.Query)
 	source := result.Source
 	if source == "" {
@@ -694,31 +694,31 @@ func printContextResult(out io.Writer, result codegraph.ContextResult) {
 	)
 }
 
-func callgraphDisplayNode(direction codegraph.CallgraphDirection, edge codegraph.CallgraphEdge) codegraph.GraphNodeDetail {
-	if direction == codegraph.CallgraphDirectionCallees {
+func callgraphDisplayNode(direction astgraph.CallgraphDirection, edge astgraph.CallgraphEdge) astgraph.GraphNodeDetail {
+	if direction == astgraph.CallgraphDirectionCallees {
 		return edge.To
 	}
 	return edge.From
 }
 
-func bestCallgraphReference(direction codegraph.CallgraphDirection, edge codegraph.CallgraphEdge) string {
+func bestCallgraphReference(direction astgraph.CallgraphDirection, edge astgraph.CallgraphEdge) string {
 	if edge.ReferenceName != "" {
 		return edge.ReferenceName
 	}
-	if direction == codegraph.CallgraphDirectionCallees {
+	if direction == astgraph.CallgraphDirectionCallees {
 		return bestNodeDisplayName(edge.To)
 	}
 	return bestNodeDisplayName(edge.To)
 }
 
-func bestNodeDisplayName(node codegraph.GraphNodeDetail) string {
+func bestNodeDisplayName(node astgraph.GraphNodeDetail) string {
 	if node.QualifiedName != "" {
 		return node.QualifiedName
 	}
 	return node.Name
 }
 
-func printSearchResult(out io.Writer, result codegraph.SearchResult) {
+func printSearchResult(out io.Writer, result astgraph.SearchResult) {
 	source := result.Source
 	if source == "" {
 		source = "(unknown source)"

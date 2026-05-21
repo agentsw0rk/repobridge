@@ -60,7 +60,7 @@ For project-local code that is not an external dependency, normal local code too
 10. **Use resolved paths as read-only references when needed.** Open specific files returned by RepoBridge commands, use LSP navigation when available, and use `rg` only as a fallback for text that is not represented in the AST graph.
 11. **State what was fetched and searched.** In the final response, mention which frameworks/libraries were resolved and which RepoBridge queries or paths were used when that matters for the task.
 
-## Codegraph Context and Search
+## AST-Graph Engine Context and Search
 
 After successful `path`, `fetch`, or `scan --fetch`, RepoBridge starts background AST indexing for cached sources. `repobridge context`, `explore`, `search`, graph inspection, and callgraph commands build a missing or stale graph synchronously unless `--no-sync-index` is set. Use these graph commands before reading large dependency trees manually.
 

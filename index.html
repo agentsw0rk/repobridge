@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="repobridge fetches dependency sources, builds local AST code graphs, and gives AI agents searchable framework context."
+      content="repobridge fetches dependency sources, builds local AST-Graph Engine indexes, and gives AI agents searchable framework context."
     />
     <title>repobridge Documentation</title>
     <link rel="icon" type="image/png" href="logo.png" />
@@ -788,7 +788,7 @@
           <a href="#inputs">Inputs</a>
           <a href="#cli">CLI</a>
           <a href="#agents">Agents</a>
-          <a href="#codegraph">Codegraph</a>
+          <a href="#ast-graph-engine">AST-Graph Engine</a>
           <a href="#workflows">Workflows</a>
           <a href="#troubleshooting">Trouble</a>
         </nav>
@@ -798,7 +798,7 @@
     <main id="top">
       <section class="hero shell">
         <div>
-          <p class="eyebrow">Go CLI · package sources · AST code graphs</p>
+          <p class="eyebrow">Go CLI · package sources · AST-Graph Engine indexes</p>
           <h1>searchable source context for ai agents</h1>
           <p class="hero-copy">
             repobridge scans a project, detects the frameworks and libraries it uses, fetches their source code,
@@ -953,7 +953,7 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
             </div>
           </article>
           <article class="feature-card">
-            <h3>Search AST code graphs</h3>
+            <h3>Search AST-Graph Engine indexes</h3>
             <p>Query cached source graphs by symbol name, node kind, path, language, framework route, and function calls without touching dependency code.</p>
             <div class="tag-row">
               <span class="tag">search</span><span class="tag">kind:route</span><span class="tag">component_route</span>
@@ -1159,10 +1159,10 @@ repobridge install-agent --target all --dry-run</code></pre>
         </div>
       </section>
 
-      <section id="codegraph" class="shell">
+      <section id="ast-graph-engine" class="shell">
         <div class="section-head">
           <div>
-            <p class="section-kicker">AST codegraph</p>
+            <p class="section-kicker">AST-Graph Engine</p>
             <h2>Search behavior, not only text.</h2>
           </div>
           <p>Graph data is stored beside each cached source in <code>.repobridge-graph/</code> and rebuilt when the source changes.</p>

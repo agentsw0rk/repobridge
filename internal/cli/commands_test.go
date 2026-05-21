@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"repobridge/internal/astgraph"
+	"repobridge/internal/astgraph/store"
 	"repobridge/internal/cache"
-	"repobridge/internal/codegraph"
-	"repobridge/internal/codegraph/store"
 	"repobridge/internal/source"
 )
 
@@ -44,28 +44,28 @@ type ensureCall struct {
 type fakeApp struct {
 	outcomes        map[string]source.Outcome
 	calls           []ensureCall
-	searchResults   []codegraph.SearchResult
+	searchResults   []astgraph.SearchResult
 	searchSpec      string
 	searchQuery     string
-	searchOpts      codegraph.SearchOptions
-	statusResult    codegraph.GraphInspectStatus
+	searchOpts      astgraph.SearchOptions
+	statusResult    astgraph.GraphInspectStatus
 	statusSpec      string
-	statusOpts      codegraph.GraphInspectOptions
-	filesResult     codegraph.GraphFilesResult
+	statusOpts      astgraph.GraphInspectOptions
+	filesResult     astgraph.GraphFilesResult
 	filesSpec       string
-	filesOpts       codegraph.GraphInspectOptions
-	nodeResult      codegraph.GraphNodeLookupResult
+	filesOpts       astgraph.GraphInspectOptions
+	nodeResult      astgraph.GraphNodeLookupResult
 	nodeSpec        string
 	nodeLookup      string
-	nodeOpts        codegraph.GraphInspectOptions
-	callgraphResult codegraph.CallgraphResult
+	nodeOpts        astgraph.GraphInspectOptions
+	callgraphResult astgraph.CallgraphResult
 	callgraphSpec   string
 	callgraphSymbol string
-	callgraphOpts   codegraph.CallgraphOptions
-	contextResult   codegraph.ContextResult
+	callgraphOpts   astgraph.CallgraphOptions
+	contextResult   astgraph.ContextResult
 	contextSpec     string
 	contextQuery    string
-	contextOpts     codegraph.ContextOptions
+	contextOpts     astgraph.ContextOptions
 }
 
 func (a *fakeApp) EnsureCached(spec string, opts source.Options) (source.Outcome, error) {
@@ -73,40 +73,40 @@ func (a *fakeApp) EnsureCached(spec string, opts source.Options) (source.Outcome
 	return a.outcomes[spec], nil
 }
 
-func (a *fakeApp) SearchCode(spec, rawQuery string, opts codegraph.SearchOptions) ([]codegraph.SearchResult, error) {
+func (a *fakeApp) SearchCode(spec, rawQuery string, opts astgraph.SearchOptions) ([]astgraph.SearchResult, error) {
 	a.searchSpec = spec
 	a.searchQuery = rawQuery
 	a.searchOpts = opts
 	return a.searchResults, nil
 }
 
-func (a *fakeApp) CodeGraphStatus(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphInspectStatus, error) {
+func (a *fakeApp) ASTGraphStatus(spec string, opts astgraph.GraphInspectOptions) (astgraph.GraphInspectStatus, error) {
 	a.statusSpec = spec
 	a.statusOpts = opts
 	return a.statusResult, nil
 }
 
-func (a *fakeApp) CodeGraphFiles(spec string, opts codegraph.GraphInspectOptions) (codegraph.GraphFilesResult, error) {
+func (a *fakeApp) ASTGraphFiles(spec string, opts astgraph.GraphInspectOptions) (astgraph.GraphFilesResult, error) {
 	a.filesSpec = spec
 	a.filesOpts = opts
 	return a.filesResult, nil
 }
 
-func (a *fakeApp) CodeGraphNode(spec, lookup string, opts codegraph.GraphInspectOptions) (codegraph.GraphNodeLookupResult, error) {
+func (a *fakeApp) ASTGraphNode(spec, lookup string, opts astgraph.GraphInspectOptions) (astgraph.GraphNodeLookupResult, error) {
 	a.nodeSpec = spec
 	a.nodeLookup = lookup
 	a.nodeOpts = opts
 	return a.nodeResult, nil
 }
 
-func (a *fakeApp) CodeGraphCallgraph(spec, symbol string, opts codegraph.CallgraphOptions) (codegraph.CallgraphResult, error) {
+func (a *fakeApp) ASTGraphCallgraph(spec, symbol string, opts astgraph.CallgraphOptions) (astgraph.CallgraphResult, error) {
 	a.callgraphSpec = spec
 	a.callgraphSymbol = symbol
 	a.callgraphOpts = opts
 	return a.callgraphResult, nil
 }
 
-func (a *fakeApp) CodeGraphContext(spec, query string, opts codegraph.ContextOptions) (codegraph.ContextResult, error) {
+func (a *fakeApp) ASTGraphContext(spec, query string, opts astgraph.ContextOptions) (astgraph.ContextResult, error) {
 	a.contextSpec = spec
 	a.contextQuery = query
 	a.contextOpts = opts
@@ -212,8 +212,8 @@ func TestRootVersion(t *testing.T) {
 func TestIndexOutcomePathMarksGraphFailedWhenIndexingFails(t *testing.T) {
 	sourceDir := t.TempDir()
 	originalIndexSourcePath := indexSourcePath
-	indexSourcePath = func(sourcePath string) (codegraph.IndexResult, error) {
-		return codegraph.IndexResult{}, errors.New("parse failed")
+	indexSourcePath = func(sourcePath string) (astgraph.IndexResult, error) {
+		return astgraph.IndexResult{}, errors.New("parse failed")
 	}
 	defer func() {
 		indexSourcePath = originalIndexSourcePath
@@ -238,7 +238,7 @@ func TestIndexOutcomePathMarksGraphFailedWhenIndexingFails(t *testing.T) {
 	if graphErr != nil {
 		t.Fatal(graphErr)
 	}
-	if status.Status != "failed" || status.SourcePath != sourceDir || status.SchemaVersion != codegraph.SchemaVersion {
+	if status.Status != "failed" || status.SourcePath != sourceDir || status.SchemaVersion != astgraph.SchemaVersion {
 		t.Fatalf("status = %#v, want failed status for source", status)
 	}
 	if status.ErrorText != "parse failed" {
@@ -556,11 +556,11 @@ func TestScanJSONPrintsProjectCandidates(t *testing.T) {
 }
 
 func TestSearchPrintsHumanReadableResults(t *testing.T) {
-	app := &fakeApp{searchResults: []codegraph.SearchResult{{
+	app := &fakeApp{searchResults: []astgraph.SearchResult{{
 		Source:    "zod@3.22.4",
-		Kind:      codegraph.NodeKindFunction,
+		Kind:      astgraph.NodeKindFunction,
 		Name:      "parse",
-		Language:  codegraph.LanguageTypeScript,
+		Language:  astgraph.LanguageTypeScript,
 		Path:      "src/index.ts",
 		StartLine: 12,
 		EndLine:   20,
@@ -592,9 +592,9 @@ func TestSearchPrintsHumanReadableResults(t *testing.T) {
 }
 
 func TestSearchJSONPrintsResults(t *testing.T) {
-	app := &fakeApp{searchResults: []codegraph.SearchResult{{
+	app := &fakeApp{searchResults: []astgraph.SearchResult{{
 		Source:    "demo",
-		Kind:      codegraph.NodeKindFunction,
+		Kind:      astgraph.NodeKindFunction,
 		Name:      "Run",
 		Path:      "main.go",
 		StartLine: 1,
@@ -607,7 +607,7 @@ func TestSearchJSONPrintsResults(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	var got []codegraph.SearchResult
+	var got []astgraph.SearchResult
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
 	}
@@ -638,7 +638,7 @@ func TestSearchPassesOptionsAndFilterFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if strings.TrimSpace(stdout) != "No code graph results found." {
+	if strings.TrimSpace(stdout) != "No AST-Graph Engine results found." {
 		t.Fatalf("stdout = %q, want no-results message", stdout)
 	}
 	if stderr != "" {
@@ -659,14 +659,14 @@ func TestSearchPassesOptionsAndFilterFlags(t *testing.T) {
 
 func TestGraphStatusPrintsHumanReadableSummary(t *testing.T) {
 	indexedAt := time.Date(2026, 5, 20, 12, 31, 44, 0, time.UTC)
-	app := &fakeApp{statusResult: codegraph.GraphInspectStatus{
+	app := &fakeApp{statusResult: astgraph.GraphInspectStatus{
 		Source:        "demo@v1",
 		SourcePath:    "/cache/demo",
 		GraphPath:     "/cache/demo/.repobridge-graph",
 		Status:        "ready",
-		SchemaVersion: codegraph.SchemaVersion,
+		SchemaVersion: astgraph.SchemaVersion,
 		IndexedAt:     indexedAt,
-		Counts: codegraph.GraphCounts{
+		Counts: astgraph.GraphCounts{
 			Files:      2,
 			Nodes:      5,
 			Edges:      3,
@@ -702,7 +702,7 @@ func TestGraphStatusPrintsHumanReadableSummary(t *testing.T) {
 }
 
 func TestGraphStatusJSONPrintsSummary(t *testing.T) {
-	app := &fakeApp{statusResult: codegraph.GraphInspectStatus{
+	app := &fakeApp{statusResult: astgraph.GraphInspectStatus{
 		Source: "demo@v1",
 		Status: "missing",
 	}}
@@ -714,7 +714,7 @@ func TestGraphStatusJSONPrintsSummary(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	var got codegraph.GraphInspectStatus
+	var got astgraph.GraphInspectStatus
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
 	}
@@ -727,11 +727,11 @@ func TestGraphStatusJSONPrintsSummary(t *testing.T) {
 }
 
 func TestGraphFilesPrintsFilteredFiles(t *testing.T) {
-	app := &fakeApp{filesResult: codegraph.GraphFilesResult{
+	app := &fakeApp{filesResult: astgraph.GraphFilesResult{
 		Source: "demo@v1",
-		Files: []codegraph.GraphFile{{
+		Files: []astgraph.GraphFile{{
 			Path:      "src/main.go",
-			Language:  codegraph.LanguageGo,
+			Language:  astgraph.LanguageGo,
 			NodeCount: 4,
 			Size:      128,
 		}},
@@ -758,20 +758,20 @@ func TestGraphFilesPrintsFilteredFiles(t *testing.T) {
 }
 
 func TestGraphNodePrintsDetailsAndSourceSnippet(t *testing.T) {
-	app := &fakeApp{nodeResult: codegraph.GraphNodeLookupResult{
+	app := &fakeApp{nodeResult: astgraph.GraphNodeLookupResult{
 		Source: "demo@v1",
-		Node: &codegraph.GraphNodeDetail{
+		Node: &astgraph.GraphNodeDetail{
 			ID:            "n1",
-			Kind:          codegraph.NodeKindFunction,
+			Kind:          astgraph.NodeKindFunction,
 			Name:          "Run",
 			QualifiedName: "main.Run",
-			Language:      codegraph.LanguageGo,
+			Language:      astgraph.LanguageGo,
 			Path:          "main.go",
 			StartLine:     3,
 			EndLine:       5,
 			Signature:     "func Run()",
 			Calls:         []string{"helper"},
-			Source: []codegraph.SourceLine{
+			Source: []astgraph.SourceLine{
 				{Line: 3, Text: "func Run() {"},
 				{Line: 4, Text: "\thelper()"},
 			},
@@ -804,11 +804,11 @@ func TestGraphNodePrintsDetailsAndSourceSnippet(t *testing.T) {
 }
 
 func TestGraphNodePrintsAmbiguousMatches(t *testing.T) {
-	app := &fakeApp{nodeResult: codegraph.GraphNodeLookupResult{
+	app := &fakeApp{nodeResult: astgraph.GraphNodeLookupResult{
 		Source: "demo@v1",
-		Matches: []codegraph.GraphNodeDetail{
-			{ID: "n1", Kind: codegraph.NodeKindFunction, Name: "Run", QualifiedName: "main.Run", Path: "main.go", StartLine: 3},
-			{ID: "n2", Kind: codegraph.NodeKindMethod, Name: "Run", QualifiedName: "worker.Run", Path: "worker.go", StartLine: 8},
+		Matches: []astgraph.GraphNodeDetail{
+			{ID: "n1", Kind: astgraph.NodeKindFunction, Name: "Run", QualifiedName: "main.Run", Path: "main.go", StartLine: 3},
+			{ID: "n2", Kind: astgraph.NodeKindMethod, Name: "Run", QualifiedName: "worker.Run", Path: "worker.go", StartLine: 8},
 		},
 	}}
 
@@ -817,7 +817,7 @@ func TestGraphNodePrintsAmbiguousMatches(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	for _, want := range []string{
-		"Multiple code graph nodes matched Run",
+		"Multiple AST-Graph Engine nodes matched Run",
 		"n1 function main.Run main.go:3",
 		"n2 method worker.Run worker.go:8",
 	} {
@@ -831,18 +831,18 @@ func TestGraphNodePrintsAmbiguousMatches(t *testing.T) {
 }
 
 func TestCallersPrintsHumanReadableEdges(t *testing.T) {
-	app := &fakeApp{callgraphResult: codegraph.CallgraphResult{
+	app := &fakeApp{callgraphResult: astgraph.CallgraphResult{
 		Source:    "demo@v1",
-		Direction: codegraph.CallgraphDirectionCallers,
+		Direction: astgraph.CallgraphDirectionCallers,
 		Symbol:    "login",
-		Root: &codegraph.GraphNodeDetail{
-			ID: "target", Kind: codegraph.NodeKindFunction, Name: "login", QualifiedName: "auth.login", Path: "auth.go", StartLine: 12,
+		Root: &astgraph.GraphNodeDetail{
+			ID: "target", Kind: astgraph.NodeKindFunction, Name: "login", QualifiedName: "auth.login", Path: "auth.go", StartLine: 12,
 		},
-		Edges: []codegraph.CallgraphEdge{{
+		Edges: []astgraph.CallgraphEdge{{
 			Depth: 1,
-			From:  codegraph.GraphNodeDetail{ID: "caller", Kind: codegraph.NodeKindMethod, Name: "postLogin", QualifiedName: "AuthController.postLogin", Path: "controller.kt", StartLine: 31},
-			To:    codegraph.GraphNodeDetail{ID: "target", Kind: codegraph.NodeKindFunction, Name: "login", QualifiedName: "auth.login", Path: "auth.go", StartLine: 12},
-			Kind:  codegraph.EdgeKindCalls,
+			From:  astgraph.GraphNodeDetail{ID: "caller", Kind: astgraph.NodeKindMethod, Name: "postLogin", QualifiedName: "AuthController.postLogin", Path: "controller.kt", StartLine: 31},
+			To:    astgraph.GraphNodeDetail{ID: "target", Kind: astgraph.NodeKindFunction, Name: "login", QualifiedName: "auth.login", Path: "auth.go", StartLine: 12},
+			Kind:  astgraph.EdgeKindCalls,
 			Line:  38,
 		}},
 	}}
@@ -866,13 +866,13 @@ func TestCallersPrintsHumanReadableEdges(t *testing.T) {
 	if app.callgraphSpec != "demo@v1" || app.callgraphSymbol != "login" {
 		t.Fatalf("callgraph call = %q %q, want spec and symbol", app.callgraphSpec, app.callgraphSymbol)
 	}
-	if app.callgraphOpts.Direction != codegraph.CallgraphDirectionCallers || app.callgraphOpts.Depth != 2 || app.callgraphOpts.Limit != 5 {
+	if app.callgraphOpts.Direction != astgraph.CallgraphDirectionCallers || app.callgraphOpts.Depth != 2 || app.callgraphOpts.Limit != 5 {
 		t.Fatalf("callgraph opts = %#v, want callers depth limit", app.callgraphOpts)
 	}
-	if len(app.callgraphOpts.Kinds) != 1 || app.callgraphOpts.Kinds[0] != codegraph.NodeKindMethod {
+	if len(app.callgraphOpts.Kinds) != 1 || app.callgraphOpts.Kinds[0] != astgraph.NodeKindMethod {
 		t.Fatalf("kinds = %#v, want method", app.callgraphOpts.Kinds)
 	}
-	if len(app.callgraphOpts.Languages) != 1 || app.callgraphOpts.Languages[0] != codegraph.LanguageKotlin {
+	if len(app.callgraphOpts.Languages) != 1 || app.callgraphOpts.Languages[0] != astgraph.LanguageKotlin {
 		t.Fatalf("languages = %#v, want kotlin", app.callgraphOpts.Languages)
 	}
 	if len(app.callgraphOpts.PathFilters) != 1 || app.callgraphOpts.PathFilters[0] != "controller" {
@@ -881,15 +881,15 @@ func TestCallersPrintsHumanReadableEdges(t *testing.T) {
 }
 
 func TestCalleesJSONPrintsEdges(t *testing.T) {
-	app := &fakeApp{callgraphResult: codegraph.CallgraphResult{
+	app := &fakeApp{callgraphResult: astgraph.CallgraphResult{
 		Source:    "demo@v1",
-		Direction: codegraph.CallgraphDirectionCallees,
+		Direction: astgraph.CallgraphDirectionCallees,
 		Symbol:    "Run",
-		Edges: []codegraph.CallgraphEdge{{
+		Edges: []astgraph.CallgraphEdge{{
 			Depth: 1,
-			From:  codegraph.GraphNodeDetail{ID: "run", Name: "Run"},
-			To:    codegraph.GraphNodeDetail{ID: "helper", Name: "helper"},
-			Kind:  codegraph.EdgeKindCalls,
+			From:  astgraph.GraphNodeDetail{ID: "run", Name: "Run"},
+			To:    astgraph.GraphNodeDetail{ID: "helper", Name: "helper"},
+			Kind:  astgraph.EdgeKindCalls,
 			Line:  4,
 		}},
 	}}
@@ -901,11 +901,11 @@ func TestCalleesJSONPrintsEdges(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	var got codegraph.CallgraphResult
+	var got astgraph.CallgraphResult
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
 	}
-	if got.Direction != codegraph.CallgraphDirectionCallees || len(got.Edges) != 1 || got.Edges[0].To.Name != "helper" {
+	if got.Direction != astgraph.CallgraphDirectionCallees || len(got.Edges) != 1 || got.Edges[0].To.Name != "helper" {
 		t.Fatalf("result = %#v, want callee helper", got)
 	}
 	if app.callgraphOpts.SyncIndex || !app.callgraphOpts.IncludeUnresolved {
@@ -914,9 +914,9 @@ func TestCalleesJSONPrintsEdges(t *testing.T) {
 }
 
 func TestImpactPrintsNoEdgesMessage(t *testing.T) {
-	app := &fakeApp{callgraphResult: codegraph.CallgraphResult{
+	app := &fakeApp{callgraphResult: astgraph.CallgraphResult{
 		Source:    "demo@v1",
-		Direction: codegraph.CallgraphDirectionImpact,
+		Direction: astgraph.CallgraphDirectionImpact,
 		Symbol:    "Config",
 	}}
 
@@ -930,38 +930,38 @@ func TestImpactPrintsNoEdgesMessage(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	if app.callgraphOpts.Direction != codegraph.CallgraphDirectionImpact {
+	if app.callgraphOpts.Direction != astgraph.CallgraphDirectionImpact {
 		t.Fatalf("direction = %q, want impact", app.callgraphOpts.Direction)
 	}
 }
 
 func TestContextPrintsHumanReadableResult(t *testing.T) {
-	app := &fakeApp{contextResult: codegraph.ContextResult{
+	app := &fakeApp{contextResult: astgraph.ContextResult{
 		Source: "demo@v1",
-		Mode:   codegraph.ContextModeContext,
+		Mode:   astgraph.ContextModeContext,
 		Query:  "auth login flow",
-		Budget: codegraph.ContextBudget{Name: "small", SearchLimit: 5, SnippetCount: 3, SourceLines: 8, Depth: 1},
-		EntryPoints: []codegraph.GraphNodeDetail{{
-			ID: "login", Kind: codegraph.NodeKindFunction, Name: "Login", QualifiedName: "auth.Login", Path: "auth.go", StartLine: 3,
+		Budget: astgraph.ContextBudget{Name: "small", SearchLimit: 5, SnippetCount: 3, SourceLines: 8, Depth: 1},
+		EntryPoints: []astgraph.GraphNodeDetail{{
+			ID: "login", Kind: astgraph.NodeKindFunction, Name: "Login", QualifiedName: "auth.Login", Path: "auth.go", StartLine: 3,
 		}},
-		Relationships: []codegraph.CallgraphEdge{{
+		Relationships: []astgraph.CallgraphEdge{{
 			Depth: 1,
-			From:  codegraph.GraphNodeDetail{ID: "login", Name: "Login", QualifiedName: "auth.Login"},
-			To:    codegraph.GraphNodeDetail{ID: "session", Name: "createSession", QualifiedName: "auth.createSession"},
-			Kind:  codegraph.EdgeKindCalls,
+			From:  astgraph.GraphNodeDetail{ID: "login", Name: "Login", QualifiedName: "auth.Login"},
+			To:    astgraph.GraphNodeDetail{ID: "session", Name: "createSession", QualifiedName: "auth.createSession"},
+			Kind:  astgraph.EdgeKindCalls,
 			Line:  4,
 		}},
-		Snippets: []codegraph.ContextSnippet{{
+		Snippets: []astgraph.ContextSnippet{{
 			Path:      "auth.go",
 			StartLine: 3,
 			EndLine:   4,
-			Lines: []codegraph.SourceLine{
+			Lines: []astgraph.SourceLine{
 				{Line: 3, Text: "func Login() {"},
 				{Line: 4, Text: "\tcreateSession()"},
 			},
 		}},
-		RelatedFiles: []codegraph.GraphFile{{Path: "auth.go", Language: codegraph.LanguageGo, NodeCount: 2}},
-		Stats:        codegraph.ContextResultStats{EntryPoints: 1, Relationships: 1, Snippets: 1, RelatedFiles: 1},
+		RelatedFiles: []astgraph.GraphFile{{Path: "auth.go", Language: astgraph.LanguageGo, NodeCount: 2}},
+		Stats:        astgraph.ContextResultStats{EntryPoints: 1, Relationships: 1, Snippets: 1, RelatedFiles: 1},
 	}}
 
 	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "context", "--budget", "small", "--limit", "7", "--depth", "2", "demo@v1", "auth login flow")
@@ -992,19 +992,19 @@ func TestContextPrintsHumanReadableResult(t *testing.T) {
 	if app.contextSpec != "demo@v1" || app.contextQuery != "auth login flow" {
 		t.Fatalf("context call = %q %q, want spec/query", app.contextSpec, app.contextQuery)
 	}
-	if app.contextOpts.Mode != codegraph.ContextModeContext || app.contextOpts.Budget != "small" || app.contextOpts.Limit != 7 || app.contextOpts.Depth != 2 {
+	if app.contextOpts.Mode != astgraph.ContextModeContext || app.contextOpts.Budget != "small" || app.contextOpts.Limit != 7 || app.contextOpts.Depth != 2 {
 		t.Fatalf("context opts = %#v, want context small limit depth", app.contextOpts)
 	}
 }
 
 func TestExploreJSONPrintsResult(t *testing.T) {
-	app := &fakeApp{contextResult: codegraph.ContextResult{
+	app := &fakeApp{contextResult: astgraph.ContextResult{
 		Source: "demo@v1",
-		Mode:   codegraph.ContextModeExplore,
+		Mode:   astgraph.ContextModeExplore,
 		Query:  "AuthService.login",
-		Budget: codegraph.ContextBudget{Name: "large", SearchLimit: 20, SnippetCount: 8, SourceLines: 28, Depth: 2},
-		EntryPoints: []codegraph.GraphNodeDetail{{
-			ID: "login", Kind: codegraph.NodeKindMethod, Name: "login", QualifiedName: "AuthService.login", Path: "AuthService.kt", StartLine: 42,
+		Budget: astgraph.ContextBudget{Name: "large", SearchLimit: 20, SnippetCount: 8, SourceLines: 28, Depth: 2},
+		EntryPoints: []astgraph.GraphNodeDetail{{
+			ID: "login", Kind: astgraph.NodeKindMethod, Name: "login", QualifiedName: "AuthService.login", Path: "AuthService.kt", StartLine: 42,
 		}},
 	}}
 
@@ -1015,14 +1015,14 @@ func TestExploreJSONPrintsResult(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	var got codegraph.ContextResult
+	var got astgraph.ContextResult
 	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
 		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
 	}
-	if got.Mode != codegraph.ContextModeExplore || len(got.EntryPoints) != 1 || got.EntryPoints[0].QualifiedName != "AuthService.login" {
+	if got.Mode != astgraph.ContextModeExplore || len(got.EntryPoints) != 1 || got.EntryPoints[0].QualifiedName != "AuthService.login" {
 		t.Fatalf("result = %#v, want explore AuthService.login", got)
 	}
-	if app.contextOpts.SyncIndex || app.contextOpts.Mode != codegraph.ContextModeExplore || app.contextOpts.Budget != "large" {
+	if app.contextOpts.SyncIndex || app.contextOpts.Mode != astgraph.ContextModeExplore || app.contextOpts.Budget != "large" {
 		t.Fatalf("context opts = %#v, want no-sync explore large", app.contextOpts)
 	}
 }
