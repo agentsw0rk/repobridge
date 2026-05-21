@@ -34,20 +34,41 @@ func Resolve(name, version string, _ *http.Client, baseURL string) (registry.Res
 	if baseURL == "" {
 		baseURL = DefaultRepository
 	}
-	baseURL = strings.TrimRight(baseURL, "/")
+	return ResolveWithRepositories(name, version, []Repository{{ID: "central", URL: baseURL}})
+}
 
+func ResolveWithRepositories(name, version string, repositories []Repository) (registry.ResolvedPackage, error) {
 	coords, err := parseCoordinates(name, version)
 	if err != nil {
 		return registry.ResolvedPackage{}, err
 	}
+	if len(repositories) == 0 {
+		repositories = []Repository{{ID: "central", URL: DefaultRepository}}
+	}
+	candidates := make([]registry.ArtifactCandidate, 0, len(repositories))
+	for _, repo := range repositories {
+		baseURL := strings.TrimRight(strings.TrimSpace(repo.URL), "/")
+		if baseURL == "" {
+			continue
+		}
+		candidates = append(candidates, registry.ArtifactCandidate{
+			RepositoryID:      strings.TrimSpace(repo.ID),
+			SourceArchiveURL:  baseURL + "/" + artifactPath(coords, "sources", "jar"),
+			SourceMetadataURL: baseURL + "/" + artifactPath(coords, "", "pom"),
+		})
+	}
+	if len(candidates) == 0 {
+		return registry.ResolvedPackage{}, fmt.Errorf("Maven repository list must contain at least one URL")
+	}
 
 	return registry.ResolvedPackage{
-		Registry:          registry.Maven,
-		Name:              coords.GroupID + ":" + coords.ArtifactID,
-		Version:           coords.Version,
-		GitTag:            "v" + coords.Version,
-		SourceArchiveURL:  baseURL + "/" + artifactPath(coords, "sources", "jar"),
-		SourceMetadataURL: baseURL + "/" + artifactPath(coords, "", "pom"),
+		Registry:           registry.Maven,
+		Name:               coords.GroupID + ":" + coords.ArtifactID,
+		Version:            coords.Version,
+		GitTag:             "v" + coords.Version,
+		SourceArchiveURL:   candidates[0].SourceArchiveURL,
+		SourceMetadataURL:  candidates[0].SourceMetadataURL,
+		ArtifactCandidates: candidates,
 	}, nil
 }
 

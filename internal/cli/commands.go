@@ -61,7 +61,7 @@ func newFetchCommand(opts Options) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
+	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for project-aware package resolution")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "suppress progress output")
 	return cmd
 }
@@ -87,7 +87,7 @@ func newPathCommand(opts Options) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for lockfile version detection")
+	cmd.Flags().StringVar(&cwd, "cwd", ".", "working directory for project-aware package resolution")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "show fetch progress")
 	return cmd
 }

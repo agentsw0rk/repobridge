@@ -97,6 +97,36 @@ func TestResolveBuildsSourceAndMetadataURLsWithoutFetchingPOM(t *testing.T) {
 	}
 }
 
+func TestResolveWithRepositoriesBuildsOrderedArtifactCandidates(t *testing.T) {
+	repositories := []Repository{
+		{ID: "internal", URL: "https://repo.example.com/internal/"},
+		{ID: "central", URL: DefaultRepository},
+	}
+
+	got, err := ResolveWithRepositories("org.jetbrains.kotlin:kotlin-stdlib", "2.1.0", repositories)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.ArtifactCandidates) != 2 {
+		t.Fatalf("ArtifactCandidates = %#v, want two candidates", got.ArtifactCandidates)
+	}
+	if got.ArtifactCandidates[0].RepositoryID != "internal" {
+		t.Fatalf("first RepositoryID = %q, want internal", got.ArtifactCandidates[0].RepositoryID)
+	}
+	if got.ArtifactCandidates[0].SourceArchiveURL != "https://repo.example.com/internal/org/jetbrains/kotlin/kotlin-stdlib/2.1.0/kotlin-stdlib-2.1.0-sources.jar" {
+		t.Fatalf("first SourceArchiveURL = %q", got.ArtifactCandidates[0].SourceArchiveURL)
+	}
+	if got.ArtifactCandidates[1].RepositoryID != "central" {
+		t.Fatalf("second RepositoryID = %q, want central", got.ArtifactCandidates[1].RepositoryID)
+	}
+	if got.SourceArchiveURL != got.ArtifactCandidates[0].SourceArchiveURL {
+		t.Fatalf("legacy SourceArchiveURL = %q, want first candidate %q", got.SourceArchiveURL, got.ArtifactCandidates[0].SourceArchiveURL)
+	}
+	if got.SourceMetadataURL != got.ArtifactCandidates[0].SourceMetadataURL {
+		t.Fatalf("legacy SourceMetadataURL = %q, want first candidate %q", got.SourceMetadataURL, got.ArtifactCandidates[0].SourceMetadataURL)
+	}
+}
+
 func TestResolveSCMURLPicksSCMConnection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/org/example/lib/1.0.0/lib-1.0.0.pom" {

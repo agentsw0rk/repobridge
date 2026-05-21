@@ -54,6 +54,10 @@ type Resolver interface {
 	ResolveRepo(context.Context, repo.Spec, *http.Client) (repo.Resolved, error)
 }
 
+type cwdResolver interface {
+	ResolvePackageWithCWD(context.Context, registry.PackageSpec, *http.Client, string) (registry.ResolvedPackage, error)
+}
+
 type InstalledVersionDetector interface {
 	InstalledVersion(registry.Registry, string, string) string
 }
@@ -153,7 +157,13 @@ func (a *Acquirer) ensurePackageCached(ctx context.Context, input, cwd string) (
 		}
 	}
 
-	resolved, err := a.resolver.ResolvePackage(ctx, spec, a.client)
+	var resolved registry.ResolvedPackage
+	var err error
+	if resolverWithCWD, ok := a.resolver.(cwdResolver); ok {
+		resolved, err = resolverWithCWD.ResolvePackageWithCWD(ctx, spec, a.client, cwd)
+	} else {
+		resolved, err = a.resolver.ResolvePackage(ctx, spec, a.client)
+	}
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -270,7 +280,11 @@ func (a *Acquirer) fetcherOrDefault() Fetcher {
 type defaultResolver struct{}
 
 func (defaultResolver) ResolvePackage(ctx context.Context, spec registry.PackageSpec, client *http.Client) (registry.ResolvedPackage, error) {
-	return defaultResolvePackage(spec, client)
+	return defaultResolvePackage(spec, client, "")
+}
+
+func (defaultResolver) ResolvePackageWithCWD(ctx context.Context, spec registry.PackageSpec, client *http.Client, cwd string) (registry.ResolvedPackage, error) {
+	return defaultResolvePackage(spec, client, cwd)
 }
 
 func (defaultResolver) ResolveRepo(ctx context.Context, spec repo.Spec, client *http.Client) (repo.Resolved, error) {
@@ -286,7 +300,7 @@ func (lockfileVersionDetector) InstalledVersion(reg registry.Registry, name, cwd
 	return lockfile.DetectInstalledVersion(name, cwd)
 }
 
-func defaultResolvePackage(spec registry.PackageSpec, client *http.Client) (registry.ResolvedPackage, error) {
+func defaultResolvePackage(spec registry.PackageSpec, client *http.Client, cwd string) (registry.ResolvedPackage, error) {
 	if err := registry.SupportedRegistry(spec.Registry); err != nil {
 		return registry.ResolvedPackage{}, err
 	}
@@ -298,7 +312,7 @@ func defaultResolvePackage(spec registry.PackageSpec, client *http.Client) (regi
 	case registry.Crates:
 		return crates.Resolve(spec.Name, spec.Version, client, "")
 	case registry.Maven:
-		return maven.Resolve(spec.Name, spec.Version, client, "")
+		return maven.ResolveWithRepositories(spec.Name, spec.Version, maven.EffectiveRepositories(cwd))
 	case registry.NuGet:
 		return nuget.Resolve(spec.Name, spec.Version, client, "")
 	default:
