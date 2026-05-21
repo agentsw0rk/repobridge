@@ -858,18 +858,22 @@ var NodeEntityBinding = nodeEntity_EntityInfo{
 
 // NodeEntity_ contains type-based Property helpers to facilitate some common operations such as Queries.
 var NodeEntity_ = struct {
-	Id            *objectbox.PropertyUint64
-	StableID      *objectbox.PropertyString
-	Kind          *objectbox.PropertyString
-	Name          *objectbox.PropertyString
-	QualifiedName *objectbox.PropertyString
-	FilePath      *objectbox.PropertyString
-	Language      *objectbox.PropertyString
-	StartLine     *objectbox.PropertyInt
-	EndLine       *objectbox.PropertyInt
-	StartColumn   *objectbox.PropertyInt
-	EndColumn     *objectbox.PropertyInt
-	Signature     *objectbox.PropertyString
+	Id             *objectbox.PropertyUint64
+	StableID       *objectbox.PropertyString
+	Kind           *objectbox.PropertyString
+	Name           *objectbox.PropertyString
+	QualifiedName  *objectbox.PropertyString
+	FilePath       *objectbox.PropertyString
+	Language       *objectbox.PropertyString
+	StartLine      *objectbox.PropertyInt
+	EndLine        *objectbox.PropertyInt
+	StartColumn    *objectbox.PropertyInt
+	EndColumn      *objectbox.PropertyInt
+	Signature      *objectbox.PropertyString
+	ReceiverType   *objectbox.PropertyString
+	ParameterCount *objectbox.PropertyInt
+	ParameterTypes *objectbox.PropertyString
+	ReturnType     *objectbox.PropertyString
 }{
 	Id: &objectbox.PropertyUint64{
 		BaseProperty: &objectbox.BaseProperty{
@@ -943,6 +947,30 @@ var NodeEntity_ = struct {
 			Entity: &NodeEntityBinding.Entity,
 		},
 	},
+	ReceiverType: &objectbox.PropertyString{
+		BaseProperty: &objectbox.BaseProperty{
+			Id:     13,
+			Entity: &NodeEntityBinding.Entity,
+		},
+	},
+	ParameterCount: &objectbox.PropertyInt{
+		BaseProperty: &objectbox.BaseProperty{
+			Id:     14,
+			Entity: &NodeEntityBinding.Entity,
+		},
+	},
+	ParameterTypes: &objectbox.PropertyString{
+		BaseProperty: &objectbox.BaseProperty{
+			Id:     15,
+			Entity: &NodeEntityBinding.Entity,
+		},
+	},
+	ReturnType: &objectbox.PropertyString{
+		BaseProperty: &objectbox.BaseProperty{
+			Id:     16,
+			Entity: &NodeEntityBinding.Entity,
+		},
+	},
 }
 
 // GeneratorVersion is called by ObjectBox to verify the compatibility of the generator used to generate this code
@@ -978,7 +1006,13 @@ func (nodeEntity_EntityInfo) AddToModel(model *objectbox.Model) {
 	model.Property("StartColumn", 6, 10, 200890707069712958)
 	model.Property("EndColumn", 6, 11, 5894384044432350763)
 	model.Property("Signature", 9, 12, 5864542766874311116)
-	model.EntityLastPropertyId(12, 5864542766874311116)
+	model.Property("ReceiverType", 9, 13, 2641842190725080668)
+	model.PropertyFlags(2048)
+	model.PropertyIndex(20, 967143217967356143)
+	model.Property("ParameterCount", 6, 14, 7354347623517963586)
+	model.Property("ParameterTypes", 9, 15, 3362153866089893544)
+	model.Property("ReturnType", 9, 16, 6587390542676826859)
+	model.EntityLastPropertyId(16, 6587390542676826859)
 }
 
 // GetId is called by ObjectBox during Put operations to check for existing ID on an object
@@ -1007,14 +1041,21 @@ func (nodeEntity_EntityInfo) Flatten(object interface{}, fbb *flatbuffers.Builde
 	var offsetFilePath = fbutils.CreateStringOffset(fbb, obj.FilePath)
 	var offsetLanguage = fbutils.CreateStringOffset(fbb, obj.Language)
 	var offsetSignature = fbutils.CreateStringOffset(fbb, obj.Signature)
+	var offsetReceiverType = fbutils.CreateStringOffset(fbb, obj.ReceiverType)
+	var offsetParameterTypes = fbutils.CreateStringOffset(fbb, obj.ParameterTypes)
+	var offsetReturnType = fbutils.CreateStringOffset(fbb, obj.ReturnType)
 
 	// build the FlatBuffers object
-	fbb.StartObject(12)
+	fbb.StartObject(16)
 	fbutils.SetUint64Slot(fbb, 0, id)
 	fbutils.SetUOffsetTSlot(fbb, 1, offsetStableID)
 	fbutils.SetUOffsetTSlot(fbb, 2, offsetKind)
 	fbutils.SetUOffsetTSlot(fbb, 3, offsetName)
 	fbutils.SetUOffsetTSlot(fbb, 4, offsetQualifiedName)
+	fbutils.SetUOffsetTSlot(fbb, 12, offsetReceiverType)
+	fbutils.SetInt64Slot(fbb, 13, int64(obj.ParameterCount))
+	fbutils.SetUOffsetTSlot(fbb, 14, offsetParameterTypes)
+	fbutils.SetUOffsetTSlot(fbb, 15, offsetReturnType)
 	fbutils.SetUOffsetTSlot(fbb, 5, offsetFilePath)
 	fbutils.SetUOffsetTSlot(fbb, 6, offsetLanguage)
 	fbutils.SetInt64Slot(fbb, 7, int64(obj.StartLine))
@@ -1039,18 +1080,22 @@ func (nodeEntity_EntityInfo) Load(ob *objectbox.ObjectBox, bytes []byte) (interf
 	var propId = table.GetUint64Slot(4, 0)
 
 	return &NodeEntity{
-		Id:            propId,
-		StableID:      fbutils.GetStringSlot(table, 6),
-		Kind:          fbutils.GetStringSlot(table, 8),
-		Name:          fbutils.GetStringSlot(table, 10),
-		QualifiedName: fbutils.GetStringSlot(table, 12),
-		FilePath:      fbutils.GetStringSlot(table, 14),
-		Language:      fbutils.GetStringSlot(table, 16),
-		StartLine:     fbutils.GetIntSlot(table, 18),
-		EndLine:       fbutils.GetIntSlot(table, 20),
-		StartColumn:   fbutils.GetIntSlot(table, 22),
-		EndColumn:     fbutils.GetIntSlot(table, 24),
-		Signature:     fbutils.GetStringSlot(table, 26),
+		Id:             propId,
+		StableID:       fbutils.GetStringSlot(table, 6),
+		Kind:           fbutils.GetStringSlot(table, 8),
+		Name:           fbutils.GetStringSlot(table, 10),
+		QualifiedName:  fbutils.GetStringSlot(table, 12),
+		ReceiverType:   fbutils.GetStringSlot(table, 28),
+		ParameterCount: fbutils.GetIntSlot(table, 30),
+		ParameterTypes: fbutils.GetStringSlot(table, 32),
+		ReturnType:     fbutils.GetStringSlot(table, 34),
+		FilePath:       fbutils.GetStringSlot(table, 14),
+		Language:       fbutils.GetStringSlot(table, 16),
+		StartLine:      fbutils.GetIntSlot(table, 18),
+		EndLine:        fbutils.GetIntSlot(table, 20),
+		StartColumn:    fbutils.GetIntSlot(table, 22),
+		EndColumn:      fbutils.GetIntSlot(table, 24),
+		Signature:      fbutils.GetStringSlot(table, 26),
 	}, nil
 }
 
@@ -1712,6 +1757,10 @@ var UnresolvedReferenceEntity_ = struct {
 	Language      *objectbox.PropertyString
 	Line          *objectbox.PropertyInt
 	Column        *objectbox.PropertyInt
+	ReceiverText  *objectbox.PropertyString
+	ArgumentCount *objectbox.PropertyInt
+	ArgumentTexts *objectbox.PropertyString
+	ScopeStableID *objectbox.PropertyString
 }{
 	Id: &objectbox.PropertyUint64{
 		BaseProperty: &objectbox.BaseProperty{
@@ -1761,6 +1810,30 @@ var UnresolvedReferenceEntity_ = struct {
 			Entity: &UnresolvedReferenceEntityBinding.Entity,
 		},
 	},
+	ReceiverText: &objectbox.PropertyString{
+		BaseProperty: &objectbox.BaseProperty{
+			Id:     9,
+			Entity: &UnresolvedReferenceEntityBinding.Entity,
+		},
+	},
+	ArgumentCount: &objectbox.PropertyInt{
+		BaseProperty: &objectbox.BaseProperty{
+			Id:     10,
+			Entity: &UnresolvedReferenceEntityBinding.Entity,
+		},
+	},
+	ArgumentTexts: &objectbox.PropertyString{
+		BaseProperty: &objectbox.BaseProperty{
+			Id:     11,
+			Entity: &UnresolvedReferenceEntityBinding.Entity,
+		},
+	},
+	ScopeStableID: &objectbox.PropertyString{
+		BaseProperty: &objectbox.BaseProperty{
+			Id:     12,
+			Entity: &UnresolvedReferenceEntityBinding.Entity,
+		},
+	},
 }
 
 // GeneratorVersion is called by ObjectBox to verify the compatibility of the generator used to generate this code
@@ -1790,7 +1863,13 @@ func (unresolvedReferenceEntity_EntityInfo) AddToModel(model *objectbox.Model) {
 	model.PropertyIndex(19, 8544295943047035425)
 	model.Property("Line", 6, 7, 5760036363277584253)
 	model.Property("Column", 6, 8, 2068640150242227716)
-	model.EntityLastPropertyId(8, 2068640150242227716)
+	model.Property("ReceiverText", 9, 9, 2744622207414599777)
+	model.Property("ArgumentCount", 6, 10, 6439453596243244728)
+	model.Property("ArgumentTexts", 9, 11, 5048081844580895408)
+	model.Property("ScopeStableID", 9, 12, 8622643544102293813)
+	model.PropertyFlags(2048)
+	model.PropertyIndex(21, 8024976706042757456)
+	model.EntityLastPropertyId(12, 8622643544102293813)
 }
 
 // GetId is called by ObjectBox during Put operations to check for existing ID on an object
@@ -1817,12 +1896,19 @@ func (unresolvedReferenceEntity_EntityInfo) Flatten(object interface{}, fbb *fla
 	var offsetReferenceKind = fbutils.CreateStringOffset(fbb, obj.ReferenceKind)
 	var offsetFilePath = fbutils.CreateStringOffset(fbb, obj.FilePath)
 	var offsetLanguage = fbutils.CreateStringOffset(fbb, obj.Language)
+	var offsetReceiverText = fbutils.CreateStringOffset(fbb, obj.ReceiverText)
+	var offsetArgumentTexts = fbutils.CreateStringOffset(fbb, obj.ArgumentTexts)
+	var offsetScopeStableID = fbutils.CreateStringOffset(fbb, obj.ScopeStableID)
 
 	// build the FlatBuffers object
-	fbb.StartObject(8)
+	fbb.StartObject(12)
 	fbutils.SetUint64Slot(fbb, 0, id)
 	fbutils.SetUOffsetTSlot(fbb, 1, offsetFromStableID)
 	fbutils.SetUOffsetTSlot(fbb, 2, offsetReferenceName)
+	fbutils.SetUOffsetTSlot(fbb, 8, offsetReceiverText)
+	fbutils.SetInt64Slot(fbb, 9, int64(obj.ArgumentCount))
+	fbutils.SetUOffsetTSlot(fbb, 10, offsetArgumentTexts)
+	fbutils.SetUOffsetTSlot(fbb, 11, offsetScopeStableID)
 	fbutils.SetUOffsetTSlot(fbb, 3, offsetReferenceKind)
 	fbutils.SetUOffsetTSlot(fbb, 4, offsetFilePath)
 	fbutils.SetUOffsetTSlot(fbb, 5, offsetLanguage)
@@ -1848,6 +1934,10 @@ func (unresolvedReferenceEntity_EntityInfo) Load(ob *objectbox.ObjectBox, bytes 
 		Id:            propId,
 		FromStableID:  fbutils.GetStringSlot(table, 6),
 		ReferenceName: fbutils.GetStringSlot(table, 8),
+		ReceiverText:  fbutils.GetStringSlot(table, 20),
+		ArgumentCount: fbutils.GetIntSlot(table, 22),
+		ArgumentTexts: fbutils.GetStringSlot(table, 24),
+		ScopeStableID: fbutils.GetStringSlot(table, 26),
 		ReferenceKind: fbutils.GetStringSlot(table, 10),
 		FilePath:      fbutils.GetStringSlot(table, 12),
 		Language:      fbutils.GetStringSlot(table, 14),

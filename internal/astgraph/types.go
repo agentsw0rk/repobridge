@@ -79,17 +79,21 @@ type SearchQuery struct {
 }
 
 type SearchResult struct {
-	Source        string   `json:"source"`
-	ID            string   `json:"id,omitempty"`
-	Kind          NodeKind `json:"kind"`
-	Name          string   `json:"name"`
-	QualifiedName string   `json:"qualifiedName"`
-	Language      Language `json:"language"`
-	Path          string   `json:"path"`
-	StartLine     int      `json:"startLine"`
-	EndLine       int      `json:"endLine"`
-	Score         float64  `json:"score"`
-	Calls         []string `json:"calls"`
+	Source         string   `json:"source"`
+	ID             string   `json:"id,omitempty"`
+	Kind           NodeKind `json:"kind"`
+	Name           string   `json:"name"`
+	QualifiedName  string   `json:"qualifiedName"`
+	ReceiverType   string   `json:"receiverType,omitempty"`
+	ParameterCount int      `json:"parameterCount"`
+	ParameterTypes []string `json:"parameterTypes,omitempty"`
+	ReturnType     string   `json:"returnType,omitempty"`
+	Language       Language `json:"language"`
+	Path           string   `json:"path"`
+	StartLine      int      `json:"startLine"`
+	EndLine        int      `json:"endLine"`
+	Score          float64  `json:"score"`
+	Calls          []string `json:"calls"`
 }
 
 type GraphCounts struct {
@@ -131,17 +135,21 @@ type SourceLine struct {
 }
 
 type GraphNodeDetail struct {
-	ID            string       `json:"id"`
-	Kind          NodeKind     `json:"kind"`
-	Name          string       `json:"name"`
-	QualifiedName string       `json:"qualifiedName"`
-	Language      Language     `json:"language"`
-	Path          string       `json:"path"`
-	StartLine     int          `json:"startLine"`
-	EndLine       int          `json:"endLine"`
-	Signature     string       `json:"signature,omitempty"`
-	Calls         []string     `json:"calls,omitempty"`
-	Source        []SourceLine `json:"source,omitempty"`
+	ID             string       `json:"id"`
+	Kind           NodeKind     `json:"kind"`
+	Name           string       `json:"name"`
+	QualifiedName  string       `json:"qualifiedName"`
+	ReceiverType   string       `json:"receiverType,omitempty"`
+	ParameterCount int          `json:"parameterCount"`
+	ParameterTypes []string     `json:"parameterTypes,omitempty"`
+	ReturnType     string       `json:"returnType,omitempty"`
+	Language       Language     `json:"language"`
+	Path           string       `json:"path"`
+	StartLine      int          `json:"startLine"`
+	EndLine        int          `json:"endLine"`
+	Signature      string       `json:"signature,omitempty"`
+	Calls          []string     `json:"calls,omitempty"`
+	Source         []SourceLine `json:"source,omitempty"`
 }
 
 type GraphNodeLookupResult struct {

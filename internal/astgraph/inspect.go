@@ -134,17 +134,21 @@ func (s *InspectService) nodeDetail(graph GraphStore, sourcePath string, node Gr
 		return GraphNodeDetail{}, err
 	}
 	return GraphNodeDetail{
-		ID:            node.ID,
-		Kind:          node.Kind,
-		Name:          node.Name,
-		QualifiedName: node.QualifiedName,
-		Language:      node.Language,
-		Path:          node.FilePath,
-		StartLine:     node.StartLine,
-		EndLine:       node.EndLine,
-		Signature:     node.Signature,
-		Calls:         calls,
-		Source:        lines,
+		ID:             node.ID,
+		Kind:           node.Kind,
+		Name:           node.Name,
+		QualifiedName:  node.QualifiedName,
+		ReceiverType:   node.ReceiverType,
+		ParameterCount: node.ParameterCount,
+		ParameterTypes: node.ParameterTypes,
+		ReturnType:     node.ReturnType,
+		Language:       node.Language,
+		Path:           node.FilePath,
+		StartLine:      node.StartLine,
+		EndLine:        node.EndLine,
+		Signature:      node.Signature,
+		Calls:          calls,
+		Source:         lines,
 	}, nil
 }
 

@@ -164,14 +164,14 @@ func referenceArgumentName(source []byte, args []*tree_sitter.Node, index int) s
 	if index < 0 || index >= len(args) {
 		return ""
 	}
-	_, name, ok := referenceName(source, args[index])
+	_, name, _, ok := referenceName(source, args[index])
 	if ok {
 		return name
 	}
 	if args[index].Kind() == "call_expression" || args[index].Kind() == "call" || args[index].Kind() == "invocation_expression" {
-		_, name, ok := callReference(source, args[index])
+		call, ok := callReference(source, args[index])
 		if ok {
-			return name
+			return call.name
 		}
 	}
 	return jsxElementName(source, args[index])
@@ -245,7 +245,7 @@ func jsxElementName(source []byte, node *tree_sitter.Node) string {
 			if name := jsxElementName(source, node.NamedChild(i)); name != "" {
 				return name
 			}
-			if _, ref, ok := referenceName(source, node.NamedChild(i)); ok {
+			if _, ref, _, ok := referenceName(source, node.NamedChild(i)); ok {
 				return ref
 			}
 		}
@@ -319,7 +319,7 @@ func appendReactRouterJSXRoute(path string, source []byte, node *tree_sitter.Nod
 		case "Component", "component", "element":
 			if ref := jsxElementName(source, value); ref != "" {
 				handler = ref
-			} else if _, ref, ok := referenceName(source, value); ok {
+			} else if _, ref, _, ok := referenceName(source, value); ok {
 				handler = ref
 			}
 		}
@@ -353,7 +353,7 @@ func appendReactRouterObjectRoute(path string, source []byte, node *tree_sitter.
 		case "path":
 			pattern, _ = firstStringValue(source, value)
 		case "Component", "component":
-			_, handler, _ = referenceName(source, value)
+			_, handler, _, _ = referenceName(source, value)
 		case "element":
 			handler = jsxElementName(source, value)
 		}
@@ -456,8 +456,8 @@ func pythonDecoratorRoute(source []byte, node *tree_sitter.Node, handlerName str
 }
 
 func appendDjangoRoute(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) bool {
-	_, name, ok := callReference(source, node)
-	if !ok || (name != "path" && name != "re_path") {
+	call, ok := callReference(source, node)
+	if !ok || (call.name != "path" && call.name != "re_path") {
 		return false
 	}
 	args := routeArgumentNodes(node)
@@ -653,7 +653,7 @@ func csharpRoutePrefix(source []byte, node *tree_sitter.Node, className string) 
 func appendCSharpHandlerOrMethod(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, routePrefix, className string) string {
 	routes := csharpAttributeRoutes(source, node, routePrefix, className)
 	if len(routes) == 0 {
-		return appendLanguageNode(path, source, node, model.NodeKindMethod, model.LanguageCSharp, result)
+		return appendScopedLanguageNode(path, source, node, model.NodeKindMethod, model.LanguageCSharp, result, className)
 	}
 	name := declarationName(source, node)
 	if name == "" {
@@ -666,19 +666,25 @@ func appendCSharpHandlerOrMethod(path string, source []byte, node *tree_sitter.N
 	start := node.StartPosition()
 	end := node.EndPosition()
 	startLine := int(start.Row) + 1
+	metadata := nodeSignatureMetadata(source, node, name)
+	metadata.receiverType = className
 	handlerID := stableNodeID(path, model.NodeKindHandler, qualifiedName, startLine)
 	result.Nodes = append(result.Nodes, model.GraphNode{
-		ID:            handlerID,
-		Kind:          model.NodeKindHandler,
-		Name:          name,
-		QualifiedName: qualifiedName,
-		FilePath:      path,
-		Language:      model.LanguageCSharp,
-		StartLine:     startLine,
-		EndLine:       int(end.Row) + 1,
-		StartColumn:   int(start.Column),
-		EndColumn:     int(end.Column),
-		Signature:     strings.TrimSpace(nodeText(source, node)),
+		ID:             handlerID,
+		Kind:           model.NodeKindHandler,
+		Name:           name,
+		QualifiedName:  qualifiedName,
+		ReceiverType:   metadata.receiverType,
+		ParameterCount: metadata.parameterCount,
+		ParameterTypes: metadata.parameterTypes,
+		ReturnType:     metadata.returnType,
+		FilePath:       path,
+		Language:       model.LanguageCSharp,
+		StartLine:      startLine,
+		EndLine:        int(end.Row) + 1,
+		StartColumn:    int(start.Column),
+		EndColumn:      int(end.Column),
+		Signature:      strings.TrimSpace(nodeText(source, node)),
 	})
 	for _, route := range routes {
 		route.HandlerName = ""
@@ -898,11 +904,11 @@ func rustAxumHandler(source []byte, node *tree_sitter.Node) (string, string) {
 	if node == nil {
 		return "ANY", ""
 	}
-	_, methodName, ok := callReference(source, node)
+	call, ok := callReference(source, node)
 	if !ok {
 		return "ANY", referenceArgumentName(source, []*tree_sitter.Node{node}, 0)
 	}
-	method, ok := httpMethodFromName(methodName)
+	method, ok := httpMethodFromName(call.name)
 	if !ok {
 		method = "ANY"
 	}

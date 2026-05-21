@@ -229,6 +229,63 @@ func TestStoreCountsGraphEntities(t *testing.T) {
 	}
 }
 
+func TestStoreSnapshotPreservesStructuredCallMetadata(t *testing.T) {
+	graph := openTestStore(t)
+
+	err := graph.Replace(astgraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: astgraph.SchemaVersion,
+		CompletedAt:   time.Now(),
+		Nodes: []astgraph.GraphNode{{
+			ID:             "n1",
+			Kind:           astgraph.NodeKindFunction,
+			Name:           "pick",
+			QualifiedName:  "Box.pick",
+			ReceiverType:   "Box",
+			ParameterCount: 1,
+			ParameterTypes: []string{"String"},
+			ReturnType:     "Int",
+			FilePath:       "Box.kt",
+			Language:       astgraph.LanguageKotlin,
+		}},
+		Unresolved: []astgraph.UnresolvedReference{{
+			FromNodeID:    "n2",
+			ReferenceName: "pick",
+			ReceiverText:  "this",
+			ArgumentCount: 1,
+			ArgumentTexts: []string{`"x"`},
+			ScopeNodeID:   "n2",
+			ReferenceKind: astgraph.EdgeKindCalls,
+			FilePath:      "Box.kt",
+			Language:      astgraph.LanguageKotlin,
+			Line:          3,
+			Column:        15,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := graph.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Nodes) != 1 {
+		t.Fatalf("nodes = %#v", snapshot.Nodes)
+	}
+	node := snapshot.Nodes[0]
+	if node.ReceiverType != "Box" || node.ParameterCount != 1 || node.ReturnType != "Int" || !reflect.DeepEqual(node.ParameterTypes, []string{"String"}) {
+		t.Fatalf("node metadata = %#v", node)
+	}
+	if len(snapshot.Unresolved) != 1 {
+		t.Fatalf("unresolved = %#v", snapshot.Unresolved)
+	}
+	ref := snapshot.Unresolved[0]
+	if ref.ReceiverText != "this" || ref.ArgumentCount != 1 || ref.ScopeNodeID != "n2" || !reflect.DeepEqual(ref.ArgumentTexts, []string{`"x"`}) {
+		t.Fatalf("call metadata = %#v", ref)
+	}
+}
+
 func TestStoreNodesResolvesStableIDQualifiedNameAndAmbiguousName(t *testing.T) {
 	graph := openTestStore(t)
 

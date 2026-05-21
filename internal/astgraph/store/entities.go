@@ -26,18 +26,22 @@ type FileEntity struct {
 }
 
 type NodeEntity struct {
-	Id            uint64
-	StableID      string `objectbox:"unique"`
-	Kind          string `objectbox:"index"`
-	Name          string `objectbox:"index"`
-	QualifiedName string `objectbox:"index"`
-	FilePath      string `objectbox:"index"`
-	Language      string `objectbox:"index"`
-	StartLine     int
-	EndLine       int
-	StartColumn   int
-	EndColumn     int
-	Signature     string
+	Id             uint64
+	StableID       string `objectbox:"unique"`
+	Kind           string `objectbox:"index"`
+	Name           string `objectbox:"index"`
+	QualifiedName  string `objectbox:"index"`
+	ReceiverType   string `objectbox:"index"`
+	ParameterCount int
+	ParameterTypes string
+	ReturnType     string
+	FilePath       string `objectbox:"index"`
+	Language       string `objectbox:"index"`
+	StartLine      int
+	EndLine        int
+	StartColumn    int
+	EndColumn      int
+	Signature      string
 }
 
 type EdgeEntity struct {
@@ -55,6 +59,10 @@ type UnresolvedReferenceEntity struct {
 	Id            uint64
 	FromStableID  string `objectbox:"index"`
 	ReferenceName string `objectbox:"index"`
+	ReceiverText  string
+	ArgumentCount int
+	ArgumentTexts string
+	ScopeStableID string `objectbox:"index"`
 	ReferenceKind string `objectbox:"index"`
 	FilePath      string `objectbox:"index"`
 	Language      string `objectbox:"index"`

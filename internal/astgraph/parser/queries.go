@@ -316,48 +316,69 @@ func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind model
 		return ""
 	}
 	name := nodeText(source, nameNode)
+	metadata := nodeSignatureMetadata(source, node, name)
+	if kind == model.NodeKindMethod {
+		metadata.receiverType = goReceiverType(source, node)
+	}
 	start := node.StartPosition()
 	end := node.EndPosition()
 	startLine := int(start.Row) + 1
 	id := stableNodeID(path, kind, name, startLine)
 	result.Nodes = append(result.Nodes, model.GraphNode{
-		ID:            id,
-		Kind:          kind,
-		Name:          name,
-		QualifiedName: name,
-		FilePath:      path,
-		Language:      model.LanguageGo,
-		StartLine:     startLine,
-		EndLine:       int(end.Row) + 1,
-		StartColumn:   int(start.Column),
-		EndColumn:     int(end.Column),
-		Signature:     strings.TrimSpace(nodeText(source, node)),
+		ID:             id,
+		Kind:           kind,
+		Name:           name,
+		QualifiedName:  qualifiedMemberName(metadata.receiverType, name),
+		ReceiverType:   metadata.receiverType,
+		ParameterCount: metadata.parameterCount,
+		ParameterTypes: metadata.parameterTypes,
+		ReturnType:     metadata.returnType,
+		FilePath:       path,
+		Language:       model.LanguageGo,
+		StartLine:      startLine,
+		EndLine:        int(end.Row) + 1,
+		StartColumn:    int(start.Column),
+		EndColumn:      int(end.Column),
+		Signature:      strings.TrimSpace(nodeText(source, node)),
 	})
 	return id
 }
 
 func appendLanguageNode(path string, source []byte, node *tree_sitter.Node, kind model.NodeKind, language model.Language, result *ExtractionResult) string {
+	return appendScopedLanguageNode(path, source, node, kind, language, result, "")
+}
+
+func appendScopedLanguageNode(path string, source []byte, node *tree_sitter.Node, kind model.NodeKind, language model.Language, result *ExtractionResult, receiverType string) string {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
 		return ""
 	}
 	name := nodeText(source, nameNode)
+	metadata := nodeSignatureMetadata(source, node, name)
+	if receiverType != "" {
+		metadata.receiverType = receiverType
+	}
 	start := node.StartPosition()
 	end := node.EndPosition()
 	startLine := int(start.Row) + 1
-	id := stableNodeID(path, kind, name, startLine)
+	qualifiedName := qualifiedMemberName(metadata.receiverType, name)
+	id := stableNodeID(path, kind, qualifiedName, startLine)
 	result.Nodes = append(result.Nodes, model.GraphNode{
-		ID:            id,
-		Kind:          kind,
-		Name:          name,
-		QualifiedName: name,
-		FilePath:      path,
-		Language:      language,
-		StartLine:     startLine,
-		EndLine:       int(end.Row) + 1,
-		StartColumn:   int(start.Column),
-		EndColumn:     int(end.Column),
-		Signature:     strings.TrimSpace(nodeText(source, node)),
+		ID:             id,
+		Kind:           kind,
+		Name:           name,
+		QualifiedName:  qualifiedName,
+		ReceiverType:   metadata.receiverType,
+		ParameterCount: metadata.parameterCount,
+		ParameterTypes: metadata.parameterTypes,
+		ReturnType:     metadata.returnType,
+		FilePath:       path,
+		Language:       language,
+		StartLine:      startLine,
+		EndLine:        int(end.Row) + 1,
+		StartColumn:    int(start.Column),
+		EndColumn:      int(end.Column),
+		Signature:      strings.TrimSpace(nodeText(source, node)),
 	})
 	return id
 }
@@ -365,7 +386,7 @@ func appendLanguageNode(path string, source []byte, node *tree_sitter.Node, kind
 func appendSpringHandlerOrJavaMethod(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, routePrefix, className string) string {
 	routes := springRoutesFromAnnotations(source, directAnnotations(node), routePrefix)
 	if len(routes) == 0 {
-		return appendLanguageNode(path, source, node, model.NodeKindMethod, model.LanguageJava, result)
+		return appendScopedLanguageNode(path, source, node, model.NodeKindMethod, model.LanguageJava, result, className)
 	}
 	return appendSpringHandler(path, source, node, result, model.LanguageJava, className, routes)
 }
@@ -373,7 +394,7 @@ func appendSpringHandlerOrJavaMethod(path string, source []byte, node *tree_sitt
 func appendSpringHandlerOrKotlinFunction(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, routePrefix, className string) string {
 	routes := springRoutesFromAnnotations(source, directAnnotations(node), routePrefix)
 	if len(routes) == 0 {
-		return appendLanguageNode(path, source, node, model.NodeKindFunction, model.LanguageKotlin, result)
+		return appendScopedLanguageNode(path, source, node, model.NodeKindFunction, model.LanguageKotlin, result, className)
 	}
 	return appendSpringHandler(path, source, node, result, model.LanguageKotlin, className, routes)
 }
@@ -390,19 +411,25 @@ func appendSpringHandler(path string, source []byte, node *tree_sitter.Node, res
 	start := node.StartPosition()
 	end := node.EndPosition()
 	startLine := int(start.Row) + 1
+	metadata := nodeSignatureMetadata(source, node, name)
+	metadata.receiverType = className
 	handlerID := stableNodeID(path, model.NodeKindHandler, qualifiedName, startLine)
 	result.Nodes = append(result.Nodes, model.GraphNode{
-		ID:            handlerID,
-		Kind:          model.NodeKindHandler,
-		Name:          name,
-		QualifiedName: qualifiedName,
-		FilePath:      path,
-		Language:      language,
-		StartLine:     startLine,
-		EndLine:       int(end.Row) + 1,
-		StartColumn:   int(start.Column),
-		EndColumn:     int(end.Column),
-		Signature:     strings.TrimSpace(nodeText(source, node)),
+		ID:             handlerID,
+		Kind:           model.NodeKindHandler,
+		Name:           name,
+		QualifiedName:  qualifiedName,
+		ReceiverType:   metadata.receiverType,
+		ParameterCount: metadata.parameterCount,
+		ParameterTypes: metadata.parameterTypes,
+		ReturnType:     metadata.returnType,
+		FilePath:       path,
+		Language:       language,
+		StartLine:      startLine,
+		EndLine:        int(end.Row) + 1,
+		StartColumn:    int(start.Column),
+		EndColumn:      int(end.Column),
+		Signature:      strings.TrimSpace(nodeText(source, node)),
 	})
 
 	for _, route := range routes {
@@ -444,7 +471,7 @@ func appendGoCall(path string, source []byte, node *tree_sitter.Node, result *Ex
 		return
 	}
 
-	name, ok := goCallReferenceName(source, functionNode)
+	details, ok := goCallReference(source, node, functionNode)
 	if !ok {
 		return
 	}
@@ -452,7 +479,11 @@ func appendGoCall(path string, source []byte, node *tree_sitter.Node, result *Ex
 	start := functionNode.StartPosition()
 	result.Unresolved = append(result.Unresolved, model.UnresolvedReference{
 		FromNodeID:    fromNodeID,
-		ReferenceName: name,
+		ReferenceName: details.name,
+		ReceiverText:  details.receiverText,
+		ArgumentCount: len(details.argumentTexts),
+		ArgumentTexts: details.argumentTexts,
+		ScopeNodeID:   fromNodeID,
 		ReferenceKind: model.EdgeKindCalls,
 		FilePath:      path,
 		Language:      model.LanguageGo,
@@ -462,15 +493,19 @@ func appendGoCall(path string, source []byte, node *tree_sitter.Node, result *Ex
 }
 
 func appendLanguageCall(path string, source []byte, node *tree_sitter.Node, language model.Language, result *ExtractionResult, fromNodeID string) {
-	nameNode, name, ok := callReference(source, node)
+	details, ok := callReference(source, node)
 	if !ok {
 		return
 	}
 
-	start := nameNode.StartPosition()
+	start := details.nameNode.StartPosition()
 	result.Unresolved = append(result.Unresolved, model.UnresolvedReference{
 		FromNodeID:    fromNodeID,
-		ReferenceName: name,
+		ReferenceName: details.name,
+		ReceiverText:  details.receiverText,
+		ArgumentCount: len(details.argumentTexts),
+		ArgumentTexts: details.argumentTexts,
+		ScopeNodeID:   fromNodeID,
 		ReferenceKind: model.EdgeKindCalls,
 		FilePath:      path,
 		Language:      language,
@@ -479,40 +514,47 @@ func appendLanguageCall(path string, source []byte, node *tree_sitter.Node, lang
 	})
 }
 
-func callReference(source []byte, node *tree_sitter.Node) (*tree_sitter.Node, string, bool) {
+type callDetails struct {
+	nameNode      *tree_sitter.Node
+	name          string
+	receiverText  string
+	argumentTexts []string
+}
+
+func callReference(source []byte, node *tree_sitter.Node) (callDetails, bool) {
 	for _, field := range []string{"function", "expression", "name"} {
 		callee := node.ChildByFieldName(field)
 		if callee == nil {
 			continue
 		}
-		nameNode, name, ok := referenceName(source, callee)
+		nameNode, name, receiver, ok := referenceName(source, callee)
 		if ok {
-			return nameNode, name, true
+			return callDetails{nameNode: nameNode, name: name, receiverText: receiver, argumentTexts: argumentTexts(source, node)}, true
 		}
 	}
 	for i := uint(0); i < node.NamedChildCount(); i++ {
-		nameNode, name, ok := referenceName(source, node.NamedChild(i))
+		nameNode, name, receiver, ok := referenceName(source, node.NamedChild(i))
 		if ok {
-			return nameNode, name, true
+			return callDetails{nameNode: nameNode, name: name, receiverText: receiver, argumentTexts: argumentTexts(source, node)}, true
 		}
 	}
-	return nil, "", false
+	return callDetails{}, false
 }
 
-func referenceName(source []byte, node *tree_sitter.Node) (*tree_sitter.Node, string, bool) {
+func referenceName(source []byte, node *tree_sitter.Node) (*tree_sitter.Node, string, string, bool) {
 	switch node.Kind() {
 	case "identifier", "property_identifier", "field_identifier":
 		name := strings.TrimSpace(nodeText(source, node))
-		return node, name, name != ""
+		return node, name, "", name != ""
 	case "attribute", "field_expression", "member_access_expression", "member_expression", "scoped_identifier", "selector_expression":
 		for _, field := range []string{"name", "field", "attribute", "property"} {
 			child := node.ChildByFieldName(field)
 			if child == nil {
 				continue
 			}
-			nameNode, name, ok := referenceName(source, child)
+			nameNode, name, _, ok := referenceName(source, child)
 			if ok {
-				return nameNode, name, true
+				return nameNode, name, receiverText(source, node, name), true
 			}
 		}
 		name := strings.TrimSpace(nodeText(source, node))
@@ -520,33 +562,286 @@ func referenceName(source []byte, node *tree_sitter.Node) (*tree_sitter.Node, st
 			name = strings.TrimSpace(name[i+1:])
 		}
 		if name == "" || strings.ContainsAny(name, " ()[]{}") {
-			return nil, "", false
+			return nil, "", "", false
 		}
-		return node, name, true
+		return node, name, receiverText(source, node, name), true
 	case "expression":
 		if node.NamedChildCount() == 1 {
 			return referenceName(source, node.NamedChild(0))
 		}
-		return nil, "", false
+		return nil, "", "", false
 	default:
-		return nil, "", false
+		return nil, "", "", false
 	}
 }
 
-func goCallReferenceName(source []byte, node *tree_sitter.Node) (string, bool) {
-	switch node.Kind() {
-	case "identifier":
-		name := strings.TrimSpace(nodeText(source, node))
-		return name, name != ""
-	case "selector_expression":
-		name := strings.TrimSpace(nodeText(source, node))
-		if lastDot := strings.LastIndex(name, "."); lastDot >= 0 {
-			name = name[lastDot+1:]
-		}
-		return name, name != ""
-	default:
-		return "", false
+func goCallReference(source []byte, callNode, functionNode *tree_sitter.Node) (callDetails, bool) {
+	nameNode, name, receiver, ok := referenceName(source, functionNode)
+	if !ok {
+		return callDetails{}, false
 	}
+	return callDetails{nameNode: nameNode, name: name, receiverText: receiver, argumentTexts: argumentTexts(source, callNode)}, true
+}
+
+type nodeMetadata struct {
+	receiverType   string
+	parameterCount int
+	parameterTypes []string
+	returnType     string
+}
+
+func nodeSignatureMetadata(source []byte, node *tree_sitter.Node, name string) nodeMetadata {
+	signature := declarationHeader(source, node)
+	parameters := parameterListTextAfterName(signature, name)
+	parameterTypes := parameterTypesFromList(parameters)
+	return nodeMetadata{
+		receiverType:   extensionReceiverTypeFromHeader(signature, name),
+		parameterCount: len(parameterTypes),
+		parameterTypes: parameterTypes,
+		returnType:     returnTypeFromHeader(signature, name),
+	}
+}
+
+func declarationHeader(source []byte, node *tree_sitter.Node) string {
+	text := strings.TrimSpace(nodeText(source, node))
+	for _, marker := range []string{"{", "=>"} {
+		if i := strings.Index(text, marker); i >= 0 {
+			text = text[:i]
+		}
+	}
+	return strings.TrimSpace(text)
+}
+
+func parameterListTextAfterName(header, name string) string {
+	nameIndex := strings.Index(header, name)
+	if nameIndex < 0 {
+		return ""
+	}
+	open := strings.Index(header[nameIndex+len(name):], "(")
+	if open < 0 {
+		return ""
+	}
+	open += nameIndex + len(name)
+	close := matchingParen(header, open)
+	if close < 0 {
+		return ""
+	}
+	return header[open+1 : close]
+}
+
+func matchingParen(text string, open int) int {
+	depth := 0
+	for i := open; i < len(text); i++ {
+		switch text[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func parameterTypesFromList(parameters string) []string {
+	parameters = strings.TrimSpace(parameters)
+	if parameters == "" {
+		return nil
+	}
+	parts := splitTopLevel(parameters, ',')
+	types := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		types = append(types, parameterType(part))
+	}
+	return types
+}
+
+func parameterType(parameter string) string {
+	parameter = strings.TrimSpace(parameter)
+	if parameter == "" {
+		return ""
+	}
+	if i := strings.Index(parameter, "="); i >= 0 {
+		parameter = strings.TrimSpace(parameter[:i])
+	}
+	if i := strings.LastIndex(parameter, ":"); i >= 0 {
+		return strings.TrimSpace(parameter[i+1:])
+	}
+	fields := strings.Fields(parameter)
+	if len(fields) == 0 {
+		return ""
+	}
+	if len(fields) == 1 {
+		return fields[0]
+	}
+	return strings.TrimSpace(fields[len(fields)-1])
+}
+
+func returnTypeFromHeader(header, name string) string {
+	nameIndex := strings.Index(header, name)
+	if nameIndex < 0 {
+		return ""
+	}
+	open := strings.Index(header[nameIndex+len(name):], "(")
+	if open < 0 {
+		return ""
+	}
+	open += nameIndex + len(name)
+	close := matchingParen(header, open)
+	if close < 0 || close+1 >= len(header) {
+		return ""
+	}
+	after := strings.TrimSpace(header[close+1:])
+	if strings.HasPrefix(after, ":") {
+		after = strings.TrimSpace(strings.TrimPrefix(after, ":"))
+		if i := strings.IndexAny(after, " ={"); i >= 0 {
+			after = after[:i]
+		}
+		return strings.TrimSpace(after)
+	}
+	if after != "" {
+		return strings.TrimSpace(after)
+	}
+	before := strings.TrimSpace(header[:nameIndex])
+	fields := strings.Fields(before)
+	if len(fields) == 0 {
+		return ""
+	}
+	last := fields[len(fields)-1]
+	switch last {
+	case "fun", "func", "fn", "def", "public", "private", "protected", "static", "override", "async":
+		return ""
+	default:
+		return last
+	}
+}
+
+func extensionReceiverTypeFromHeader(header, name string) string {
+	nameIndex := strings.Index(header, name)
+	if nameIndex < 0 {
+		return ""
+	}
+	before := strings.TrimSpace(header[:nameIndex])
+	if !strings.HasSuffix(before, ".") {
+		return ""
+	}
+	before = strings.TrimSuffix(before, ".")
+	fields := strings.Fields(before)
+	if len(fields) == 0 {
+		return ""
+	}
+	receiver := fields[len(fields)-1]
+	for _, keyword := range []string{"fun", "func", "fn", "def"} {
+		receiver = strings.TrimPrefix(receiver, keyword+" ")
+	}
+	return strings.TrimSpace(receiver)
+}
+
+func qualifiedMemberName(receiverType, name string) string {
+	receiverType = strings.TrimSpace(receiverType)
+	name = strings.TrimSpace(name)
+	if receiverType == "" {
+		return name
+	}
+	return receiverType + "." + name
+}
+
+func goReceiverType(source []byte, node *tree_sitter.Node) string {
+	receiver := node.ChildByFieldName("receiver")
+	if receiver == nil {
+		return ""
+	}
+	text := strings.TrimSpace(nodeText(source, receiver))
+	text = strings.TrimPrefix(text, "(")
+	text = strings.TrimSuffix(text, ")")
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return ""
+	}
+	typ := fields[len(fields)-1]
+	return strings.TrimPrefix(typ, "*")
+}
+
+func argumentTexts(source []byte, callNode *tree_sitter.Node) []string {
+	args := argumentListNode(callNode)
+	if args == nil {
+		return nil
+	}
+	values := make([]string, 0, args.NamedChildCount())
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		child := args.NamedChild(i)
+		text := strings.TrimSpace(nodeText(source, child))
+		if text == "" {
+			continue
+		}
+		values = append(values, text)
+	}
+	return values
+}
+
+func argumentListNode(node *tree_sitter.Node) *tree_sitter.Node {
+	for _, field := range []string{"arguments", "argument"} {
+		if child := node.ChildByFieldName(field); child != nil {
+			return child
+		}
+	}
+	for i := uint(0); i < node.NamedChildCount(); i++ {
+		child := node.NamedChild(i)
+		switch child.Kind() {
+		case "argument_list", "arguments", "value_arguments":
+			return child
+		}
+	}
+	return nil
+}
+
+func receiverText(source []byte, node *tree_sitter.Node, name string) string {
+	for _, field := range []string{"object", "receiver", "operand", "argument"} {
+		child := node.ChildByFieldName(field)
+		if child == nil {
+			continue
+		}
+		text := strings.TrimSpace(nodeText(source, child))
+		if text != "" && text != name {
+			return text
+		}
+	}
+	text := strings.TrimSpace(nodeText(source, node))
+	for _, suffix := range []string{"." + name, "::" + name} {
+		if strings.HasSuffix(text, suffix) {
+			return strings.TrimSpace(strings.TrimSuffix(text, suffix))
+		}
+	}
+	return ""
+}
+
+func splitTopLevel(text string, delimiter rune) []string {
+	var parts []string
+	start := 0
+	depth := 0
+	for i, r := range text {
+		switch r {
+		case '(', '[', '<':
+			depth++
+		case ')', ']', '>':
+			if depth > 0 {
+				depth--
+			}
+		default:
+			if r == delimiter && depth == 0 {
+				parts = append(parts, text[start:i])
+				start = i + len(string(r))
+			}
+		}
+	}
+	parts = append(parts, text[start:])
+	return parts
 }
 
 type springRoute struct {

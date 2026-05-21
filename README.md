@@ -167,6 +167,8 @@ NuGet inputs use package IDs with an optional version. RepoBridge selects the la
 
 AST-Graph Engine indexing uses Tree-sitter for Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust. It also indexes framework routes for Spring, Express, React Router, FastAPI, Flask, Django, Gin, chi, gorilla/mux, ASP.NET, Axum, actix, and Rocket.
 
+Call graph resolution stores call sites as structured references with callee name, receiver text, argument count/texts, source scope, and location. Callable nodes also store qualified names, receiver type, parameter count/types, and return type when Tree-sitter syntax exposes them. The resolver prefers same-file and same-receiver candidates, requires argument counts to match, and leaves ties as unresolved references instead of guessing.
+
 Indexes are built in the background after `path`, `fetch`, and `scan --fetch`. Commands that need an index rebuild missing or stale data synchronously unless `--no-sync-index` is set.
 
 ## Commands
