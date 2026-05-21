@@ -84,7 +84,7 @@ repobridge install-agent --target codex --dry-run
 repobridge install-agent --target codex --print-config
 ```
 
-`install-agent` writes skill files only. It does not install MCP configuration.
+`install-agent` writes only the RepoBridge skill files for the selected agent target.
 
 From a project root, scan dependencies and fetch source references for the agent:
 
