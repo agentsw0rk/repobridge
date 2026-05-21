@@ -1,266 +1,84 @@
 ---
 name: repobridge
-description: Use when an AI agent needs to find, inspect, search, navigate structure, or reason about external framework, library, dependency, package, or fetched source code for a project. Prefer this skill before raw network fetches, generic file search, rg, grep, or manually browsing dependency trees. Use RepoBridge graph commands first.
+description: Use when an AI agent needs dependency, framework, library, package, or fetched source code for source-aware investigation instead of raw network fetches, generic file search, or manual dependency-tree browsing.
 ---
 
 # RepoBridge Project Context
 
-Use this skill to enrich an agent's local context with source code for the frameworks and libraries a project actually uses. The goal is not to edit dependency code. The goal is to resolve dependency sources into stable local paths and use them as reference material while working on the project.
+Use RepoBridge as the first path for external dependency and fetched source investigation. The goal is to resolve real library sources into stable local paths and query their AST graph before falling back to broad text search.
 
-## Source Search Policy
+For project-local code that is not an external dependency, normal local code tools still apply.
 
-When the user asks about dependency, framework, library, package, or fetched source code, use RepoBridge as the first search path.
+## Core Policy
 
-- Do not start with raw `rg`, `grep`, `find`, `gh`, `curl`, `wget`, package registry pages, or manual browsing of dependency directories.
-- Do not use a plain network fetch to inspect sources that RepoBridge can resolve.
-- Use `repobridge scan`, `repobridge path`, `repobridge context`, `repobridge explore`, `repobridge search`, graph inspection, and callgraph commands to resolve and query dependency sources.
-- Use `repobridge context` or `repobridge explore` for task-level source investigations before opening large files or scanning whole trees manually.
-- Use `repobridge search`, `node`, `callers`, `callees`, or `impact` for exact symbol, route, handler, path, language, structure, containment, and call-flow questions.
-- Use `rg` or `grep` only as a documented fallback after RepoBridge graph commands cannot represent the target, for example comments, README text, raw string literals, generated files, config files, or unindexed file types.
-- If fallback `rg` or `grep` is used, scope it to `$(repobridge path --cwd <project-root> <spec>)` and state why AST search was insufficient.
+- Do not start dependency-source work with raw `rg`, `grep`, `find`, `gh`, `curl`, `wget`, registry pages, or manual browsing.
+- Use RepoBridge to scan, fetch, resolve paths, build context, search AST nodes, and traverse graph edges.
+- Prefer `context` or `explore` for task-level source understanding.
+- Prefer `search`, `node`, `callers`, `callees`, and `impact` for exact symbols, files, modules, routes, containment, and call-flow evidence.
+- Use fallback `rg` only for non-AST content such as comments, docs, raw string literals, generated files, config files, or unindexed file types.
+- If fallback search is needed, scope it to `$(repobridge path --cwd <project-root> <spec>)` and state why AST search was insufficient.
 
-For project-local code that is not an external dependency, normal local code tools can still be used. This skill is specifically the default path for dependency and fetched source investigation.
+## Minimal Workflow
 
-## Workflow
+1. Find the project root, usually the current working directory.
+2. Check `command -v repobridge`.
+3. If the spec is unknown, run `repobridge scan --cwd <project-root> --json`.
+4. Fetch only task-relevant direct dependencies with `repobridge scan --cwd <project-root> --fetch --limit <N>` or `repobridge fetch --cwd <project-root> <spec>`.
+5. Use `repobridge context` or `repobridge explore` before opening large dependency trees manually.
+6. Use `repobridge search` for exact indexed nodes.
+7. Use `repobridge node`, `callers`, `callees`, or `impact` for exact source lines and graph traversal.
+8. Open only returned files and line ranges; then fall back to scoped `rg` only when needed.
 
-1. **Find the project root.** Use the current working directory unless the user gives another path.
-2. **Ensure RepoBridge is available.** Run `command -v repobridge`. If it is missing, state that RepoBridge is unavailable and use the best local fallback for the task. If AST context is needed, verify `repobridge context --help`, `repobridge explore --help`, and `repobridge search --help`; when unavailable, use the best available RepoBridge command or local fallback.
-3. **Scan dependencies.** Run RepoBridge's project scanner:
-
-   ```bash
-   repobridge scan --cwd . --json
-   ```
-
-4. **Review the proposed specs.** Prefer the highest-confidence specs from manifests and lockfiles. Use import-derived specs as supporting evidence.
-5. **Fetch only useful references.** Do not blindly fetch every transitive dependency. Prioritize frameworks, runtimes, SDKs, ORMs, test frameworks, UI libraries, and libraries related to the task.
-6. **Fetch sources with RepoBridge.**
-
-   ```bash
-   repobridge scan --cwd <project-root> --fetch --limit 10
-   repobridge path --cwd <project-root> <spec>
-   ```
-
-7. **Build task context from resolved source graphs first.** Prefer `repobridge context` for focused tasks and `repobridge explore` for broader graph explanation. They return bounded entry points, relationships, snippets, related files, warnings, and stats:
-
-   ```bash
-   repobridge context --cwd <project-root> react "createRoot render flow" --budget small
-   repobridge explore --cwd <project-root> github.com/vercel/next.js "AppRouter cache invalidation" --budget large --depth 2
-   ```
-
-8. **Search exact symbols, routes, structure, and calls with RepoBridge.** Prefer `repobridge search` for symbol-, route-, language-, path-, and call-aware investigation because it returns compact AST results instead of broad text snippets:
-
-   ```bash
-   repobridge search --cwd <project-root> react "kind:function calls:createRoot"
-   repobridge search --cwd <project-root> maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
-   repobridge search --cwd <project-root> <spec> "kind:file path:ArrayList.kt"
-   repobridge search --cwd <project-root> <spec> "kind:module name:kotlin.collections"
-   repobridge search --cwd <project-root> <spec> "kind:route path:/login"
-   repobridge search --cwd <project-root> <spec> "kind:component_route path:/settings"
-   ```
-
-9. **Inspect and trace graph evidence before raw text search.** Use `status`, `files`, `node`, `callers`, `callees`, and `impact` when the agent needs exact graph health, source lines, call-flow evidence, or structure containment. Use `--edge contains` to navigate file, module, type, member, and nested declaration hierarchy.
-10. **Use resolved paths as read-only references when needed.** Open specific files returned by RepoBridge commands, use LSP navigation when available, and use `rg` only as a fallback for text that is not represented in the AST graph.
-11. **State what was fetched and searched.** In the final response, mention which frameworks/libraries were resolved and which RepoBridge queries or paths were used when that matters for the task.
-
-## AST-Graph Engine Context and Search
-
-After successful `path`, `fetch`, or `scan --fetch`, RepoBridge starts background AST indexing for cached sources. `repobridge context`, `explore`, `search`, graph inspection, and callgraph commands build a missing or stale graph synchronously unless `--no-sync-index` is set. Use these graph commands before reading large dependency trees manually.
-
-Use this decision order for source-code questions:
-
-1. `repobridge scan --cwd <project-root> --json` to identify candidate specs when the spec is unknown.
-2. `repobridge scan --cwd <project-root> --fetch --limit <N>` or `repobridge fetch --cwd <project-root> <spec>` only to populate the local source cache.
-3. `repobridge context --cwd <project-root> <spec> "<task query>"` for focused implementation/debugging context.
-4. `repobridge explore --cwd <project-root> <spec> "<symbols or flow>"` for broader graph explanation.
-5. `repobridge search --cwd <project-root> <spec> "<query>"` for definitions, files, modules, functions, methods, classes, imports, framework routes, component routes, paths, languages, or call relationships.
-6. `repobridge node`, `callers`, `callees`, or `impact` for exact symbol details, call traversal, impact traversal, and `contains` structure traversal.
-7. Open only the files and lines returned by RepoBridge.
-8. Use scoped fallback `rg` only for non-AST content and explain the fallback.
-
-Context command shape:
+## Quick Commands
 
 ```bash
-repobridge context --cwd <project-root> [--json] [--budget small|medium|large] [--limit N] [--depth N] <spec> "<query>"
-repobridge explore --cwd <project-root> [--json] [--budget small|medium|large] [--limit N] [--depth N] <spec> "<query>"
+repobridge scan --cwd . --json
+repobridge scan --cwd . --fetch --limit 10
+repobridge context --cwd . <spec> "auth login flow" --budget small
+repobridge explore --cwd . <spec> "controller repository flow" --budget medium --depth 2
+repobridge search --cwd . <spec> "kind:function name:<name>"
+repobridge callees --cwd . <spec> <node-id> --edge contains --limit 20
 ```
 
-Use `context` for focused task evidence and `explore` for wider source understanding. Output includes `entryPoints`, `relationships`, `snippets`, `relatedFiles`, `warnings`, and `stats`. Budget defaults are bounded; use `small` for most agent prompts, `medium` for normal investigations, and `large` only when the task needs wider context.
+## Decision Table
 
-Search command shape:
+| Need | Use |
+| --- | --- |
+| Unknown dependency spec | `scan --json`; see [detection](references/detection.md). |
+| Fetch or resolve source path | `scan --fetch`, `fetch`, `path`; see [workflow](references/workflow.md). |
+| Focused implementation/debugging context | `context --budget small`; see [workflow](references/workflow.md). |
+| Broader framework/library flow | `explore --budget medium --depth 2`; see [workflow](references/workflow.md). |
+| Exact function, class, route, file, module, import, or caller query | `search`; see [search syntax](references/search-syntax.md). |
+| Source lines for a known node | `node --source-lines N`; see [graph traversal](references/graph-traversal.md). |
+| Call flow, impact, or structural containment | `callers`, `callees`, `impact`; see [graph traversal](references/graph-traversal.md). |
+| Concrete command examples | See [examples](references/examples.md). |
+| Missing tool, failed spec, private repo, or too many deps | See [failure handling](references/failure-handling.md). |
 
-```bash
-repobridge search --cwd <project-root> [--json] [--limit N] <spec> "<query>"
-```
+## Search Hints
 
-Query tokens:
+Use `repobridge search --cwd . <spec> "<query>"` with compact query tokens:
 
 | Token | Use |
 | --- | --- |
-| `kind:<kind>` | Filter node kind: `file`, `module`, `class`, `struct`, `interface`, `function`, `method`, `import`, `route`, `handler`, `component_route`. |
-| `lang:<language>` or `language:<language>` | Filter language: `go`, `java`, `kotlin`, `csharp`, `javascript`, `typescript`, `python`, `rust`, `unknown`. |
-| `path:<substring>` | Restrict results to file paths; for `route` and `component_route` nodes this also matches route patterns such as `/login`. |
-| `name:<substring>` | Match function, method, class, module, or import names. |
+| `kind:<kind>` | `file`, `module`, `class`, `struct`, `interface`, `function`, `method`, `import`, `route`, `handler`, `component_route`. |
+| `lang:<language>` | `go`, `java`, `kotlin`, `csharp`, `javascript`, `typescript`, `python`, `rust`, `unknown`. |
+| `path:<substring>` | Restrict by file path; route nodes also match route paths. |
+| `name:<substring>` | Match names and qualified names. |
 | `calls:<symbol>` | Find functions or methods that call a symbol. |
-| free text | Matches indexed names, qualified names, paths, and call names. |
 
-The same filters can also be passed as flags when this is clearer:
-
-```bash
-repobridge search --cwd <project-root> --json --limit 20 --kind function --lang kotlin --path DockerCompose.kt --calls exec <spec> ""
-```
-
-Use `--json` when another tool or the agent needs structured fields such as `kind`, `name`, `qualifiedName`, `language`, `path`, `startLine`, `endLine`, and `calls`.
-
-Graph inspection and callgraph command shapes:
+For structure navigation, use `--edge contains` with `callers` or `callees`.
 
 ```bash
-repobridge status --cwd <project-root> [--json] <spec>
-repobridge files --cwd <project-root> [--json] [--path substring] [--limit N] <spec>
-repobridge node --cwd <project-root> [--json] [--source-lines N] <spec> <id-or-name>
-repobridge callers --cwd <project-root> [--json] [--depth N] [--edge kind] [--limit N] [--include-unresolved] <spec> <symbol>
-repobridge callees --cwd <project-root> [--json] [--depth N] [--edge kind] [--limit N] [--include-unresolved] <spec> <symbol>
-repobridge impact --cwd <project-root> [--json] [--depth N] [--edge kind] [--limit N] <spec> <symbol>
-```
-
-Use `--edge contains` for structure navigation, `--edge calls` for call-only traversal, `--edge imports` for import relationships, and route edge kinds such as `handles`, `routes_to`, or `middleware` when available. Multiple `--edge` flags can be used when the investigation needs more than one relationship kind.
-
-Good query patterns:
-
-```bash
-repobridge search --cwd . react@19.0.0 "kind:function name:render"
-repobridge search --cwd . pypi:requests==2.32.3 "calls:send lang:python"
-repobridge search --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
 repobridge search --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 "kind:file path:ArrayList.kt"
 repobridge search --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 "kind:class name:ArrayList lang:kotlin"
-repobridge search --cwd . github.com/vercel/next.js "path:packages kind:method"
-repobridge search --cwd . <spec> "kind:function calls:exec path:DockerCompose.kt"
-repobridge search --cwd . <spec> "kind:route path:/api/login"
-repobridge search --cwd . <spec> "kind:component_route path:/settings"
-repobridge context --cwd . <spec> "POST /api/login" --budget small
-repobridge context --cwd . <spec> "auth login session flow" --budget small
-repobridge explore --cwd . <spec> "AuthController LoginRepository" --budget medium --depth 2
-repobridge node --cwd . <spec> AuthController.login --source-lines 16
-repobridge callers --cwd . <spec> login --depth 2 --include-unresolved
-repobridge callees --cwd . <spec> commonMain/kotlin/collections/ArrayList.kt --edge contains --limit 20
-repobridge callees --cwd . <spec> <class-node-id> --edge contains --limit 20
-```
-
-Structure-aware examples:
-
-```bash
-repobridge status --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20
-repobridge search --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 "kind:file path:commonMain/kotlin/collections/ArrayList.kt"
 repobridge callees --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 commonMain/kotlin/collections/ArrayList.kt --edge contains
-repobridge callees --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 <array-list-node-id> --edge contains --limit 20
-repobridge callers --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 <method-node-id> --edge contains
+repobridge callers --cwd . <spec> <method-node-id> --edge contains
 ```
 
-Use structure traversal when the user asks what a file, module, class, interface, struct, enum, trait, function, or method contains. `file` nodes represent source files, `module` nodes represent statically visible packages or namespaces when available, and `contains` edges connect local declarations to their primary parent. If a name is ambiguous, use `search --json` or `node` to get the stable node ID, then pass that ID to `callers` or `callees`.
+## Common Mistakes
 
-Route-aware examples:
-
-```bash
-repobridge search --cwd . <spring-spec> "kind:route lang:kotlin path:/login"
-repobridge search --cwd . <express-spec> "kind:route lang:javascript path:/api/users"
-repobridge search --cwd . <react-router-spec> "kind:component_route path:/dashboard"
-repobridge search --cwd . <fastapi-spec> "kind:route lang:python path:/items"
-repobridge search --cwd . <aspnet-spec> "kind:route lang:csharp path:/api/users"
-repobridge search --cwd . <rust-web-spec> "kind:route lang:rust path:/health"
-repobridge callers --cwd . <spec> UsersController.Get --depth 1
-repobridge context --cwd . <spec> "GET /api/users" --budget small
-```
-
-Translate common source-search requests like this:
-
-| User intent | Prefer this |
-| --- | --- |
-| Find a function or method | `repobridge search --cwd . <spec> "kind:function name:<name>"` or `kind:method name:<name>` |
-| Find classes/interfaces | `repobridge search --cwd . <spec> "kind:class name:<name>"` or `kind:interface name:<name>` |
-| Find files or modules | `repobridge search --cwd . <spec> "kind:file path:<file>"` or `kind:module name:<package>` |
-| List what a file contains | `repobridge callees --cwd . <spec> <file-path-or-file-node-id> --edge contains` |
-| List methods/properties on a class | `repobridge callees --cwd . <spec> <class-node-id> --edge contains --limit 50` |
-| Find a node's structural parent | `repobridge callers --cwd . <spec> <node-id> --edge contains` |
-| Find framework routes | `repobridge search --cwd . <spec> "kind:route path:<route-path>"` |
-| Find client component routes | `repobridge search --cwd . <spec> "kind:component_route path:<route-path>"` |
-| Find route handler evidence | `repobridge callers --cwd . <spec> <HandlerOrController.method> --depth 1` |
-| Find callers of a function | `repobridge search --cwd . <spec> "kind:function calls:<symbol>"` |
-| Trace callers with graph edges | `repobridge callers --cwd . <spec> <symbol> --depth 2 --include-unresolved` |
-| Trace callees from a symbol | `repobridge callees --cwd . <spec> <symbol> --depth 2` |
-| Estimate change impact | `repobridge impact --cwd . <spec> <symbol> --depth 2` |
-| Get exact node source lines | `repobridge node --cwd . <spec> <id-or-name> --source-lines 16` |
-| Build focused task context | `repobridge context --cwd . <spec> "<task query>" --budget small` |
-| Explore broader source flow | `repobridge explore --cwd . <spec> "<symbols or flow>" --budget medium --depth 2` |
-| Search Kotlin sources | `repobridge search --cwd . <spec> "lang:kotlin <query>"` |
-| Restrict to a file or package path | `repobridge search --cwd . <spec> "path:<substring> <query>"` |
-| Need structured output for an agent | `repobridge search --cwd . --json --limit 20 <spec> "<query>"` |
-
-Prefer `context`/`explore` when the task asks for source understanding, implementation guidance, debugging context, route flow, or architectural flow. Prefer `search`, `node`, and graph traversal commands when the task is about definitions, declarations, files, modules, functions, methods, classes, framework routes, component routes, handlers, imports, languages, paths, containment, or function calls. Use fallback `rg` on `$(repobridge path --cwd <project-root> <spec>)` for comments, docs, string literals, configuration files, generated code, or patterns outside the current AST extraction.
-
-## Selection Rules
-
-- Fetch direct dependencies before transitive dependencies.
-- Use versions from lockfiles/manifests when available.
-- For npm, pass `--cwd <project-root>` so RepoBridge can use local version detection.
-- Treat unknown import aliases, workspace packages, relative imports, and standard libraries as project-local or built-in unless a manifest confirms an external package.
-- Skip secrets and private registry configuration. Never print tokens.
-- Keep dependency source directories read-only. Do not modify cached dependency sources unless the user explicitly asks to inspect or patch a vendored copy.
-
-## Scan Output
-
-`repobridge scan --json` prints JSON with:
-
-- `candidates`: deduplicated RepoBridge specs sorted by confidence.
-- `warnings`: files that could not be parsed or ambiguous detections.
-
-Each spec has:
-
-- `spec`: value to pass to RepoBridge.
-- `ecosystem`: npm, pypi, go, crates, maven, nuget, or unknown.
-- `confidence`: higher means safer to fetch.
-- `reasons`: why the spec was proposed.
-
-## Supported Detection
-
-The scanner detects common direct dependencies from:
-
-- JavaScript/TypeScript: `package.json`, `package-lock.json`, imports/requires.
-- Python: `requirements.txt`.
-- Go: `go.mod`, imports.
-- Rust: `Cargo.toml`.
-- JVM: `pom.xml`.
-- .NET: `.csproj`.
-
-Detection is conservative. If the scanner cannot infer a reliable RepoBridge spec, inspect the manifest manually and decide whether fetching that dependency is worth it.
-
-## Typical Use
-
-For a React project:
-
-```bash
-repobridge scan --cwd /path/to/app --json
-repobridge scan --cwd /path/to/app --fetch --limit 8
-repobridge context --cwd /path/to/app react "useSyncExternalStore subscription flow" --budget small
-repobridge search --cwd /path/to/app react "kind:function name:useSyncExternalStore"
-repobridge callers --cwd /path/to/app react <node-id> --edge contains
-```
-
-For a mixed backend project:
-
-```bash
-repobridge scan --cwd /path/to/service
-repobridge fetch --cwd /path/to/service pypi:fastapi maven:org.springframework:spring-core@6.1.0
-repobridge explore --cwd /path/to/service maven:org.springframework:spring-core@6.1.0 "ApplicationContext bean lifecycle" --budget medium
-repobridge search --cwd /path/to/service pypi:fastapi "lang:python kind:function"
-repobridge search --cwd /path/to/service maven:org.springframework:spring-core@6.1.0 "lang:java kind:class"
-repobridge search --cwd /path/to/service <spec> "kind:route path:/login"
-repobridge context --cwd /path/to/service <spec> "POST /login" --budget small
-repobridge callees --cwd /path/to/service <spec> <controller-node-id> --edge contains
-```
-
-## Failure Handling
-
-- If `repobridge` is not installed, state that RepoBridge is unavailable and use the best local fallback for the task.
-- If `repobridge context --help`, `repobridge explore --help`, or `repobridge search --help` is unavailable, use the best available RepoBridge command or local fallback.
-- If a proposed spec fails, continue with the remaining specs and report the failure.
-- If too many dependencies are detected, narrow to the libraries relevant to the user's current task.
-- If private repositories fail, ask the user to provide the appropriate token through `GITHUB_TOKEN`, `GITLAB_TOKEN`, or `BITBUCKET_TOKEN`.
+- Fetching every transitive dependency instead of the few relevant direct dependencies.
+- Reading dependency directories manually before trying `context`, `explore`, or `search`.
+- Using broad `rg` for questions already represented in the AST graph.
+- Passing ambiguous names to graph commands instead of resolving a stable node ID with `search --json` or `node`.
+- Forgetting `--cwd <project-root>`, especially for local version detection.
