@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"repobridge/internal/astgraph/parser"
 )
 
-const SchemaVersion = 24
+const SchemaVersion = 25
 
 type IndexOptions struct {
 	MaxFileSize int64
@@ -150,6 +153,9 @@ func externalCallTarget(nodes []GraphNode, from GraphNode, ref UnresolvedReferen
 	if ref.Language == LanguageRust && ref.ReferenceKind == EdgeKindCalls {
 		return rustExternalCallTarget(nodes, from, ref)
 	}
+	if ref.Language == LanguageCSharp && ref.ReferenceKind == EdgeKindCalls {
+		return csharpExternalCallTarget(nodes, from, ref)
+	}
 	if ref.Language != LanguageGo || ref.ReferenceKind != EdgeKindCalls {
 		return externalCall{}, false
 	}
@@ -193,6 +199,200 @@ func externalCallTarget(nodes []GraphNode, from GraphNode, ref UnresolvedReferen
 		}, true
 	}
 	return externalCall{}, false
+}
+
+func csharpExternalCallTarget(nodes []GraphNode, from GraphNode, ref UnresolvedReference) (externalCall, bool) {
+	referenceName := strings.TrimSpace(ref.ReferenceName)
+	receiver := cleanExternalReceiver(ref.ReceiverText)
+	if referenceName == "" {
+		return externalCall{}, false
+	}
+	if receiver == "" {
+		if csharpTestFrameworkCall(ref.FilePath, referenceName) {
+			return externalCall{
+				name:          referenceName,
+				qualifiedName: "external:test-framework." + referenceName,
+				receiver:      "test-framework",
+				importPath:    "unknown",
+				provenance:    "csharp-test-external",
+			}, true
+		}
+		return externalCall{}, false
+	}
+	if primitiveReceiver := csharpPrimitiveExternalReceiver(nodes, from, ref, receiver); primitiveReceiver != "" {
+		return externalCall{
+			name:          referenceName,
+			qualifiedName: "external:" + primitiveReceiver + "." + referenceName,
+			receiver:      primitiveReceiver,
+			importPath:    "unknown",
+			provenance:    "csharp-primitive-external",
+		}, true
+	}
+	if csharpLinqCall(referenceName) {
+		return externalCall{
+			name:          referenceName,
+			qualifiedName: "external:System.Linq.Enumerable." + referenceName,
+			receiver:      "System.Linq.Enumerable",
+			importPath:    "unknown",
+			provenance:    "csharp-linq-external",
+		}, true
+	}
+	if csharpTestFrameworkCall(ref.FilePath, referenceName) {
+		return externalCall{
+			name:          referenceName,
+			qualifiedName: "external:test-framework." + referenceName,
+			receiver:      "test-framework",
+			importPath:    "unknown",
+			provenance:    "csharp-test-external",
+		}, true
+	}
+	if !csharpExternalReceiver(receiver) {
+		return externalCall{}, false
+	}
+	return externalCall{
+		name:          referenceName,
+		qualifiedName: "external:" + receiver + "." + referenceName,
+		receiver:      receiver,
+		importPath:    "unknown",
+		provenance:    "csharp-external-receiver",
+	}, true
+}
+
+func csharpExternalReceiver(receiver string) bool {
+	root := rootReceiver(receiver)
+	if _, ok := csharpKnownExternalReceivers[root]; ok {
+		return true
+	}
+	if strings.Contains(receiver, ".") && startsWithUpper(root) {
+		return true
+	}
+	return startsWithUpper(receiver)
+}
+
+func csharpPrimitiveExternalReceiver(nodes []GraphNode, from GraphNode, ref UnresolvedReference, receiver string) string {
+	if csharpStringLiteral(receiver) {
+		return "System.String"
+	}
+	if primitiveReceiver := csharpPrimitiveSystemType(receiver); primitiveReceiver != "" {
+		return primitiveReceiver
+	}
+	receiverType := inferCSharpReceiverType(nodes, from, ref)
+	if receiverType == "" {
+		return ""
+	}
+	return csharpPrimitiveSystemType(receiverType)
+}
+
+func csharpStringLiteral(value string) bool {
+	value = strings.TrimSpace(value)
+	return strings.HasPrefix(value, "\"") ||
+		strings.HasPrefix(value, "@\"") ||
+		strings.HasPrefix(value, "$\"") ||
+		strings.HasPrefix(value, "$@\"") ||
+		strings.HasPrefix(value, "@$\"")
+}
+
+func csharpPrimitiveSystemType(typ string) string {
+	switch normalizeCSharpType(typ) {
+	case "string":
+		return "System.String"
+	case "int":
+		return "System.Int32"
+	case "long":
+		return "System.Int64"
+	case "short":
+		return "System.Int16"
+	case "byte":
+		return "System.Byte"
+	case "bool":
+		return "System.Boolean"
+	case "char":
+		return "System.Char"
+	case "double":
+		return "System.Double"
+	case "float":
+		return "System.Single"
+	case "decimal":
+		return "System.Decimal"
+	default:
+		return ""
+	}
+}
+
+func csharpTestFrameworkCall(filePath, referenceName string) bool {
+	if !csharpTestFile(filePath) {
+		return false
+	}
+	_, ok := csharpTestFrameworkCalls[referenceName]
+	return ok
+}
+
+func csharpLinqCall(referenceName string) bool {
+	_, ok := csharpLinqCalls[referenceName]
+	return ok
+}
+
+func csharpTestFile(filePath string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(filePath, "\\", "/"))
+	if strings.Contains(normalized, "/test/") ||
+		strings.Contains(normalized, "/tests/") ||
+		strings.Contains(normalized, ".test/") ||
+		strings.Contains(normalized, ".tests/") {
+		return true
+	}
+	base := strings.TrimSuffix(strings.ToLower(path.Base(normalized)), ".cs")
+	return strings.HasSuffix(base, "test") || strings.HasSuffix(base, "tests")
+}
+
+var csharpKnownExternalReceivers = map[string]struct{}{
+	"Activator":      {},
+	"Array":          {},
+	"Assert":         {},
+	"AssertEx":       {},
+	"Console":        {},
+	"Convert":        {},
+	"Directory":      {},
+	"Encoding":       {},
+	"Enumerable":     {},
+	"Environment":    {},
+	"File":           {},
+	"GC":             {},
+	"JsonConvert":    {},
+	"JsonSerializer": {},
+	"Math":           {},
+	"Path":           {},
+	"Regex":          {},
+	"String":         {},
+	"StringComparer": {},
+	"Task":           {},
+}
+
+var csharpTestFrameworkCalls = map[string]struct{}{
+	"AreEqual": {},
+	"Equal":    {},
+	"IsTrue":   {},
+	"OfType":   {},
+	"Returns":  {},
+	"Single":   {},
+	"Throws":   {},
+	"True":     {},
+}
+
+var csharpLinqCalls = map[string]struct{}{
+	"OfType":            {},
+	"Select":            {},
+	"Single":            {},
+	"ToAsyncEnumerable": {},
+	"ToList":            {},
+}
+
+func startsWithUpper(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	first, _ := utf8.DecodeRuneInString(value)
+	return first != utf8.RuneError && unicode.IsUpper(first)
 }
 
 func rustExternalCallTarget(nodes []GraphNode, from GraphNode, ref UnresolvedReference) (externalCall, bool) {
@@ -371,7 +571,8 @@ func resolveCallTarget(nodes []GraphNode, from GraphNode, ref UnresolvedReferenc
 	if target, ok := resolveGoFunctionVariableTarget(nodes, from, ref); ok {
 		return target, true
 	}
-	candidates := callTargetCandidates(nodes, from, ref)
+	csharpReceiverType := csharpReceiverTypeForCall(nodes, from, ref)
+	candidates := callTargetCandidatesWithCSharpReceiver(nodes, from, ref, csharpReceiverType)
 	if len(candidates) == 0 {
 		return GraphNode{}, false
 	}
@@ -379,7 +580,7 @@ func resolveCallTarget(nodes []GraphNode, from GraphNode, ref UnresolvedReferenc
 	var best GraphNode
 	ambiguous := false
 	for _, candidate := range candidates {
-		score := callTargetScore(nodes, from, ref, candidate)
+		score := callTargetScore(nodes, from, ref, candidate, csharpReceiverType)
 		if score > bestScore {
 			bestScore = score
 			best = candidate
@@ -397,6 +598,10 @@ func resolveCallTarget(nodes []GraphNode, from GraphNode, ref UnresolvedReferenc
 }
 
 func callTargetCandidates(nodes []GraphNode, from GraphNode, ref UnresolvedReference) []GraphNode {
+	return callTargetCandidatesWithCSharpReceiver(nodes, from, ref, csharpReceiverTypeForCall(nodes, from, ref))
+}
+
+func callTargetCandidatesWithCSharpReceiver(nodes []GraphNode, from GraphNode, ref UnresolvedReference, csharpReceiverType string) []GraphNode {
 	var candidates []GraphNode
 	for _, node := range nodes {
 		if !isCallableNode(node.Kind) || node.Language != from.Language {
@@ -405,12 +610,28 @@ func callTargetCandidates(nodes []GraphNode, from GraphNode, ref UnresolvedRefer
 		if !callReferenceMatchesNode(ref.ReferenceName, node) {
 			continue
 		}
+		if !callReceiverCanMatchNode(ref, node, csharpReceiverType) {
+			continue
+		}
 		if !callArgumentsMatchNode(ref, node) {
 			continue
 		}
 		candidates = append(candidates, node)
 	}
 	return candidates
+}
+
+func callReceiverCanMatchNode(ref UnresolvedReference, node GraphNode, csharpReceiverType string) bool {
+	if ref.Language != LanguageCSharp || strings.TrimSpace(ref.ReceiverText) == "" {
+		return true
+	}
+	if normalizeReceiver(ref.ReceiverText) == "" {
+		return true
+	}
+	if csharpReceiverType != "" && csharpReceiverTypeMatches(csharpReceiverType, node) {
+		return true
+	}
+	return receiverMatchesTarget(ref.ReceiverText, node)
 }
 
 func filterRemainingUnresolved(nodes []GraphNode, refs []UnresolvedReference) []UnresolvedReference {
@@ -528,13 +749,14 @@ var goPredeclaredCalls = map[string]struct{}{
 	"uintptr":    {},
 }
 
-func callTargetScore(nodes []GraphNode, from GraphNode, ref UnresolvedReference, target GraphNode) int {
+func callTargetScore(nodes []GraphNode, from GraphNode, ref UnresolvedReference, target GraphNode, csharpReceiverType string) int {
 	score := 0
 	score += importedTargetScore(nodes, from, ref, target)
 	score += samePackageTargetScore(from, target)
 	score += defaultImportedTargetScore(from, ref, target)
 	score += goInferredReceiverTargetScore(nodes, from, ref, target)
 	score += rustInferredReceiverTargetScore(from, ref, target)
+	score += csharpInferredReceiverTargetScore(from, ref, target, csharpReceiverType)
 	if target.FilePath == from.FilePath {
 		score += 100
 	}
@@ -579,6 +801,308 @@ func rustInferredReceiverTargetScore(from GraphNode, ref UnresolvedReference, ta
 		return 180
 	}
 	return 0
+}
+
+func csharpInferredReceiverTargetScore(from GraphNode, ref UnresolvedReference, target GraphNode, csharpReceiverType string) int {
+	if from.Language != LanguageCSharp || target.Language != LanguageCSharp || strings.TrimSpace(ref.ReceiverText) == "" {
+		return 0
+	}
+	if csharpReceiverType == "" || !csharpReceiverTypeMatches(csharpReceiverType, target) {
+		return 0
+	}
+	return 180
+}
+
+func csharpReceiverTypeForCall(nodes []GraphNode, from GraphNode, ref UnresolvedReference) string {
+	if from.Language != LanguageCSharp || ref.Language != LanguageCSharp || strings.TrimSpace(ref.ReceiverText) == "" {
+		return ""
+	}
+	return inferCSharpReceiverType(nodes, from, ref)
+}
+
+func inferCSharpReceiverType(nodes []GraphNode, from GraphNode, ref UnresolvedReference) string {
+	receiver := strings.TrimSpace(ref.ReceiverText)
+	if receiver == "" {
+		return ""
+	}
+	if strings.ContainsAny(receiver, ".:()[]{}") {
+		return inferCSharpReceiverExpressionType(nodes, from, ref, receiver)
+	}
+	if receiver == "this" {
+		return normalizeCSharpType(from.ReceiverType)
+	}
+	if receiver == "base" {
+		return inferCSharpBaseType(nodes, from)
+	}
+	for _, parameter := range csharpSignatureParameters(from.Signature, from.Name) {
+		name, typ, ok := splitCSharpParameterNameType(parameter)
+		if ok && name == receiver {
+			return normalizeCSharpType(typ)
+		}
+	}
+	if typ := inferCSharpLocalNewVariableType(from.Signature, receiver); typ != "" {
+		return normalizeCSharpType(typ)
+	}
+	if typ := inferCSharpLocalFactoryVariableType(nodes, from, ref, receiver); typ != "" {
+		return normalizeCSharpType(typ)
+	}
+	if typ := inferCSharpMemberType(nodes, from, receiver); typ != "" {
+		return normalizeCSharpType(typ)
+	}
+	return ""
+}
+
+func csharpReceiverTypeMatches(receiverType string, node GraphNode) bool {
+	receiverType = normalizeCSharpType(receiverType)
+	if receiverType == "" {
+		return false
+	}
+	return receiverType == normalizeCSharpType(node.ReceiverType) ||
+		receiverType == normalizeCSharpType(node.Name) ||
+		receiverType == normalizeCSharpType(node.QualifiedName)
+}
+
+func csharpSignatureParameters(signature, functionName string) []string {
+	signature = strings.TrimSpace(signature)
+	functionName = strings.TrimSpace(functionName)
+	if signature == "" || functionName == "" {
+		return nil
+	}
+	nameIndex := strings.Index(signature, functionName)
+	if nameIndex < 0 {
+		return nil
+	}
+	open := strings.Index(signature[nameIndex+len(functionName):], "(")
+	if open < 0 {
+		return nil
+	}
+	open += nameIndex + len(functionName)
+	close := matchingCloseParen(signature, open)
+	if close < 0 {
+		return nil
+	}
+	return splitTopLevelList(signature[open+1:close], ',')
+}
+
+func splitCSharpParameterNameType(parameter string) (string, string, bool) {
+	parameter = strings.TrimSpace(stripCSharpAttributes(parameter))
+	if parameter == "" {
+		return "", "", false
+	}
+	if i := strings.Index(parameter, "="); i >= 0 {
+		parameter = strings.TrimSpace(parameter[:i])
+	}
+	fields := strings.Fields(parameter)
+	for len(fields) > 0 && isCSharpParameterModifier(fields[0]) {
+		fields = fields[1:]
+	}
+	if len(fields) < 2 {
+		return "", "", false
+	}
+	name := strings.Trim(fields[len(fields)-1], "?")
+	typ := strings.Join(fields[:len(fields)-1], " ")
+	if name == "" || typ == "" {
+		return "", "", false
+	}
+	return name, typ, true
+}
+
+func stripCSharpAttributes(parameter string) string {
+	parameter = strings.TrimSpace(parameter)
+	for strings.HasPrefix(parameter, "[") {
+		close := strings.Index(parameter, "]")
+		if close < 0 {
+			return parameter
+		}
+		parameter = strings.TrimSpace(parameter[close+1:])
+	}
+	return parameter
+}
+
+func isCSharpParameterModifier(field string) bool {
+	switch strings.TrimSpace(field) {
+	case "this", "ref", "out", "in", "params":
+		return true
+	default:
+		return false
+	}
+}
+
+var csharpLocalNewRE = regexp.MustCompile(`(?:^|[;\n\r])\s*(?:var|[A-Za-z_][A-Za-z0-9_.<>, ?\[\]]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*new\s+([A-Za-z_][A-Za-z0-9_.<>]*)\s*[\(\{]`)
+var csharpLocalCallAssignRE = regexp.MustCompile(`(?:^|[;\n\r])\s*var\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\n\r]+?\))\s*;`)
+var csharpFieldRE = regexp.MustCompile(`(?:^|[;\n\r{}])\s*([A-Za-z_][A-Za-z0-9_.<>, ?\[\]]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:=[^;\n\r{}]*)?;`)
+var csharpPropertyRE = regexp.MustCompile(`(?:^|[;\n\r{}])\s*([A-Za-z_][A-Za-z0-9_.<>, ?\[\]]*)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{`)
+
+func inferCSharpLocalNewVariableType(signature, receiver string) string {
+	for _, match := range csharpLocalNewRE.FindAllStringSubmatch(signature, -1) {
+		if len(match) >= 3 && match[1] == receiver {
+			return match[2]
+		}
+	}
+	return ""
+}
+
+func inferCSharpLocalFactoryVariableType(nodes []GraphNode, from GraphNode, ref UnresolvedReference, receiver string) string {
+	for _, match := range csharpLocalCallAssignRE.FindAllStringSubmatch(from.Signature, -1) {
+		if len(match) < 3 || match[1] != receiver {
+			continue
+		}
+		if typ := inferCSharpCallExpressionReturnType(nodes, from, ref, match[2]); typ != "" {
+			return typ
+		}
+	}
+	return ""
+}
+
+func inferCSharpReceiverExpressionType(nodes []GraphNode, from GraphNode, ref UnresolvedReference, receiverExpression string) string {
+	receiverExpression = strings.TrimSpace(receiverExpression)
+	if typ := inferCSharpCallExpressionReturnType(nodes, from, ref, receiverExpression); typ != "" {
+		return typ
+	}
+	return ""
+}
+
+func inferCSharpCallExpressionReturnType(nodes []GraphNode, from GraphNode, ref UnresolvedReference, expression string) string {
+	prefix, method, argCount, ok := splitCSharpReceiverCall(expression)
+	if !ok {
+		return ""
+	}
+	methodRef := UnresolvedReference{
+		FromNodeID:    ref.FromNodeID,
+		ReferenceName: method,
+		ReceiverText:  prefix,
+		ArgumentCount: argCount,
+		ScopeNodeID:   ref.ScopeNodeID,
+		ReferenceKind: EdgeKindCalls,
+		FilePath:      ref.FilePath,
+		Language:      ref.Language,
+		Line:          ref.Line,
+		Column:        ref.Column,
+	}
+	target, ok := resolveCallTarget(nodes, from, methodRef)
+	if !ok || target.ReturnType == "" {
+		return ""
+	}
+	return normalizeCSharpType(target.ReturnType)
+}
+
+func splitCSharpReceiverCall(receiver string) (string, string, int, bool) {
+	receiver = strings.TrimSpace(stripCSharpOuterParens(receiver))
+	if !strings.HasSuffix(receiver, ")") {
+		return "", "", 0, false
+	}
+	open := matchingOpenParen(receiver, len(receiver)-1)
+	if open <= 0 {
+		return "", "", 0, false
+	}
+	callee := strings.TrimSpace(receiver[:open])
+	dot := strings.LastIndex(callee, ".")
+	if dot < 0 {
+		return "", callee, countCSharpArguments(receiver[open+1 : len(receiver)-1]), callee != ""
+	}
+	if dot+1 >= len(callee) {
+		return "", "", 0, false
+	}
+	prefix := strings.TrimSpace(callee[:dot])
+	method := strings.TrimSpace(callee[dot+1:])
+	if method == "" {
+		return "", "", 0, false
+	}
+	return prefix, method, countCSharpArguments(receiver[open+1 : len(receiver)-1]), true
+}
+
+func stripCSharpOuterParens(text string) string {
+	return stripGoOuterParens(text)
+}
+
+func countCSharpArguments(arguments string) int {
+	return len(splitTopLevelList(arguments, ','))
+}
+
+func inferCSharpMemberType(nodes []GraphNode, from GraphNode, receiver string) string {
+	classNode, ok := csharpClassNode(nodes, from)
+	if !ok {
+		return ""
+	}
+	for _, match := range csharpFieldRE.FindAllStringSubmatch(classNode.Signature, -1) {
+		if len(match) >= 3 && match[2] == receiver && !csharpMemberTypeLooksLikeStatement(match[1]) {
+			return match[1]
+		}
+	}
+	for _, match := range csharpPropertyRE.FindAllStringSubmatch(classNode.Signature, -1) {
+		if len(match) >= 3 && match[2] == receiver && !csharpMemberTypeLooksLikeStatement(match[1]) {
+			return match[1]
+		}
+	}
+	return ""
+}
+
+func inferCSharpBaseType(nodes []GraphNode, from GraphNode) string {
+	pattern := regexp.MustCompile(`\bclass\s+` + regexp.QuoteMeta(from.ReceiverType) + `(?:\s*<[^>{}]*>)?\s*:\s*([A-Za-z_][A-Za-z0-9_.]*)`)
+	for _, classNode := range csharpClassNodes(nodes, from) {
+		match := pattern.FindStringSubmatch(classNode.Signature)
+		if len(match) >= 2 {
+			return normalizeCSharpType(match[1])
+		}
+	}
+	return ""
+}
+
+func csharpClassNode(nodes []GraphNode, from GraphNode) (GraphNode, bool) {
+	for _, node := range csharpClassNodes(nodes, from) {
+		return node, true
+	}
+	return GraphNode{}, false
+}
+
+func csharpClassNodes(nodes []GraphNode, from GraphNode) []GraphNode {
+	var sameFile []GraphNode
+	var otherFiles []GraphNode
+	for _, node := range nodes {
+		if node.Kind != NodeKindClass || node.Language != LanguageCSharp || node.Name != from.ReceiverType {
+			continue
+		}
+		if node.FilePath == from.FilePath {
+			sameFile = append(sameFile, node)
+		} else {
+			otherFiles = append(otherFiles, node)
+		}
+	}
+	return append(sameFile, otherFiles...)
+}
+
+func csharpMemberTypeLooksLikeStatement(typ string) bool {
+	fields := strings.Fields(strings.TrimSpace(typ))
+	if len(fields) == 0 {
+		return true
+	}
+	switch fields[0] {
+	case "return", "if", "for", "foreach", "while", "switch", "using", "var", "new":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeCSharpType(typ string) string {
+	typ = strings.TrimSpace(typ)
+	for strings.HasPrefix(typ, "@") {
+		typ = strings.TrimPrefix(typ, "@")
+	}
+	for strings.HasSuffix(typ, "?") {
+		typ = strings.TrimSuffix(typ, "?")
+	}
+	typ = strings.TrimSpace(typ)
+	for strings.HasPrefix(typ, "global::") {
+		typ = strings.TrimPrefix(typ, "global::")
+	}
+	if i := strings.Index(typ, "<"); i >= 0 {
+		typ = strings.TrimSpace(typ[:i])
+	}
+	if i := strings.LastIndex(typ, "."); i >= 0 {
+		typ = strings.TrimSpace(typ[i+1:])
+	}
+	return strings.ToLower(strings.Trim(typ, "[]"))
 }
 
 func inferRustReceiverType(from GraphNode, ref UnresolvedReference) string {

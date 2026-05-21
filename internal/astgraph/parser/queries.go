@@ -281,6 +281,7 @@ func walkCSharpNode(path string, source []byte, node *tree_sitter.Node, result *
 	case "class_declaration":
 		if name := declarationName(source, node); name != "" {
 			className = name
+			appendScopedLanguageNode(path, source, node, model.NodeKindClass, model.LanguageCSharp, result, "")
 		}
 		if prefix, ok := csharpRoutePrefix(source, node, className); ok {
 			routePrefix = combineRoutePatterns(routePrefix, prefix)
@@ -1352,6 +1353,12 @@ func appendLanguageCall(path string, source []byte, node *tree_sitter.Node, lang
 	if !ok {
 		return
 	}
+	if language == model.LanguageCSharp {
+		details.name = normalizeCSharpCallName(details.name)
+		if shouldSkipCSharpCall(details.name) {
+			return
+		}
+	}
 	if details.receiverText == "" && isFunctionTypedParameterCall(result, fromNodeID, details.name) {
 		return
 	}
@@ -1370,6 +1377,38 @@ func appendLanguageCall(path string, source []byte, node *tree_sitter.Node, lang
 		Line:          int(start.Row) + 1,
 		Column:        int(start.Column),
 	})
+}
+
+func normalizeCSharpCallName(name string) string {
+	name = strings.TrimSpace(name)
+	if before, ok := trimTrailingGenericArguments(name); ok {
+		return before
+	}
+	return name
+}
+
+func shouldSkipCSharpCall(name string) bool {
+	return name == "nameof"
+}
+
+func trimTrailingGenericArguments(name string) (string, bool) {
+	if !strings.HasSuffix(name, ">") {
+		return "", false
+	}
+	depth := 0
+	for i := len(name) - 1; i >= 0; i-- {
+		switch name[i] {
+		case '>':
+			depth++
+		case '<':
+			depth--
+			if depth == 0 {
+				prefix := strings.TrimSpace(name[:i])
+				return prefix, prefix != ""
+			}
+		}
+	}
+	return "", false
 }
 
 type callDetails struct {
@@ -1402,6 +1441,9 @@ func callReference(source []byte, node *tree_sitter.Node) (callDetails, bool) {
 func referenceName(source []byte, node *tree_sitter.Node) (*tree_sitter.Node, string, string, bool) {
 	switch node.Kind() {
 	case "identifier", "property_identifier", "field_identifier":
+		name := strings.TrimSpace(nodeText(source, node))
+		return node, name, "", name != ""
+	case "generic_name":
 		name := strings.TrimSpace(nodeText(source, node))
 		return node, name, "", name != ""
 	case "navigation_expression":
@@ -1532,10 +1574,13 @@ func rustReturnTypeFromHeader(header, name string) string {
 	}
 	open += nameIndex + len(name)
 	close := matchingParen(header, open)
-	if close < 0 || close+1 >= len(header) {
+	if close < 0 {
 		return ""
 	}
-	after := strings.TrimSpace(header[close+1:])
+	after := ""
+	if close+1 < len(header) {
+		after = strings.TrimSpace(header[close+1:])
+	}
 	if !strings.HasPrefix(after, "->") {
 		return ""
 	}
@@ -1698,10 +1743,13 @@ func returnTypeFromHeader(header, name string) string {
 	}
 	open += nameIndex + len(name)
 	close := matchingParen(header, open)
-	if close < 0 || close+1 >= len(header) {
+	if close < 0 {
 		return ""
 	}
-	after := strings.TrimSpace(header[close+1:])
+	after := ""
+	if close+1 < len(header) {
+		after = strings.TrimSpace(header[close+1:])
+	}
 	if strings.HasPrefix(after, ":") {
 		after = strings.TrimSpace(strings.TrimPrefix(after, ":"))
 		if i := strings.IndexAny(after, " ={"); i >= 0 {

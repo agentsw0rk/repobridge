@@ -384,6 +384,49 @@ func TestExtractFromSourceFindsCSharpMethodAndCall(t *testing.T) {
 	assertUnresolvedFrom(t, result.Unresolved, "Helper", runID)
 }
 
+func TestExtractFromSourceNormalizesCSharpCalls(t *testing.T) {
+	source := []byte(`class App {
+  void Run() {
+    serializer.Deserialize<IList<RootObject>>(reader);
+    nameof(Run);
+    Assert.Equal<string>("a", "b");
+    Assert.Throws<JsonException>(() => Run());
+    Assert.AreEqual(1, 2);
+    StringComparer.OrdinalIgnoreCase.Equals("a", "b");
+  }
+}`)
+
+	result, err := ExtractFromSource("App.cs", source, model.LanguageCSharp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := findNodeID(t, result.Nodes, model.NodeKindMethod, "Run")
+
+	deserialize := findUnresolvedFrom(t, result.Unresolved, "Deserialize", runID)
+	if deserialize.ReceiverText != "serializer" {
+		t.Fatalf("Deserialize receiver = %q, want serializer", deserialize.ReceiverText)
+	}
+	assertNoUnresolvedFrom(t, result.Unresolved, "Deserialize<IList<RootObject>>", runID)
+	assertNoUnresolvedFrom(t, result.Unresolved, "nameof", runID)
+
+	equal := findUnresolvedFrom(t, result.Unresolved, "Equal", runID)
+	if equal.ReceiverText != "Assert" {
+		t.Fatalf("Equal receiver = %q, want Assert", equal.ReceiverText)
+	}
+	throws := findUnresolvedFrom(t, result.Unresolved, "Throws", runID)
+	if throws.ReceiverText != "Assert" {
+		t.Fatalf("Throws receiver = %q, want Assert", throws.ReceiverText)
+	}
+	areEqual := findUnresolvedFrom(t, result.Unresolved, "AreEqual", runID)
+	if areEqual.ReceiverText != "Assert" {
+		t.Fatalf("AreEqual receiver = %q, want Assert", areEqual.ReceiverText)
+	}
+	equals := findUnresolvedFrom(t, result.Unresolved, "Equals", runID)
+	if equals.ReceiverText != "StringComparer.OrdinalIgnoreCase" {
+		t.Fatalf("Equals receiver = %q, want StringComparer.OrdinalIgnoreCase", equals.ReceiverText)
+	}
+}
+
 func TestExtractFromSourceFindsAspNetRoutes(t *testing.T) {
 	source := []byte(`[Route("api/[controller]")]
 public class UsersController {

@@ -164,6 +164,447 @@ function parse(value: unknown) {
 	}
 }
 
+func TestIndexerClassifiesQualifiedCSharpExternalReceiverCalls(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "App.cs", `class App {
+  bool Equals(string left, string right) { return false; }
+  void Run() {
+    StringComparer.OrdinalIgnoreCase.Equals("a", "b");
+    System.IO.File.OpenText("data.json");
+    String.IsNullOrEmpty("value");
+    Assert.Equal<string>("a", "b");
+  }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindMethod, "Run")
+	equalsID := nodeIDByName(t, result.Nodes, NodeKindMethod, "Equals")
+	if hasEdge(result.Edges, runID, equalsID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, external receiver Equals should not resolve to local App.Equals", result.Edges)
+	}
+	for _, qualifiedName := range []string{
+		"external:StringComparer.OrdinalIgnoreCase.Equals",
+		"external:System.IO.File.OpenText",
+		"external:System.String.IsNullOrEmpty",
+		"external:Assert.Equal",
+	} {
+		externalID := nodeIDByQualifiedName(t, result.Nodes, NodeKindExternal, qualifiedName)
+		if !hasEdge(result.Edges, runID, externalID, EdgeKindCalls) {
+			t.Fatalf("Edges = %#v, want run -> %s", result.Edges, qualifiedName)
+		}
+	}
+	if hasUnresolved(result.Unresolved, runID, "Equals") || hasUnresolved(result.Unresolved, runID, "Equal") {
+		t.Fatalf("Unresolved = %#v, external receiver calls should not remain unresolved", result.Unresolved)
+	}
+}
+
+func TestIndexerClassifiesCSharpStringAndPrimitiveReceiverCallsAsExternal(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "App.cs", `class App {
+  void Run(string text, int count) {
+    text.Substring(1);
+    count.ToString();
+    "Hello, world!".AsSpan();
+    string.Format("{0}", count);
+    string.Join(",", new[] { text });
+    string.IsNullOrEmpty(text);
+  }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "App.Run")
+	for _, qualifiedName := range []string{
+		"external:System.String.Substring",
+		"external:System.Int32.ToString",
+		"external:System.String.AsSpan",
+		"external:System.String.Format",
+		"external:System.String.Join",
+		"external:System.String.IsNullOrEmpty",
+	} {
+		externalID := nodeIDByQualifiedName(t, result.Nodes, NodeKindExternal, qualifiedName)
+		if !hasEdge(result.Edges, runID, externalID, EdgeKindCalls) {
+			t.Fatalf("Edges = %#v, want run -> %s", result.Edges, qualifiedName)
+		}
+	}
+	for _, name := range []string{"Substring", "ToString", "AsSpan", "Format", "Join", "IsNullOrEmpty"} {
+		if hasUnresolved(result.Unresolved, runID, name) {
+			t.Fatalf("Unresolved = %#v, %s should be classified as primitive/string external", result.Unresolved, name)
+		}
+	}
+}
+
+func TestIndexerClassifiesCSharpLinqCallsAsExternalWhenNoLocalCandidate(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "App.Tests/LinqTests.cs", `class LinqTests {
+  void Run(Items items) {
+    items.Select(x => x);
+    items.ToList();
+    items.ToAsyncEnumerable();
+  }
+}`)
+	writeASTGraphFixture(t, root, "App/Custom.cs", `class Custom {
+  void Select() {}
+  void Run(Custom items) {
+    items.Select();
+  }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testRunID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "LinqTests.Run")
+	for _, qualifiedName := range []string{
+		"external:System.Linq.Enumerable.Select",
+		"external:System.Linq.Enumerable.ToList",
+		"external:System.Linq.Enumerable.ToAsyncEnumerable",
+	} {
+		externalID := nodeIDByQualifiedName(t, result.Nodes, NodeKindExternal, qualifiedName)
+		if !hasEdge(result.Edges, testRunID, externalID, EdgeKindCalls) {
+			t.Fatalf("Edges = %#v, want test Run -> %s", result.Edges, qualifiedName)
+		}
+	}
+
+	customRunID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "Custom.Run")
+	customSelectID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "Custom.Select")
+	if !hasEdge(result.Edges, customRunID, customSelectID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, local Select should still resolve before LINQ external fallback", result.Edges)
+	}
+}
+
+func TestIndexerClassifiesUnqualifiedCSharpTestCallsAsExternal(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "App.Tests/WidgetTests.cs", `class WidgetTests {
+  void Run() {
+    Equal(1, 1);
+    True(true);
+    Throws<InvalidOperationException>(() => Run());
+    AreEqual("a", "a");
+    IsTrue(true);
+    Returns(42);
+    Single(new[] { 1 });
+    OfType<string>(new object[0]);
+  }
+}`)
+	writeASTGraphFixture(t, root, "App/Widget.cs", `class Widget {
+  void Run() {
+    Equal(1, 1);
+  }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testRunID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "WidgetTests.Run")
+	for _, qualifiedName := range []string{
+		"external:test-framework.Equal",
+		"external:test-framework.True",
+		"external:test-framework.Throws",
+		"external:test-framework.AreEqual",
+		"external:test-framework.IsTrue",
+		"external:test-framework.Returns",
+		"external:test-framework.Single",
+		"external:test-framework.OfType",
+	} {
+		externalID := nodeIDByQualifiedName(t, result.Nodes, NodeKindExternal, qualifiedName)
+		if !hasEdge(result.Edges, testRunID, externalID, EdgeKindCalls) {
+			t.Fatalf("Edges = %#v, want test Run -> %s", result.Edges, qualifiedName)
+		}
+	}
+
+	productionRunID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "Widget.Run")
+	if !hasUnresolved(result.Unresolved, productionRunID, "Equal") {
+		t.Fatalf("Unresolved = %#v, non-test Equal should remain unresolved", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesCSharpReceiverCallsFromExplicitLocalTypes(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "App.cs", `class Runner {
+  void RunAsync() {}
+}
+class Sink {
+  void OnMessage() {}
+}
+class IMessageSink {
+  void OnMessage() {}
+}
+class App {
+  Runner CreateRunner() { return new Runner(); }
+  Sink CreateSink() { return new Sink(); }
+  void Run() {
+    Runner runner = CreateRunner();
+    Sink sink = CreateSink();
+    IMessageSink messageSink = GetMessageSink();
+    runner.RunAsync();
+    sink.OnMessage();
+    messageSink.OnMessage();
+  }
+  IMessageSink GetMessageSink() { return new IMessageSink(); }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "App.Run")
+	for _, qualifiedName := range []string{"Runner.RunAsync", "Sink.OnMessage", "IMessageSink.OnMessage"} {
+		targetID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, qualifiedName)
+		if !hasEdge(result.Edges, runID, targetID, EdgeKindCalls) {
+			t.Fatalf("Edges = %#v, want run -> %s through explicit local type", result.Edges, qualifiedName)
+		}
+	}
+}
+
+func TestIndexerResolvesCSharpReceiverCallsFromParameterTypes(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "App.cs", `class JsonSerializer {
+  string Deserialize(JsonReader reader) { return ""; }
+}
+class App {
+  void Run(JsonSerializer serializer, JsonReader reader) {
+    serializer.Deserialize(reader);
+  }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "App.Run")
+	deserializeID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "JsonSerializer.Deserialize")
+	if !hasEdge(result.Edges, runID, deserializeID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want serializer.Deserialize to resolve through parameter type", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "Deserialize") {
+		t.Fatalf("Unresolved = %#v, Deserialize should resolve through parameter type", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesCSharpReceiverCallsFromLocalNewVariables(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "App.cs", `class JsonSerializer {
+  string Deserialize(JsonReader reader) { return ""; }
+}
+class App {
+  void Run(JsonReader reader) {
+    var serializer = new JsonSerializer();
+    serializer.Deserialize(reader);
+  }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "App.Run")
+	deserializeID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "JsonSerializer.Deserialize")
+	if !hasEdge(result.Edges, runID, deserializeID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want serializer.Deserialize to resolve through local new variable", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "Deserialize") {
+		t.Fatalf("Unresolved = %#v, Deserialize should resolve through local new variable", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesCSharpReceiverCallsFromFactoryReturnTypes(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "App.cs", `class JsonSerializer {
+  string Deserialize(JsonReader reader) { return ""; }
+}
+class App {
+  JsonSerializer CreateSerializer() { return new JsonSerializer(); }
+  void Run(JsonReader reader) {
+    var serializer = CreateSerializer();
+    serializer.Deserialize(reader);
+  }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "App.Run")
+	deserializeID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "JsonSerializer.Deserialize")
+	if !hasEdge(result.Edges, runID, deserializeID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want serializer.Deserialize to resolve through factory return type", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "Deserialize") {
+		t.Fatalf("Unresolved = %#v, Deserialize should resolve through factory return type", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesCSharpChainedReceiverCallsFromReturnTypes(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "App.cs", `class JsonSerializer {
+  string Deserialize(JsonReader reader) { return ""; }
+}
+class App {
+  JsonSerializer CreateSerializer() { return new JsonSerializer(); }
+  void Run(JsonReader reader) {
+    CreateSerializer().Deserialize(reader);
+  }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "App.Run")
+	deserializeID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "JsonSerializer.Deserialize")
+	if !hasEdge(result.Edges, runID, deserializeID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want chained Deserialize to resolve through CreateSerializer return type", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "Deserialize") {
+		t.Fatalf("Unresolved = %#v, chained Deserialize should resolve through CreateSerializer return type", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesCSharpChainedReceiverCallsThroughTypedPrefix(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "App.cs", `class Runner {
+  void RunAsync() {}
+}
+class Options {
+  Runner Build() { return new Runner(); }
+}
+class App {
+  void Run(Options options) {
+    options.Build().RunAsync();
+  }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "App.Run")
+	buildID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "Options.Build")
+	runAsyncID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "Runner.RunAsync")
+	if !hasEdge(result.Edges, runID, buildID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want options.Build to resolve through parameter type", result.Edges)
+	}
+	if !hasEdge(result.Edges, runID, runAsyncID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want options.Build().RunAsync to resolve through Build return type", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "RunAsync") {
+		t.Fatalf("Unresolved = %#v, chained RunAsync should resolve through Build return type", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesCSharpReceiverCallsFromFieldsAndProperties(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "App.cs", `class JsonSerializer {
+  string Deserialize(JsonReader reader) { return ""; }
+}
+class App {
+  JsonSerializer serializer;
+  JsonSerializer Serializer { get; }
+  void Run(JsonReader reader) {
+    serializer.Deserialize(reader);
+    Serializer.Deserialize(reader);
+  }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "App.Run")
+	deserializeID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "JsonSerializer.Deserialize")
+	if !hasEdge(result.Edges, runID, deserializeID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want field/property receiver calls to resolve", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "Deserialize") {
+		t.Fatalf("Unresolved = %#v, Deserialize should resolve through field/property type", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesCSharpThisAndBaseReceiverCalls(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "App.cs", `class BaseApp {
+  void Save() {}
+}
+class App : BaseApp {
+  void Helper() {}
+  void Run() {
+    this.Helper();
+    base.Save();
+  }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "App.Run")
+	helperID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "App.Helper")
+	saveID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "BaseApp.Save")
+	if !hasEdge(result.Edges, runID, helperID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want this.Helper to resolve to App.Helper", result.Edges)
+	}
+	if !hasEdge(result.Edges, runID, saveID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want base.Save to resolve to BaseApp.Save", result.Edges)
+	}
+}
+
+func TestIndexerResolvesCSharpBaseReceiverCallsFromGenericPartialBase(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "Base.cs", `class BaseApp<T> {
+  void Save() {}
+}`)
+	writeASTGraphFixture(t, root, "App.Base.cs", `partial class App : BaseApp<string>, IDisposable {
+}`)
+	writeASTGraphFixture(t, root, "App.cs", `partial class App {
+  void Run() {
+    base.Save();
+  }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "App.Run")
+	saveID := nodeIDByQualifiedName(t, result.Nodes, NodeKindMethod, "BaseApp.Save")
+	if !hasEdge(result.Edges, runID, saveID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want base.Save to resolve through generic partial base type", result.Edges)
+	}
+}
+
 func TestIndexerResolvesGoCallsWithOmittedVariadicArguments(t *testing.T) {
 	root := t.TempDir()
 	writeASTGraphFixture(t, root, "main.go", `package main
