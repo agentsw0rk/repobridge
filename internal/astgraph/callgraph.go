@@ -65,15 +65,19 @@ func graphNodeDetails(nodes []GraphNode) []GraphNodeDetail {
 	details := make([]GraphNodeDetail, 0, len(nodes))
 	for _, node := range nodes {
 		details = append(details, GraphNodeDetail{
-			ID:            node.ID,
-			Kind:          node.Kind,
-			Name:          node.Name,
-			QualifiedName: node.QualifiedName,
-			Language:      node.Language,
-			Path:          node.FilePath,
-			StartLine:     node.StartLine,
-			EndLine:       node.EndLine,
-			Signature:     node.Signature,
+			ID:             node.ID,
+			Kind:           node.Kind,
+			Name:           node.Name,
+			QualifiedName:  node.QualifiedName,
+			ReceiverType:   node.ReceiverType,
+			ParameterCount: node.ParameterCount,
+			ParameterTypes: node.ParameterTypes,
+			ReturnType:     node.ReturnType,
+			Language:       node.Language,
+			Path:           node.FilePath,
+			StartLine:      node.StartLine,
+			EndLine:        node.EndLine,
+			Signature:      node.Signature,
 		})
 	}
 	return details

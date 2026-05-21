@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -464,17 +465,21 @@ func (s *Store) Search(query astgraph.SearchQuery) ([]astgraph.SearchResult, err
 
 			scored = append(scored, scoredResult{
 				result: astgraph.SearchResult{
-					Source:        status.SourcePath,
-					ID:            node.StableID,
-					Kind:          astgraph.NodeKind(node.Kind),
-					Name:          node.Name,
-					QualifiedName: node.QualifiedName,
-					Language:      astgraph.Language(node.Language),
-					Path:          node.FilePath,
-					StartLine:     node.StartLine,
-					EndLine:       node.EndLine,
-					Score:         score,
-					Calls:         calls,
+					Source:         status.SourcePath,
+					ID:             node.StableID,
+					Kind:           astgraph.NodeKind(node.Kind),
+					Name:           node.Name,
+					QualifiedName:  node.QualifiedName,
+					ReceiverType:   node.ReceiverType,
+					ParameterCount: node.ParameterCount,
+					ParameterTypes: decodeStringSlice(node.ParameterTypes),
+					ReturnType:     node.ReturnType,
+					Language:       astgraph.Language(node.Language),
+					Path:           node.FilePath,
+					StartLine:      node.StartLine,
+					EndLine:        node.EndLine,
+					Score:          score,
+					Calls:          calls,
 				},
 				stableID: node.StableID,
 			})
@@ -605,31 +610,39 @@ func graphFileFromEntity(file *FileEntity) astgraph.GraphFile {
 
 func graphNodeFromEntity(node *NodeEntity) astgraph.GraphNode {
 	return astgraph.GraphNode{
-		ID:            node.StableID,
-		Kind:          astgraph.NodeKind(node.Kind),
-		Name:          node.Name,
-		QualifiedName: node.QualifiedName,
-		FilePath:      node.FilePath,
-		Language:      astgraph.Language(node.Language),
-		StartLine:     node.StartLine,
-		EndLine:       node.EndLine,
-		StartColumn:   node.StartColumn,
-		EndColumn:     node.EndColumn,
-		Signature:     node.Signature,
+		ID:             node.StableID,
+		Kind:           astgraph.NodeKind(node.Kind),
+		Name:           node.Name,
+		QualifiedName:  node.QualifiedName,
+		ReceiverType:   node.ReceiverType,
+		ParameterCount: node.ParameterCount,
+		ParameterTypes: decodeStringSlice(node.ParameterTypes),
+		ReturnType:     node.ReturnType,
+		FilePath:       node.FilePath,
+		Language:       astgraph.Language(node.Language),
+		StartLine:      node.StartLine,
+		EndLine:        node.EndLine,
+		StartColumn:    node.StartColumn,
+		EndColumn:      node.EndColumn,
+		Signature:      node.Signature,
 	}
 }
 
 func graphNodeDetailFromNode(node astgraph.GraphNode) astgraph.GraphNodeDetail {
 	return astgraph.GraphNodeDetail{
-		ID:            node.ID,
-		Kind:          node.Kind,
-		Name:          node.Name,
-		QualifiedName: node.QualifiedName,
-		Language:      node.Language,
-		Path:          node.FilePath,
-		StartLine:     node.StartLine,
-		EndLine:       node.EndLine,
-		Signature:     node.Signature,
+		ID:             node.ID,
+		Kind:           node.Kind,
+		Name:           node.Name,
+		QualifiedName:  node.QualifiedName,
+		ReceiverType:   node.ReceiverType,
+		ParameterCount: node.ParameterCount,
+		ParameterTypes: node.ParameterTypes,
+		ReturnType:     node.ReturnType,
+		Language:       node.Language,
+		Path:           node.FilePath,
+		StartLine:      node.StartLine,
+		EndLine:        node.EndLine,
+		Signature:      node.Signature,
 	}
 }
 
@@ -782,17 +795,21 @@ func nodeEntities(nodes []astgraph.GraphNode) []*NodeEntity {
 	entities := make([]*NodeEntity, 0, len(nodes))
 	for _, node := range nodes {
 		entities = append(entities, &NodeEntity{
-			StableID:      node.ID,
-			Kind:          string(node.Kind),
-			Name:          node.Name,
-			QualifiedName: node.QualifiedName,
-			FilePath:      node.FilePath,
-			Language:      string(node.Language),
-			StartLine:     node.StartLine,
-			EndLine:       node.EndLine,
-			StartColumn:   node.StartColumn,
-			EndColumn:     node.EndColumn,
-			Signature:     node.Signature,
+			StableID:       node.ID,
+			Kind:           string(node.Kind),
+			Name:           node.Name,
+			QualifiedName:  node.QualifiedName,
+			ReceiverType:   node.ReceiverType,
+			ParameterCount: node.ParameterCount,
+			ParameterTypes: encodeStringSlice(node.ParameterTypes),
+			ReturnType:     node.ReturnType,
+			FilePath:       node.FilePath,
+			Language:       string(node.Language),
+			StartLine:      node.StartLine,
+			EndLine:        node.EndLine,
+			StartColumn:    node.StartColumn,
+			EndColumn:      node.EndColumn,
+			Signature:      node.Signature,
 		})
 	}
 	return entities
@@ -832,6 +849,10 @@ func unresolvedReferenceEntities(refs []astgraph.UnresolvedReference) []*Unresol
 		entities = append(entities, &UnresolvedReferenceEntity{
 			FromStableID:  ref.FromNodeID,
 			ReferenceName: ref.ReferenceName,
+			ReceiverText:  ref.ReceiverText,
+			ArgumentCount: ref.ArgumentCount,
+			ArgumentTexts: encodeStringSlice(ref.ArgumentTexts),
+			ScopeStableID: ref.ScopeNodeID,
 			ReferenceKind: string(ref.ReferenceKind),
 			FilePath:      ref.FilePath,
 			Language:      string(ref.Language),
@@ -846,12 +867,39 @@ func unresolvedReferenceFromEntity(ref *UnresolvedReferenceEntity) astgraph.Unre
 	return astgraph.UnresolvedReference{
 		FromNodeID:    ref.FromStableID,
 		ReferenceName: ref.ReferenceName,
+		ReceiverText:  ref.ReceiverText,
+		ArgumentCount: ref.ArgumentCount,
+		ArgumentTexts: decodeStringSlice(ref.ArgumentTexts),
+		ScopeNodeID:   ref.ScopeStableID,
 		ReferenceKind: astgraph.EdgeKind(ref.ReferenceKind),
 		FilePath:      ref.FilePath,
 		Language:      astgraph.Language(ref.Language),
 		Line:          ref.Line,
 		Column:        ref.Column,
 	}
+}
+
+func encodeStringSlice(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	encoded, err := json.Marshal(values)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
+}
+
+func decodeStringSlice(encoded string) []string {
+	encoded = strings.TrimSpace(encoded)
+	if encoded == "" {
+		return nil
+	}
+	var values []string
+	if err := json.Unmarshal([]byte(encoded), &values); err != nil {
+		return nil
+	}
+	return values
 }
 
 func scoreNode(node *NodeEntity, query astgraph.SearchQuery) (float64, bool) {

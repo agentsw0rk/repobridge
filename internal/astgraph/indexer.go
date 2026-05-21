@@ -11,7 +11,7 @@ import (
 	"repobridge/internal/astgraph/parser"
 )
 
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 type IndexOptions struct {
 	MaxFileSize int64
@@ -92,7 +92,7 @@ func resolveCallEdges(result *IndexResult) {
 			remaining = append(remaining, ref)
 			continue
 		}
-		target, ok := resolveCallTarget(result.Nodes, from, ref.ReferenceName)
+		target, ok := resolveCallTarget(result.Nodes, from, ref)
 		if !ok {
 			remaining = append(remaining, ref)
 			continue
@@ -127,36 +127,67 @@ func nodeByID(nodes []GraphNode, id string) (GraphNode, bool) {
 	return GraphNode{}, false
 }
 
-func resolveCallTarget(nodes []GraphNode, from GraphNode, reference string) (GraphNode, bool) {
-	sameFile := callTargetCandidates(nodes, from, reference, true)
-	if len(sameFile) == 1 {
-		return sameFile[0], true
-	}
-	if len(sameFile) > 1 {
+func resolveCallTarget(nodes []GraphNode, from GraphNode, ref UnresolvedReference) (GraphNode, bool) {
+	candidates := callTargetCandidates(nodes, from, ref)
+	if len(candidates) == 0 {
 		return GraphNode{}, false
 	}
-
-	packageWide := callTargetCandidates(nodes, from, reference, false)
-	if len(packageWide) == 1 {
-		return packageWide[0], true
+	bestScore := -1
+	var best GraphNode
+	ambiguous := false
+	for _, candidate := range candidates {
+		score := callTargetScore(from, ref, candidate)
+		if score > bestScore {
+			bestScore = score
+			best = candidate
+			ambiguous = false
+			continue
+		}
+		if score == bestScore {
+			ambiguous = true
+		}
 	}
-	return GraphNode{}, false
+	if ambiguous {
+		return GraphNode{}, false
+	}
+	return best, true
 }
 
-func callTargetCandidates(nodes []GraphNode, from GraphNode, reference string, sameFileOnly bool) []GraphNode {
+func callTargetCandidates(nodes []GraphNode, from GraphNode, ref UnresolvedReference) []GraphNode {
 	var candidates []GraphNode
 	for _, node := range nodes {
 		if !isCallableNode(node.Kind) || node.Language != from.Language {
 			continue
 		}
-		if sameFileOnly && node.FilePath != from.FilePath {
+		if !callReferenceMatchesNode(ref.ReferenceName, node) {
 			continue
 		}
-		if callReferenceMatchesNode(reference, node) {
-			candidates = append(candidates, node)
+		if !callArgumentsMatchNode(ref, node) {
+			continue
 		}
+		candidates = append(candidates, node)
 	}
 	return candidates
+}
+
+func callTargetScore(from GraphNode, ref UnresolvedReference, target GraphNode) int {
+	score := 0
+	if target.FilePath == from.FilePath {
+		score += 100
+	}
+	if from.ReceiverType != "" && target.ReceiverType == from.ReceiverType {
+		score += 80
+	}
+	if receiverMatchesTarget(ref.ReceiverText, target) {
+		score += 60
+	}
+	if target.ParameterCount == ref.ArgumentCount {
+		score += 20
+	}
+	if ref.ScopeNodeID != "" && ref.ScopeNodeID == from.ID {
+		score += 5
+	}
+	return score
 }
 
 func isCallableNode(kind NodeKind) bool {
@@ -174,6 +205,31 @@ func callReferenceMatchesNode(reference string, node GraphNode) bool {
 		reference == node.QualifiedName ||
 		strings.HasSuffix(reference, "."+node.Name) ||
 		strings.HasSuffix(reference, "::"+node.Name)
+}
+
+func callArgumentsMatchNode(ref UnresolvedReference, node GraphNode) bool {
+	return ref.ArgumentCount == node.ParameterCount
+}
+
+func receiverMatchesTarget(receiver string, node GraphNode) bool {
+	receiver = normalizeReceiver(receiver)
+	if receiver == "" {
+		return false
+	}
+	return receiver == normalizeReceiver(node.ReceiverType) ||
+		receiver == normalizeReceiver(node.QualifiedName) ||
+		receiver == normalizeReceiver(node.Name) ||
+		strings.HasSuffix(normalizeReceiver(node.QualifiedName), "."+receiver)
+}
+
+func normalizeReceiver(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "*")
+	value = strings.TrimPrefix(value, "&")
+	if value == "this" || value == "self" {
+		return ""
+	}
+	return strings.ToLower(value)
 }
 
 func existingEdgeKeys(edges []GraphEdge) map[string]struct{} {

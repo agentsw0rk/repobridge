@@ -104,7 +104,7 @@
     },
     {
       "id": "3:7626999044627350868",
-      "lastPropertyId": "12:5864542766874311116",
+      "lastPropertyId": "16:6587390542676826859",
       "name": "NodeEntity",
       "properties": [
         {
@@ -179,6 +179,28 @@
           "id": "12:5864542766874311116",
           "name": "Signature",
           "type": 9
+        },
+        {
+          "id": "13:2641842190725080668",
+          "name": "ReceiverType",
+          "indexId": "20:967143217967356143",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "14:7354347623517963586",
+          "name": "ParameterCount",
+          "type": 6
+        },
+        {
+          "id": "15:3362153866089893544",
+          "name": "ParameterTypes",
+          "type": 9
+        },
+        {
+          "id": "16:6587390542676826859",
+          "name": "ReturnType",
+          "type": 9
         }
       ]
     },
@@ -240,7 +262,7 @@
     },
     {
       "id": "5:8009807915262133108",
-      "lastPropertyId": "8:2068640150242227716",
+      "lastPropertyId": "12:8622643544102293813",
       "name": "UnresolvedReferenceEntity",
       "properties": [
         {
@@ -293,12 +315,34 @@
           "id": "8:2068640150242227716",
           "name": "Column",
           "type": 6
+        },
+        {
+          "id": "9:2744622207414599777",
+          "name": "ReceiverText",
+          "type": 9
+        },
+        {
+          "id": "10:6439453596243244728",
+          "name": "ArgumentCount",
+          "type": 6
+        },
+        {
+          "id": "11:5048081844580895408",
+          "name": "ArgumentTexts",
+          "type": 9
+        },
+        {
+          "id": "12:8622643544102293813",
+          "name": "ScopeStableID",
+          "indexId": "21:8024976706042757456",
+          "type": 9,
+          "flags": 2048
         }
       ]
     }
   ],
   "lastEntityId": "5:8009807915262133108",
-  "lastIndexId": "19:8544295943047035425",
+  "lastIndexId": "21:8024976706042757456",
   "lastRelationId": "",
   "modelVersion": 5,
   "modelVersionParserMinimum": 5,

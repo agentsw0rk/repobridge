@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -303,6 +304,61 @@ func TestExtractFromSourceFindsKotlinFunctionAndCall(t *testing.T) {
 	assertUnresolvedFrom(t, result.Unresolved, "helper", runID)
 }
 
+func TestExtractFromSourceAddsStructuredKotlinCallAndSignatureMetadata(t *testing.T) {
+	source := []byte(`class Box {
+  fun pick(value: String): Int { return value.length }
+  fun run() { pick("x") }
+}`)
+
+	result, err := ExtractFromSource("Box.kt", source, model.LanguageKotlin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pick := findNode(t, result.Nodes, model.NodeKindFunction, "pick")
+	if pick.QualifiedName != "Box.pick" {
+		t.Fatalf("pick qualifiedName = %q, want Box.pick", pick.QualifiedName)
+	}
+	if pick.ReceiverType != "Box" {
+		t.Fatalf("pick receiverType = %q, want Box", pick.ReceiverType)
+	}
+	if pick.ParameterCount != 1 || !reflect.DeepEqual(pick.ParameterTypes, []string{"String"}) {
+		t.Fatalf("pick parameters = %d %#v, want 1 [String]", pick.ParameterCount, pick.ParameterTypes)
+	}
+	if pick.ReturnType != "Int" {
+		t.Fatalf("pick returnType = %q, want Int", pick.ReturnType)
+	}
+
+	runID := findNodeID(t, result.Nodes, model.NodeKindFunction, "run")
+	ref := findUnresolvedFrom(t, result.Unresolved, "pick", runID)
+	if ref.ScopeNodeID != runID {
+		t.Fatalf("scopeNodeID = %q, want %q", ref.ScopeNodeID, runID)
+	}
+	if ref.ArgumentCount != 1 || !reflect.DeepEqual(ref.ArgumentTexts, []string{`"x"`}) {
+		t.Fatalf("arguments = %d %#v, want 1 [\"x\"]", ref.ArgumentCount, ref.ArgumentTexts)
+	}
+}
+
+func TestExtractFromSourceRecordsKotlinExtensionReceiver(t *testing.T) {
+	source := []byte(`fun String.words(limit: Int): List<String> { return split(" ").take(limit) }`)
+
+	result, err := ExtractFromSource("Extensions.kt", source, model.LanguageKotlin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	words := findNode(t, result.Nodes, model.NodeKindFunction, "words")
+	if words.QualifiedName != "String.words" || words.ReceiverType != "String" {
+		t.Fatalf("extension node = %#v, want String.words receiver String", words)
+	}
+	if words.ParameterCount != 1 || !reflect.DeepEqual(words.ParameterTypes, []string{"Int"}) {
+		t.Fatalf("extension parameters = %d %#v, want 1 [Int]", words.ParameterCount, words.ParameterTypes)
+	}
+	if words.ReturnType != "List<String>" {
+		t.Fatalf("extension returnType = %q, want List<String>", words.ReturnType)
+	}
+}
+
 func TestExtractFromSourceFindsSpringKotlinRouteAndHandler(t *testing.T) {
 	source := []byte(`@RestController
 @RequestMapping("/api")
@@ -370,13 +426,18 @@ func assertQualifiedNode(t *testing.T, nodes []model.GraphNode, kind model.NodeK
 
 func findNodeID(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name string) string {
 	t.Helper()
+	return findNode(t, nodes, kind, name).ID
+}
+
+func findNode(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name string) model.GraphNode {
+	t.Helper()
 	for _, node := range nodes {
 		if node.Kind == kind && node.Name == name {
-			return node.ID
+			return node
 		}
 	}
 	t.Fatalf("node %s %s not found in %#v", kind, name, nodes)
-	return ""
+	return model.GraphNode{}
 }
 
 func assertEdge(t *testing.T, edges []model.GraphEdge, fromID, toID string, kind model.EdgeKind) {
@@ -411,12 +472,18 @@ func assertUnresolvedWithLanguage(t *testing.T, refs []model.UnresolvedReference
 
 func assertUnresolvedFrom(t *testing.T, refs []model.UnresolvedReference, name string, fromID string) {
 	t.Helper()
+	_ = findUnresolvedFrom(t, refs, name, fromID)
+}
+
+func findUnresolvedFrom(t *testing.T, refs []model.UnresolvedReference, name string, fromID string) model.UnresolvedReference {
+	t.Helper()
 	for _, ref := range refs {
 		if ref.ReferenceName == name && ref.FromNodeID == fromID {
-			return
+			return ref
 		}
 	}
 	t.Fatalf("reference %s from %s not found in %#v", name, fromID, refs)
+	return model.UnresolvedReference{}
 }
 
 func assertNoUnresolvedFrom(t *testing.T, refs []model.UnresolvedReference, name string, fromID string) {

@@ -88,6 +88,30 @@ func helper() {}
 	}
 }
 
+func TestIndexerResolvesOverloadedCallsByArgumentCount(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "Box.kt", `class Box {
+  fun pick(): Int { return 0 }
+  fun pick(value: String): Int { return 1 }
+  fun run() { pick("x") }
+}`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	pickWithArgID := nodeIDByNameAndParamCount(t, result.Nodes, NodeKindFunction, "pick", 1)
+	if !hasEdge(result.Edges, runID, pickWithArgID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want run -> pick(String)", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "pick") {
+		t.Fatalf("Unresolved = %#v, pick(String) should have resolved", result.Unresolved)
+	}
+}
+
 func TestIndexerSetsResultAndFileMetadata(t *testing.T) {
 	root := t.TempDir()
 	writeASTGraphFixture(t, root, "main.go", `package main
@@ -180,6 +204,17 @@ func nodeIDByName(t *testing.T, nodes []GraphNode, kind NodeKind, name string) s
 		}
 	}
 	t.Fatalf("node %s %s not found in %#v", kind, name, nodes)
+	return ""
+}
+
+func nodeIDByNameAndParamCount(t *testing.T, nodes []GraphNode, kind NodeKind, name string, parameterCount int) string {
+	t.Helper()
+	for _, node := range nodes {
+		if node.Kind == kind && node.Name == name && node.ParameterCount == parameterCount {
+			return node.ID
+		}
+	}
+	t.Fatalf("node %s %s with %d params not found in %#v", kind, name, parameterCount, nodes)
 	return ""
 }
 

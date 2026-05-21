@@ -109,15 +109,19 @@ func (s *ContextService) entryPoints(graph GraphStore, parsed ContextParsedQuery
 	entryPoints := make([]GraphNodeDetail, 0, len(searchResults))
 	for _, result := range searchResults {
 		detail := GraphNodeDetail{
-			ID:            result.ID,
-			Kind:          result.Kind,
-			Name:          result.Name,
-			QualifiedName: result.QualifiedName,
-			Language:      result.Language,
-			Path:          result.Path,
-			StartLine:     result.StartLine,
-			EndLine:       result.EndLine,
-			Calls:         result.Calls,
+			ID:             result.ID,
+			Kind:           result.Kind,
+			Name:           result.Name,
+			QualifiedName:  result.QualifiedName,
+			ReceiverType:   result.ReceiverType,
+			ParameterCount: result.ParameterCount,
+			ParameterTypes: result.ParameterTypes,
+			ReturnType:     result.ReturnType,
+			Language:       result.Language,
+			Path:           result.Path,
+			StartLine:      result.StartLine,
+			EndLine:        result.EndLine,
+			Calls:          result.Calls,
 		}
 		key := contextEntryKey(detail)
 		if _, ok := seen[key]; ok {
@@ -227,15 +231,19 @@ func (s *ContextService) snippets(sourcePath string, entryPoints []GraphNodeDeta
 
 func graphNodeDetailFromGraphNode(node GraphNode) GraphNodeDetail {
 	return GraphNodeDetail{
-		ID:            node.ID,
-		Kind:          node.Kind,
-		Name:          node.Name,
-		QualifiedName: node.QualifiedName,
-		Language:      node.Language,
-		Path:          node.FilePath,
-		StartLine:     node.StartLine,
-		EndLine:       node.EndLine,
-		Signature:     node.Signature,
+		ID:             node.ID,
+		Kind:           node.Kind,
+		Name:           node.Name,
+		QualifiedName:  node.QualifiedName,
+		ReceiverType:   node.ReceiverType,
+		ParameterCount: node.ParameterCount,
+		ParameterTypes: node.ParameterTypes,
+		ReturnType:     node.ReturnType,
+		Language:       node.Language,
+		Path:           node.FilePath,
+		StartLine:      node.StartLine,
+		EndLine:        node.EndLine,
+		Signature:      node.Signature,
 	}
 }
 

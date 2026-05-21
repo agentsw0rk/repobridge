@@ -54,17 +54,21 @@ type GraphFile struct {
 }
 
 type GraphNode struct {
-	ID            string
-	Kind          NodeKind
-	Name          string
-	QualifiedName string
-	FilePath      string
-	Language      Language
-	StartLine     int
-	EndLine       int
-	StartColumn   int
-	EndColumn     int
-	Signature     string
+	ID             string
+	Kind           NodeKind
+	Name           string
+	QualifiedName  string
+	ReceiverType   string
+	ParameterCount int
+	ParameterTypes []string
+	ReturnType     string
+	FilePath       string
+	Language       Language
+	StartLine      int
+	EndLine        int
+	StartColumn    int
+	EndColumn      int
+	Signature      string
 }
 
 type GraphEdge struct {
@@ -80,6 +84,10 @@ type GraphEdge struct {
 type UnresolvedReference struct {
 	FromNodeID    string
 	ReferenceName string
+	ReceiverText  string
+	ArgumentCount int
+	ArgumentTexts []string
+	ScopeNodeID   string
 	ReferenceKind EdgeKind
 	FilePath      string
 	Language      Language

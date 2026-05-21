@@ -18,7 +18,7 @@ func ObjectBoxModel() *objectbox.Model {
 	model.RegisterBinding(EdgeEntityBinding)
 	model.RegisterBinding(UnresolvedReferenceEntityBinding)
 	model.LastEntityId(5, 8009807915262133108)
-	model.LastIndexId(19, 8544295943047035425)
+	model.LastIndexId(21, 8024976706042757456)
 
 	return model
 }
