@@ -182,11 +182,13 @@ repobridge clean --repos
 
 Package inputs default to npm. Use a registry prefix for non-npm packages.
 
-Maven inputs use explicit `groupId:artifactId@version` coordinates. RepoBridge downloads the published `*-sources.jar` from maven first; when no source JAR exists, it tries to clone a Git repository from SCM metadata in the artifact POM.
+Maven inputs use `groupId:artifactId@version`. RepoBridge prefers the published `*-sources.jar` and falls back to SCM metadata from the POM when needed.
 
-NuGet inputs use package IDs with an optional explicit version. Without a version, RepoBridge selects the latest stable NuGet version. RepoBridge downloads the `.nupkg` only to read `.nuspec` repository metadata, then fetches the matching Git repository by commit or version tag. It does not cache package binaries as source.
+NuGet inputs use package IDs with an optional version. RepoBridge selects the latest stable version when omitted, reads repository metadata from the `.nupkg`, and caches only the matching source repository.
 
-AST-Graph Engine indexing currently parses Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust sources with Tree-sitter. Route indexing recognizes Spring Java/Kotlin annotations, Express and React Router routes, FastAPI/Flask/Django routes, Gin/chi/gorilla/mux registrations, ASP.NET controller and Minimal API routes, and Rust Axum/actix/Rocket-style route shapes. Route entries are stored as `route`, `handler`, or `component_route` nodes and linked with `handles`, `routes_to`, or `middleware` edges. Indexing runs in the background after successful `path`, `fetch`, and `scan --fetch` commands. `search`, graph inspection, callgraph, `context`, and `explore` rebuild a missing or stale graph synchronously before returning results unless `--no-sync-index` is set.
+AST-Graph Engine indexing uses Tree-sitter for Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust. It also indexes framework routes for Spring, Express, React Router, FastAPI, Flask, Django, Gin, chi, gorilla/mux, ASP.NET, Axum, actix, and Rocket.
+
+Indexes are built in the background after `path`, `fetch`, and `scan --fetch`. Commands that need an index rebuild missing or stale data synchronously unless `--no-sync-index` is set.
 
 ## Commands
 
