@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/arkadiuszczarnik/repobridge"><img alt="Repository" src="https://img.shields.io/badge/github-repobridge-181717?logo=github"></a>
-  <img alt="Go" src="https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white">
+  <img alt="Go" src="https://img.shields.io/badge/Go-1.26.3+-00ADD8?logo=go&logoColor=white">
   <img alt="Cobra" src="https://img.shields.io/badge/Cobra-1.9.1-6F42C1">
   <img alt="Registries" src="https://img.shields.io/badge/registries-npm%20%7C%20pypi%20%7C%20crates.io%20%7C%20Maven%20%7C%20NuGet-2F855A">
   <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue">
@@ -48,7 +48,7 @@ The E2E Token-Reduction-Benchmark compares `repobridge search` with comparable `
 
 ## Requirements
 
-- Go 1.22 or newer
+- Go 1.26.3 or newer
 - `git` available on `PATH`
 
 ## Installation

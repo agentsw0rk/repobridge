@@ -1,6 +1,6 @@
 module repobridge
 
-go 1.22.0
+go 1.26.3
 
 require (
 	github.com/google/flatbuffers v23.5.26+incompatible
