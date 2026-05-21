@@ -41,6 +41,10 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 | 37 | Rust Route Indexing fuer Axum, actix-web und Rocket | Fertig | [37-rust-route-indexing-done.md](37-rust-route-indexing-done.md) | L |
 | 38 | Expanded Graph Kinds fuer Typen, Felder, Properties und Instanziierungen | Fertig | [38-expanded-graph-kinds-done.md](38-expanded-graph-kinds-done.md) | L |
 | 39 | Sprachzentrale External-Klassifizierung fuer Builtins, Standardlibs und Test-DSLs | Geplant | [39-language-external-classification.md](39-language-external-classification.md) | M |
+| 40 | Kotlin Import- und Scope-Aufloesung fuer lokale, importierte und default sichtbare Symbole | Geplant | [40-kotlin-import-scope-resolution.md](40-kotlin-import-scope-resolution.md) | L |
+| 41 | Kotlin Receiver-Typ-Inferenz fuer Methoden- und Extension-Calls | Geplant | [41-kotlin-receiver-type-inference.md](41-kotlin-receiver-type-inference.md) | L |
+| 42 | Kotlin Overload- und Call-Ranking fuer mehrdeutige stdlib-Symbole | Geplant | [42-kotlin-overload-resolution.md](42-kotlin-overload-resolution.md) | L |
+| 43 | Structure Graph Containment fuer Datei-, Modul-, Typ- und Member-Hierarchien | Geplant | [43-structure-graph-containment.md](43-structure-graph-containment.md) | L |
 
 ## Unterstützte Eingaben
 
@@ -99,6 +103,10 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 | 32 | Gradle- und Maven-Projektdateien zur lokalen Versionserkennung auswerten | Lockfile-Erkennung | M |
 | 38 | Expanded Graph Kinds fuer Typen, Felder, Properties und Instanziierungen | AST-Codegraph, Callgraph | L |
 | 39 | Sprachzentrale External-Klassifizierung fuer Builtins, Standardlibs und Test-DSLs | AST-Codegraph, Callgraph | M |
+| 40 | Kotlin Import- und Scope-Aufloesung | AST-Codegraph, Expanded Graph Kinds | L |
+| 41 | Kotlin Receiver-Typ-Inferenz | Kotlin Import- und Scope-Aufloesung | L |
+| 42 | Kotlin Overload- und Call-Ranking | Kotlin Receiver-Typ-Inferenz | L |
+| 43 | Structure Graph Containment | AST-Codegraph, Expanded Graph Kinds | L |
 
 ## Qualität und Tests
 
@@ -142,6 +150,10 @@ Coding Agents und Entwickler-Tools sollen mit einem einfachen Kommando den passe
 | Rust Route Indexing | [37-rust-route-indexing.md](37-rust-route-indexing.md) |
 | Expanded Graph Kinds | [38-expanded-graph-kinds.md](38-expanded-graph-kinds.md) |
 | Sprachzentrale External-Klassifizierung | [39-language-external-classification.md](39-language-external-classification.md) |
+| Kotlin Import- und Scope-Aufloesung | [40-kotlin-import-scope-resolution.md](40-kotlin-import-scope-resolution.md) |
+| Kotlin Receiver-Typ-Inferenz | [41-kotlin-receiver-type-inference.md](41-kotlin-receiver-type-inference.md) |
+| Kotlin Overload- und Call-Ranking | [42-kotlin-overload-resolution.md](42-kotlin-overload-resolution.md) |
+| Structure Graph Containment | [43-structure-graph-containment.md](43-structure-graph-containment.md) |
 
 ## Tech-Stack
 

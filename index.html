@@ -802,7 +802,7 @@
           <h1>searchable source context for ai agents</h1>
           <p class="hero-copy">
             repobridge scans a project, detects the frameworks and libraries it uses, fetches their source code,
-            indexes local AST graphs, and gives AI agents stable reference paths for symbol and call investigation.
+            indexes local AST graphs, and gives AI agents stable reference paths for symbol, structure, and call investigation.
           </p>
           <div class="install-stack">
             <div class="install-callout" aria-label="Install the latest repobridge CLI binary">
@@ -831,8 +831,12 @@
             <span class="line">&nbsp;</span>
             <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge search github.com/acme/service "kind:route path:/login"</span></span>
             <span class="line out">route POST /login AuthController.kt:12</span>
+            <span class="line">&nbsp;</span>
+            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge callees maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 commonMain/kotlin/collections/ArrayList.kt --edge contains</span></span>
+            <span class="line out">file commonMain/kotlin/collections/ArrayList.kt contains kotlin.collections.ArrayList</span>
             <div class="terminal-grid">
               <div class="terminal-chip">AST nodes · routes</div>
+              <div class="terminal-chip">contains edges</div>
               <div class="terminal-chip">Go · Java · Kotlin</div>
               <div class="terminal-chip">C# · JS · TS</div>
               <div class="terminal-chip">Python · Rust</div>
@@ -872,10 +876,12 @@ repobridge search github.com/acme/web "kind:component_route path:/settings"
 repobridge status github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8
 repobridge files github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 --path src --limit 10
 repobridge node github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 up --source-lines 12
+repobridge callees maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 commonMain/kotlin/collections/ArrayList.kt --edge contains
 
 repobridge callers github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 exec --include-unresolved
 repobridge callers github.com/acme/service AuthController.login --depth 1
 repobridge callees github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 findDockerCompose --depth 2
+repobridge callees maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 be0e02a37d825e799fa669f4577829b23229936d --edge contains --limit 20
 
 repobridge context github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02afdc6cbfe068601d8 "findDockerCompose exec flow" --budget small
 repobridge context github.com/acme/service "POST /login" --budget small
@@ -960,6 +966,13 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
             </div>
           </article>
           <article class="feature-card">
+            <h3>Navigate source structure</h3>
+            <p>Use persisted <code>contains</code> edges to move from files and modules to classes, functions, methods, fields, properties, imports, and nested types.</p>
+            <div class="tag-row">
+              <span class="tag">contains</span><span class="tag">kind:file</span><span class="tag">kind:module</span>
+            </div>
+          </article>
+          <article class="feature-card">
             <h3>Index framework routes</h3>
             <p>Store server and client routes from Spring, Express, React Router, FastAPI, Flask, Django, Gin, chi, gorilla/mux, ASP.NET, Axum, actix, and Rocket.</p>
             <div class="tag-row">
@@ -975,9 +988,9 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
           </article>
           <article class="feature-card">
             <h3>Trace call relationships</h3>
-            <p>Use <code>callers</code>, <code>callees</code>, and <code>impact</code> to follow call, route handler, import, and middleware edges.</p>
+            <p>Use <code>callers</code>, <code>callees</code>, and <code>impact</code> to follow call, route handler, import, middleware, and containment edges.</p>
             <div class="tag-row">
-              <span class="tag">callers</span><span class="tag">callees</span><span class="tag">impact</span>
+              <span class="tag">callers</span><span class="tag">callees</span><span class="tag">--edge contains</span>
             </div>
           </article>
           <article class="feature-card">
@@ -1107,8 +1120,8 @@ repobridge install-agent --target codex --print-config</code></pre>
             </article>
             <article class="reference-card">
               <h3><code>callers · callees · impact</code></h3>
-              <p>Traverses call, route handler, and impact relationships from the stored AST graph with deterministic, compact output.</p>
-              <p><code>--depth</code> · <code>--limit</code> · <code>--include-unresolved</code> · <code>--json</code></p>
+              <p>Traverses call, route handler, containment, and impact relationships from the stored AST graph with deterministic, compact output.</p>
+              <p><code>--depth</code> · <code>--edge</code> · <code>--limit</code> · <code>--include-unresolved</code> · <code>--json</code></p>
             </article>
             <article class="reference-card">
               <h3><code>context · explore</code></h3>
@@ -1143,10 +1156,12 @@ repobridge search github.com/acme/api "kind:route lang:go path:/api/users"
 repobridge status react@19.0.0
 repobridge files react@19.0.0 --path packages/react-dom --limit 10
 repobridge node react@19.0.0 createRoot --source-lines 20
+repobridge callees maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 commonMain/kotlin/collections/ArrayList.kt --edge contains
 
 repobridge callers react@19.0.0 createRoot --depth 2
 repobridge callers github.com/acme/service AuthController.login --depth 1
 repobridge callees react@19.0.0 createRoot --include-unresolved
+repobridge callees maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 be0e02a37d825e799fa669f4577829b23229936d --edge contains --limit 20
 repobridge impact react@19.0.0 createRoot --json
 
 repobridge context react@19.0.0 "createRoot render flow" --budget small
@@ -1183,6 +1198,13 @@ repobridge install-agent --target all --dry-run</code></pre>
             </div>
           </article>
           <article class="feature-card">
+            <h3>Structure containment</h3>
+            <p>Every indexed source file gets a stable <code>file</code> node. Package and namespace scopes become <code>module</code> nodes, and declarations are linked with <code>contains</code> edges.</p>
+            <div class="tag-row">
+              <span class="tag">file</span><span class="tag">module</span><span class="tag">contains</span>
+            </div>
+          </article>
+          <article class="feature-card">
             <h3>Framework routes</h3>
             <p>Route annotations, router calls, JSX routes, URL patterns, and builder APIs create graph evidence so <code>POST /login</code> can lead straight to the handler.</p>
             <div class="tag-row">
@@ -1205,9 +1227,9 @@ repobridge install-agent --target all --dry-run</code></pre>
           </article>
           <article class="feature-card">
             <h3>Callgraph traversal</h3>
-            <p><code>callers</code>, <code>callees</code>, and <code>impact</code> walk stored graph edges with bounded depth, limits, and unresolved call references.</p>
+            <p><code>callers</code>, <code>callees</code>, and <code>impact</code> walk stored graph edges with bounded depth, edge filters, limits, and unresolved call references.</p>
             <div class="tag-row">
-              <span class="tag">depth</span><span class="tag">limit</span><span class="tag">unresolved</span>
+              <span class="tag">depth</span><span class="tag">--edge</span><span class="tag">unresolved</span>
             </div>
           </article>
           <article class="feature-card">

@@ -115,6 +115,44 @@ func Run() { _ = Profile{} }
 	}
 }
 
+func TestExtractFromSourceAddsGoContainmentGraph(t *testing.T) {
+	source := []byte(`package demo
+
+import "fmt"
+
+type Service struct {
+	Name string
+}
+
+func helper() {}
+
+func (s Service) Run() {
+	helper()
+	fmt.Println("ok")
+}
+`)
+
+	result, err := ExtractFromSource("service.go", source, model.LanguageGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fileID := findNodeID(t, result.Nodes, model.NodeKindFile, "service.go")
+	moduleID := findNodeID(t, result.Nodes, model.NodeKindModule, "demo")
+	serviceID := findNodeID(t, result.Nodes, model.NodeKindStruct, "Service")
+	importID := findNodeID(t, result.Nodes, model.NodeKindImport, "fmt")
+	fieldID := findNodeID(t, result.Nodes, model.NodeKindField, "Name")
+	helperID := findNodeID(t, result.Nodes, model.NodeKindFunction, "helper")
+	runID := findNodeID(t, result.Nodes, model.NodeKindMethod, "Run")
+
+	assertEdge(t, result.Edges, fileID, moduleID, model.EdgeKindContains)
+	assertEdge(t, result.Edges, moduleID, importID, model.EdgeKindContains)
+	assertEdge(t, result.Edges, moduleID, serviceID, model.EdgeKindContains)
+	assertEdge(t, result.Edges, moduleID, helperID, model.EdgeKindContains)
+	assertEdge(t, result.Edges, serviceID, fieldID, model.EdgeKindContains)
+	assertEdge(t, result.Edges, serviceID, runID, model.EdgeKindContains)
+}
+
 func TestExtractFromSourceSkipsGoCallsWithoutOwner(t *testing.T) {
 	source := []byte("package demo\nvar x = helper()\nfunc helper() {}\n")
 
@@ -852,6 +890,115 @@ class AuthController {
 	assertUnresolvedFrom(t, result.Unresolved, "audit", handlerID)
 }
 
+func TestExtractFromSourceAddsContainmentAcrossLanguages(t *testing.T) {
+	tests := []struct {
+		name       string
+		path       string
+		language   model.Language
+		source     string
+		parentKind model.NodeKind
+		parentName string
+		childKind  model.NodeKind
+		childName  string
+	}{
+		{
+			name:       "java nested class",
+			path:       "Outer.java",
+			language:   model.LanguageJava,
+			source:     "package demo;\nclass Outer {\n  class Inner {}\n  void run() {}\n}\n",
+			parentKind: model.NodeKindClass,
+			parentName: "Outer",
+			childKind:  model.NodeKindClass,
+			childName:  "Inner",
+		},
+		{
+			name:       "kotlin property",
+			path:       "Service.kt",
+			language:   model.LanguageKotlin,
+			source:     "package demo\nclass Service {\n  val profile: Profile = Profile()\n}\nclass Profile\n",
+			parentKind: model.NodeKindClass,
+			parentName: "Service",
+			childKind:  model.NodeKindProperty,
+			childName:  "profile",
+		},
+		{
+			name:       "csharp nested class",
+			path:       "Service.cs",
+			language:   model.LanguageCSharp,
+			source:     "namespace Demo;\nclass Service {\n  class Nested {}\n  void Run() {}\n}\n",
+			parentKind: model.NodeKindClass,
+			parentName: "Service",
+			childKind:  model.NodeKindClass,
+			childName:  "Nested",
+		},
+		{
+			name:       "typescript property",
+			path:       "service.ts",
+			language:   model.LanguageTypeScript,
+			source:     "class Service {\n  profile: Profile\n  run(): void {}\n}\nclass Profile {}\n",
+			parentKind: model.NodeKindClass,
+			parentName: "Service",
+			childKind:  model.NodeKindProperty,
+			childName:  "profile",
+		},
+		{
+			name:       "python nested class",
+			path:       "service.py",
+			language:   model.LanguagePython,
+			source:     "class Service:\n    class Nested:\n        pass\n    def run(self):\n        pass\n",
+			parentKind: model.NodeKindClass,
+			parentName: "Service",
+			childKind:  model.NodeKindClass,
+			childName:  "Nested",
+		},
+		{
+			name:       "rust field",
+			path:       "service.rs",
+			language:   model.LanguageRust,
+			source:     "struct Service {\n    profile: Profile,\n}\nstruct Profile {}\nimpl Service {\n    fn run(&self) {}\n}\n",
+			parentKind: model.NodeKindStruct,
+			parentName: "Service",
+			childKind:  model.NodeKindField,
+			childName:  "profile",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ExtractFromSource(tt.path, []byte(tt.source), tt.language)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fileID := findNodeID(t, result.Nodes, model.NodeKindFile, tt.path)
+			parentID := findNodeID(t, result.Nodes, tt.parentKind, tt.parentName)
+			childID := findNodeID(t, result.Nodes, tt.childKind, tt.childName)
+
+			assertContainedByFileRoot(t, result.Edges, fileID, parentID)
+			assertEdge(t, result.Edges, parentID, childID, model.EdgeKindContains)
+		})
+	}
+}
+
+func TestExtractFromSourceDoesNotContainExternalNodes(t *testing.T) {
+	source := []byte("package demo\nfunc run() { println(\"ok\") }\n")
+
+	result, err := ExtractFromSource("main.go", source, model.LanguageGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, edge := range result.Edges {
+		if edge.Kind != model.EdgeKindContains {
+			continue
+		}
+		for _, node := range result.Nodes {
+			if node.ID == edge.TargetNodeID && node.Kind == model.NodeKindExternal {
+				t.Fatalf("external node %s has contains edge %#v", node.QualifiedName, edge)
+			}
+		}
+	}
+}
+
 func TestExtractFromSourceWarnsForUnsupportedLanguage(t *testing.T) {
 	result, err := ExtractFromSource("file.unknown", []byte("content"), model.LanguageUnknown)
 	if err != nil {
@@ -922,6 +1069,26 @@ func assertEdge(t *testing.T, edges []model.GraphEdge, fromID, toID string, kind
 		}
 	}
 	t.Fatalf("edge %s -> %s %s not found in %#v", fromID, toID, kind, edges)
+}
+
+func assertContainedByFileRoot(t *testing.T, edges []model.GraphEdge, fileID, nodeID string) {
+	t.Helper()
+	for _, edge := range edges {
+		if edge.SourceNodeID == fileID && edge.TargetNodeID == nodeID && edge.Kind == model.EdgeKindContains {
+			return
+		}
+	}
+	for _, rootEdge := range edges {
+		if rootEdge.SourceNodeID != fileID || rootEdge.Kind != model.EdgeKindContains {
+			continue
+		}
+		for _, childEdge := range edges {
+			if childEdge.SourceNodeID == rootEdge.TargetNodeID && childEdge.TargetNodeID == nodeID && childEdge.Kind == model.EdgeKindContains {
+				return
+			}
+		}
+	}
+	t.Fatalf("node %s is not contained by file root %s in %#v", nodeID, fileID, edges)
 }
 
 func assertUnresolved(t *testing.T, refs []model.UnresolvedReference, name string) {

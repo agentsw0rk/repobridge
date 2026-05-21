@@ -31,6 +31,55 @@ func main() { helper() }
 	}
 }
 
+func TestIndexerBuildsContainmentGraphAndKeepsCallEdges(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "main.go", `package main
+type Service struct {
+	Name string
+}
+func helper() {}
+func (s Service) Run() { helper() }
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fileID := nodeIDByName(t, result.Nodes, NodeKindFile, "main.go")
+	moduleID := nodeIDByName(t, result.Nodes, NodeKindModule, "main")
+	serviceID := nodeIDByName(t, result.Nodes, NodeKindStruct, "Service")
+	fieldID := nodeIDByName(t, result.Nodes, NodeKindField, "Name")
+	runID := nodeIDByName(t, result.Nodes, NodeKindMethod, "Run")
+	helperID := nodeIDByName(t, result.Nodes, NodeKindFunction, "helper")
+
+	for _, edge := range []struct {
+		from string
+		to   string
+		kind EdgeKind
+	}{
+		{fileID, moduleID, EdgeKindContains},
+		{moduleID, serviceID, EdgeKindContains},
+		{serviceID, fieldID, EdgeKindContains},
+		{serviceID, runID, EdgeKindContains},
+		{runID, helperID, EdgeKindCalls},
+	} {
+		if !hasEdge(result.Edges, edge.from, edge.to, edge.kind) {
+			t.Fatalf("Edges = %#v, want %s -> %s %s", result.Edges, edge.from, edge.to, edge.kind)
+		}
+	}
+	if len(result.Edges) <= 1 {
+		t.Fatalf("Edges = %#v, want contains edges included in graph edge count", result.Edges)
+	}
+}
+
+func TestSchemaVersionBumpedForContainmentGraph(t *testing.T) {
+	if SchemaVersion != 27 {
+		t.Fatalf("SchemaVersion = %d, want 27 for containment graph reindex", SchemaVersion)
+	}
+}
+
 func TestIndexerResolvesUnambiguousCallsToEdges(t *testing.T) {
 	root := t.TempDir()
 	writeASTGraphFixture(t, root, "main.go", `package main
@@ -80,8 +129,8 @@ func helper() {}
 	}
 
 	mainID := nodeIDByName(t, result.Nodes, NodeKindFunction, "main")
-	if len(result.Edges) != 0 {
-		t.Fatalf("Edges = %#v, ambiguous helper call should not resolve", result.Edges)
+	if hasEdgeKind(result.Edges, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, ambiguous helper call should not resolve to a calls edge", result.Edges)
 	}
 	if !hasUnresolved(result.Unresolved, mainID, "helper") {
 		t.Fatalf("Unresolved = %#v, want ambiguous helper to remain unresolved", result.Unresolved)
@@ -1321,6 +1370,15 @@ func nodeIDByQualifiedName(t *testing.T, nodes []GraphNode, kind NodeKind, quali
 func hasEdge(edges []GraphEdge, sourceID, targetID string, kind EdgeKind) bool {
 	for _, edge := range edges {
 		if edge.SourceNodeID == sourceID && edge.TargetNodeID == targetID && edge.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEdgeKind(edges []GraphEdge, kind EdgeKind) bool {
+	for _, edge := range edges {
+		if edge.Kind == kind {
 			return true
 		}
 	}

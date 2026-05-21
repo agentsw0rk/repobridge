@@ -37,9 +37,10 @@ The E2E Token-Reduction-Benchmark compares `repobridge search` with comparable `
 - Fetch Git repositories from GitHub, GitLab, and Bitbucket.
 - Scan a project for dependency source specs from manifests, lockfiles, and imports.
 - Build local Tree-sitter AST graphs for cached sources and search them by symbol, kind, path, language, and calls.
+- Store structure containment edges from files and modules to classes, functions, methods, fields, properties, imports, and nested types.
 - Index framework routes and handlers as graph nodes, including HTTP method, route pattern, file, and line.
 - Inspect cached AST-Graph Engine indexes with `status`, `files`, and `node` without scanning source trees again.
-- Traverse call graphs with `callers`, `callees`, and `impact` for focused agent investigations.
+- Traverse graph edges with `callers`, `callees`, and `impact` for focused agent investigations, including `--edge contains`.
 - Build task-oriented agent context with `context` and broader graph explanations with `explore`.
 - Reuse a stable local cache across repeated agent/tool runs.
 - Detect installed npm package versions from `node_modules`, lockfiles, and `package.json`.
@@ -118,6 +119,7 @@ Inspect graph health, indexed files, and exact nodes:
 repobridge status react@19.0.0
 repobridge files react@19.0.0 --path packages/react-dom --limit 10
 repobridge node react@19.0.0 createRoot --source-lines 20
+repobridge callees maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 commonMain/kotlin/collections/ArrayList.kt --edge contains
 ```
 
 Trace deeper relationships when needed:
@@ -125,6 +127,7 @@ Trace deeper relationships when needed:
 ```bash
 repobridge callers github.com/acme/service AuthController.login --depth 1
 repobridge callees react@19.0.0 createRoot --include-unresolved
+repobridge callees maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 be0e02a37d825e799fa669f4577829b23229936d --edge contains --limit 20
 repobridge impact react@19.0.0 createRoot --json
 ```
 
@@ -167,6 +170,8 @@ NuGet inputs use package IDs with an optional version. RepoBridge selects the la
 
 AST-Graph Engine indexing uses Tree-sitter for Go, Java, Kotlin, C#, JavaScript, TypeScript, Python, and Rust. It also indexes framework routes for Spring, Express, React Router, FastAPI, Flask, Django, Gin, chi, gorilla/mux, ASP.NET, Axum, actix, and Rocket.
 
+The graph includes structure containment as normal `contains` edges. Each indexed source file gets a stable `file` node, package and namespace scopes become `module` nodes when they are statically visible, and local declarations are attached to their primary parent. For example, `file -> module -> class -> method` lets an agent ask what a file or class contains without reconstructing ownership from paths and line ranges. The Kotlin stdlib fixture `maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20` indexes with schema version `27` and exposes `ArrayList.kt --contains--> kotlin.collections.ArrayList` plus class-to-member containment edges.
+
 Call graph resolution stores call sites as structured references with callee name, receiver text, argument count/texts, source scope, and location. Callable nodes also store qualified names, receiver type, parameter count/types, and return type when Tree-sitter syntax exposes them. The resolver prefers same-file and same-receiver candidates, requires argument counts to match, and leaves ties as unresolved references instead of guessing.
 
 Indexes are built in the background after `path`, `fetch`, and `scan --fetch`. Commands that need an index rebuild missing or stale data synchronously unless `--no-sync-index` is set.
@@ -182,9 +187,9 @@ Indexes are built in the background after `path`, `fetch`, and `scan --fetch`. C
 | `repobridge status <spec>` | Shows graph path, freshness status, schema version, file/node/edge counts, and warnings. |
 | `repobridge files <spec>` | Lists files stored in the AST graph without walking the source tree again. |
 | `repobridge node <spec> <id-or-name>` | Shows one symbol's kind, qualified name, location, calls, and optional source lines. |
-| `repobridge callers <spec> <symbol>` | Finds functions, methods, or routes that call or handle a symbol. |
-| `repobridge callees <spec> <symbol>` | Finds functions or methods called by a symbol. |
-| `repobridge impact <spec> <symbol>` | Traverses incoming call/import relationships to estimate change impact. |
+| `repobridge callers <spec> <symbol>` | Finds functions, methods, routes, or structural parents related to a symbol. |
+| `repobridge callees <spec> <symbol>` | Finds called symbols or contained children, depending on the selected edge kind. |
+| `repobridge impact <spec> <symbol>` | Traverses incoming call/import/containment relationships to estimate change impact. |
 | `repobridge context <spec> <query>` | Returns focused task context with entry points, relationships, snippets, related files, warnings, and stats. |
 | `repobridge explore <spec> <query>` | Returns broader graph exploration context with the same bounded output shape. |
 | `repobridge install-agent` | Installs the bundled RepoBridge skill for Codex, Claude, Cursor, opencode, or all targets. |
@@ -204,12 +209,12 @@ Common command flags:
 | `status`, `files`, `node`, `callers`, `callees`, `impact`, `context`, `explore` | `--json`, `--no-sync-index`. |
 | `files` | `--path`, `--limit`. |
 | `node` | `--source-lines`. |
-| `callers`, `callees`, `impact` | `--depth`, `--kind`, `--lang`, `--path`, `--limit`, `--include-unresolved`. |
+| `callers`, `callees`, `impact` | `--depth`, `--edge`, `--kind`, `--lang`, `--path`, `--limit`, `--include-unresolved`. |
 | `context`, `explore` | `--budget`, `--limit`, `--depth`. |
 | `install-agent` | `--target`, `--version`, `--dry-run`, `--print-config`. |
 | `clean` | `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, `--nuget`. |
 
-Useful search query tokens include `kind:route`, `kind:handler`, `kind:component_route`, `path:/some/route`, `lang:python`, `calls:<symbol>`, and free text such as `POST /login`.
+Useful search query tokens include `kind:file`, `kind:module`, `kind:route`, `kind:handler`, `kind:component_route`, `path:/some/route`, `lang:python`, `calls:<symbol>`, and free text such as `POST /login`. Graph traversal edge filters include `calls`, `imports`, `handles`, `routes_to`, `middleware`, and `contains`.
 
 ## Configuration
 

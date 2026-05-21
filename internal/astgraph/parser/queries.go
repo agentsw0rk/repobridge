@@ -100,6 +100,8 @@ func walkJavaScriptRouteAwareNode(path string, source []byte, node *tree_sitter.
 	}
 
 	switch node.Kind() {
+	case "class_declaration":
+		appendLanguageNode(path, source, node, model.NodeKindClass, language, result)
 	case "function_declaration":
 		if id := appendLanguageNode(path, source, node, model.NodeKindFunction, language, result); id != "" {
 			currentNodeID = id
@@ -131,6 +133,8 @@ func walkPythonNode(path string, source []byte, node *tree_sitter.Node, result *
 	}
 
 	switch node.Kind() {
+	case "class_definition":
+		appendLanguageNode(path, source, node, model.NodeKindClass, model.LanguagePython, result)
 	case "decorated_definition":
 		if id, handled := appendPythonDecoratedRoute(path, source, node, result); handled {
 			currentNodeID = id
@@ -210,9 +214,14 @@ func walkJavaNode(path string, source []byte, node *tree_sitter.Node, result *Ex
 		if name := declarationName(source, node); name != "" {
 			className = name
 		}
+		appendScopedLanguageNode(path, source, node, model.NodeKindClass, model.LanguageJava, result, "")
 		if prefix, ok := springClassRoutePrefix(source, node); ok {
 			routePrefix = combineRoutePatterns(routePrefix, prefix)
 		}
+	case "interface_declaration":
+		appendScopedLanguageNode(path, source, node, model.NodeKindInterface, model.LanguageJava, result, "")
+	case "enum_declaration":
+		appendScopedLanguageNode(path, source, node, model.NodeKindEnum, model.LanguageJava, result, "")
 	case "method_declaration":
 		if id := appendSpringHandlerOrJavaMethod(path, source, node, result, routePrefix, className); id != "" {
 			currentNodeID = id
@@ -1026,10 +1035,10 @@ func appendRustStructNode(path string, source []byte, node *tree_sitter.Node, re
 	start := node.StartPosition()
 	end := node.EndPosition()
 	startLine := int(start.Row) + 1
-	id := stableNodeID(path, model.NodeKindClass, name, startLine)
+	id := stableNodeID(path, model.NodeKindStruct, name, startLine)
 	result.Nodes = append(result.Nodes, model.GraphNode{
 		ID:             id,
-		Kind:           model.NodeKindClass,
+		Kind:           model.NodeKindStruct,
 		Name:           name,
 		QualifiedName:  name,
 		ParameterCount: -1,
