@@ -24,8 +24,67 @@ func main() { helper() }
 	if !hasNode(result.Nodes, NodeKindFunction, "helper") || !hasNode(result.Nodes, NodeKindFunction, "main") {
 		t.Fatalf("Nodes = %#v", result.Nodes)
 	}
-	if len(result.Unresolved) == 0 {
-		t.Fatalf("Unresolved = %#v, want helper call", result.Unresolved)
+	mainID := nodeIDByName(t, result.Nodes, NodeKindFunction, "main")
+	helperID := nodeIDByName(t, result.Nodes, NodeKindFunction, "helper")
+	if !hasEdge(result.Edges, mainID, helperID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want main -> helper calls edge", result.Edges)
+	}
+}
+
+func TestIndexerResolvesUnambiguousCallsToEdges(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "main.go", `package main
+import "fmt"
+func helper() {}
+func main() {
+	helper()
+	fmt.Println("ok")
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mainID := nodeIDByName(t, result.Nodes, NodeKindFunction, "main")
+	helperID := nodeIDByName(t, result.Nodes, NodeKindFunction, "helper")
+	if !hasEdge(result.Edges, mainID, helperID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want main -> helper calls edge", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, mainID, "helper") {
+		t.Fatalf("Unresolved = %#v, helper should have resolved", result.Unresolved)
+	}
+	if !hasUnresolved(result.Unresolved, mainID, "Println") {
+		t.Fatalf("Unresolved = %#v, want external Println to remain unresolved", result.Unresolved)
+	}
+}
+
+func TestIndexerKeepsAmbiguousCallsUnresolved(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "main.go", `package main
+func main() { helper() }
+`)
+	writeASTGraphFixture(t, root, "a.go", `package main
+func helper() {}
+`)
+	writeASTGraphFixture(t, root, "b.go", `package main
+func helper() {}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mainID := nodeIDByName(t, result.Nodes, NodeKindFunction, "main")
+	if len(result.Edges) != 0 {
+		t.Fatalf("Edges = %#v, ambiguous helper call should not resolve", result.Edges)
+	}
+	if !hasUnresolved(result.Unresolved, mainID, "helper") {
+		t.Fatalf("Unresolved = %#v, want ambiguous helper to remain unresolved", result.Unresolved)
 	}
 }
 
@@ -111,4 +170,33 @@ func countNodesForPath(nodes []GraphNode, path string) int {
 		}
 	}
 	return count
+}
+
+func nodeIDByName(t *testing.T, nodes []GraphNode, kind NodeKind, name string) string {
+	t.Helper()
+	for _, node := range nodes {
+		if node.Kind == kind && node.Name == name {
+			return node.ID
+		}
+	}
+	t.Fatalf("node %s %s not found in %#v", kind, name, nodes)
+	return ""
+}
+
+func hasEdge(edges []GraphEdge, sourceID, targetID string, kind EdgeKind) bool {
+	for _, edge := range edges {
+		if edge.SourceNodeID == sourceID && edge.TargetNodeID == targetID && edge.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func hasUnresolved(refs []UnresolvedReference, fromID, name string) bool {
+	for _, ref := range refs {
+		if ref.FromNodeID == fromID && ref.ReferenceName == name {
+			return true
+		}
+	}
+	return false
 }
