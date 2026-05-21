@@ -1,6 +1,6 @@
 ---
 name: repobridge
-description: Use when an AI agent needs to find, inspect, search, or reason about external framework, library, dependency, package, or fetched source code for a project. Prefer this skill before raw network fetches, gh/curl downloads, generic file search, rg, grep, or manually browsing dependency trees. Use RepoBridge context, explore, search, graph, and callgraph commands first.
+description: Use when an AI agent needs to find, inspect, search, navigate structure, or reason about external framework, library, dependency, package, or fetched source code for a project. Prefer this skill before raw network fetches, generic file search, rg, grep, or manually browsing dependency trees. Use RepoBridge graph commands first.
 ---
 
 # RepoBridge Project Context
@@ -15,7 +15,7 @@ When the user asks about dependency, framework, library, package, or fetched sou
 - Do not use a plain network fetch to inspect sources that RepoBridge can resolve.
 - Use `repobridge scan`, `repobridge path`, `repobridge context`, `repobridge explore`, `repobridge search`, graph inspection, and callgraph commands to resolve and query dependency sources.
 - Use `repobridge context` or `repobridge explore` for task-level source investigations before opening large files or scanning whole trees manually.
-- Use `repobridge search`, `node`, `callers`, `callees`, or `impact` for exact symbol, route, handler, path, language, and call-flow questions.
+- Use `repobridge search`, `node`, `callers`, `callees`, or `impact` for exact symbol, route, handler, path, language, structure, containment, and call-flow questions.
 - Use `rg` or `grep` only as a documented fallback after RepoBridge graph commands cannot represent the target, for example comments, README text, raw string literals, generated files, config files, or unindexed file types.
 - If fallback `rg` or `grep` is used, scope it to `$(repobridge path --cwd <project-root> <spec>)` and state why AST search was insufficient.
 
@@ -47,16 +47,18 @@ For project-local code that is not an external dependency, normal local code too
    repobridge explore --cwd <project-root> github.com/vercel/next.js "AppRouter cache invalidation" --budget large --depth 2
    ```
 
-8. **Search exact symbols, routes, and calls with RepoBridge.** Prefer `repobridge search` for symbol-, route-, language-, path-, and call-aware investigation because it returns compact AST results instead of broad text snippets:
+8. **Search exact symbols, routes, structure, and calls with RepoBridge.** Prefer `repobridge search` for symbol-, route-, language-, path-, and call-aware investigation because it returns compact AST results instead of broad text snippets:
 
    ```bash
    repobridge search --cwd <project-root> react "kind:function calls:createRoot"
    repobridge search --cwd <project-root> maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
+   repobridge search --cwd <project-root> <spec> "kind:file path:ArrayList.kt"
+   repobridge search --cwd <project-root> <spec> "kind:module name:kotlin.collections"
    repobridge search --cwd <project-root> <spec> "kind:route path:/login"
    repobridge search --cwd <project-root> <spec> "kind:component_route path:/settings"
    ```
 
-9. **Inspect and trace graph evidence before raw text search.** Use `status`, `files`, `node`, `callers`, `callees`, and `impact` when the agent needs exact graph health, source lines, or call-flow evidence.
+9. **Inspect and trace graph evidence before raw text search.** Use `status`, `files`, `node`, `callers`, `callees`, and `impact` when the agent needs exact graph health, source lines, call-flow evidence, or structure containment. Use `--edge contains` to navigate file, module, type, member, and nested declaration hierarchy.
 10. **Use resolved paths as read-only references when needed.** Open specific files returned by RepoBridge commands, use LSP navigation when available, and use `rg` only as a fallback for text that is not represented in the AST graph.
 11. **State what was fetched and searched.** In the final response, mention which frameworks/libraries were resolved and which RepoBridge queries or paths were used when that matters for the task.
 
@@ -70,8 +72,8 @@ Use this decision order for source-code questions:
 2. `repobridge scan --cwd <project-root> --fetch --limit <N>` or `repobridge fetch --cwd <project-root> <spec>` only to populate the local source cache.
 3. `repobridge context --cwd <project-root> <spec> "<task query>"` for focused implementation/debugging context.
 4. `repobridge explore --cwd <project-root> <spec> "<symbols or flow>"` for broader graph explanation.
-5. `repobridge search --cwd <project-root> <spec> "<query>"` for definitions, functions, methods, classes, imports, framework routes, component routes, paths, languages, or call relationships.
-6. `repobridge node`, `callers`, `callees`, or `impact` for exact symbol details and graph traversal.
+5. `repobridge search --cwd <project-root> <spec> "<query>"` for definitions, files, modules, functions, methods, classes, imports, framework routes, component routes, paths, languages, or call relationships.
+6. `repobridge node`, `callers`, `callees`, or `impact` for exact symbol details, call traversal, impact traversal, and `contains` structure traversal.
 7. Open only the files and lines returned by RepoBridge.
 8. Use scoped fallback `rg` only for non-AST content and explain the fallback.
 
@@ -115,10 +117,12 @@ Graph inspection and callgraph command shapes:
 repobridge status --cwd <project-root> [--json] <spec>
 repobridge files --cwd <project-root> [--json] [--path substring] [--limit N] <spec>
 repobridge node --cwd <project-root> [--json] [--source-lines N] <spec> <id-or-name>
-repobridge callers --cwd <project-root> [--json] [--depth N] [--limit N] [--include-unresolved] <spec> <symbol>
-repobridge callees --cwd <project-root> [--json] [--depth N] [--limit N] [--include-unresolved] <spec> <symbol>
-repobridge impact --cwd <project-root> [--json] [--depth N] [--limit N] <spec> <symbol>
+repobridge callers --cwd <project-root> [--json] [--depth N] [--edge kind] [--limit N] [--include-unresolved] <spec> <symbol>
+repobridge callees --cwd <project-root> [--json] [--depth N] [--edge kind] [--limit N] [--include-unresolved] <spec> <symbol>
+repobridge impact --cwd <project-root> [--json] [--depth N] [--edge kind] [--limit N] <spec> <symbol>
 ```
+
+Use `--edge contains` for structure navigation, `--edge calls` for call-only traversal, `--edge imports` for import relationships, and route edge kinds such as `handles`, `routes_to`, or `middleware` when available. Multiple `--edge` flags can be used when the investigation needs more than one relationship kind.
 
 Good query patterns:
 
@@ -126,6 +130,8 @@ Good query patterns:
 repobridge search --cwd . react@19.0.0 "kind:function name:render"
 repobridge search --cwd . pypi:requests==2.32.3 "calls:send lang:python"
 repobridge search --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
+repobridge search --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 "kind:file path:ArrayList.kt"
+repobridge search --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 "kind:class name:ArrayList lang:kotlin"
 repobridge search --cwd . github.com/vercel/next.js "path:packages kind:method"
 repobridge search --cwd . <spec> "kind:function calls:exec path:DockerCompose.kt"
 repobridge search --cwd . <spec> "kind:route path:/api/login"
@@ -135,7 +141,21 @@ repobridge context --cwd . <spec> "auth login session flow" --budget small
 repobridge explore --cwd . <spec> "AuthController LoginRepository" --budget medium --depth 2
 repobridge node --cwd . <spec> AuthController.login --source-lines 16
 repobridge callers --cwd . <spec> login --depth 2 --include-unresolved
+repobridge callees --cwd . <spec> commonMain/kotlin/collections/ArrayList.kt --edge contains --limit 20
+repobridge callees --cwd . <spec> <class-node-id> --edge contains --limit 20
 ```
+
+Structure-aware examples:
+
+```bash
+repobridge status --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20
+repobridge search --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 "kind:file path:commonMain/kotlin/collections/ArrayList.kt"
+repobridge callees --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 commonMain/kotlin/collections/ArrayList.kt --edge contains
+repobridge callees --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 <array-list-node-id> --edge contains --limit 20
+repobridge callers --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 <method-node-id> --edge contains
+```
+
+Use structure traversal when the user asks what a file, module, class, interface, struct, enum, trait, function, or method contains. `file` nodes represent source files, `module` nodes represent statically visible packages or namespaces when available, and `contains` edges connect local declarations to their primary parent. If a name is ambiguous, use `search --json` or `node` to get the stable node ID, then pass that ID to `callers` or `callees`.
 
 Route-aware examples:
 
@@ -156,6 +176,10 @@ Translate common source-search requests like this:
 | --- | --- |
 | Find a function or method | `repobridge search --cwd . <spec> "kind:function name:<name>"` or `kind:method name:<name>` |
 | Find classes/interfaces | `repobridge search --cwd . <spec> "kind:class name:<name>"` or `kind:interface name:<name>` |
+| Find files or modules | `repobridge search --cwd . <spec> "kind:file path:<file>"` or `kind:module name:<package>` |
+| List what a file contains | `repobridge callees --cwd . <spec> <file-path-or-file-node-id> --edge contains` |
+| List methods/properties on a class | `repobridge callees --cwd . <spec> <class-node-id> --edge contains --limit 50` |
+| Find a node's structural parent | `repobridge callers --cwd . <spec> <node-id> --edge contains` |
 | Find framework routes | `repobridge search --cwd . <spec> "kind:route path:<route-path>"` |
 | Find client component routes | `repobridge search --cwd . <spec> "kind:component_route path:<route-path>"` |
 | Find route handler evidence | `repobridge callers --cwd . <spec> <HandlerOrController.method> --depth 1` |
@@ -170,7 +194,7 @@ Translate common source-search requests like this:
 | Restrict to a file or package path | `repobridge search --cwd . <spec> "path:<substring> <query>"` |
 | Need structured output for an agent | `repobridge search --cwd . --json --limit 20 <spec> "<query>"` |
 
-Prefer `context`/`explore` when the task asks for source understanding, implementation guidance, debugging context, route flow, or architectural flow. Prefer `search`, `node`, and callgraph commands when the task is about definitions, declarations, functions, methods, classes, framework routes, component routes, handlers, imports, languages, paths, or function calls. Use fallback `rg` on `$(repobridge path --cwd <project-root> <spec>)` for comments, docs, string literals, configuration files, generated code, or patterns outside the current AST extraction.
+Prefer `context`/`explore` when the task asks for source understanding, implementation guidance, debugging context, route flow, or architectural flow. Prefer `search`, `node`, and graph traversal commands when the task is about definitions, declarations, files, modules, functions, methods, classes, framework routes, component routes, handlers, imports, languages, paths, containment, or function calls. Use fallback `rg` on `$(repobridge path --cwd <project-root> <spec>)` for comments, docs, string literals, configuration files, generated code, or patterns outside the current AST extraction.
 
 ## Selection Rules
 
@@ -217,6 +241,7 @@ repobridge scan --cwd /path/to/app --json
 repobridge scan --cwd /path/to/app --fetch --limit 8
 repobridge context --cwd /path/to/app react "useSyncExternalStore subscription flow" --budget small
 repobridge search --cwd /path/to/app react "kind:function name:useSyncExternalStore"
+repobridge callers --cwd /path/to/app react <node-id> --edge contains
 ```
 
 For a mixed backend project:
@@ -229,6 +254,7 @@ repobridge search --cwd /path/to/service pypi:fastapi "lang:python kind:function
 repobridge search --cwd /path/to/service maven:org.springframework:spring-core@6.1.0 "lang:java kind:class"
 repobridge search --cwd /path/to/service <spec> "kind:route path:/login"
 repobridge context --cwd /path/to/service <spec> "POST /login" --budget small
+repobridge callees --cwd /path/to/service <spec> <controller-node-id> --edge contains
 ```
 
 ## Failure Handling
