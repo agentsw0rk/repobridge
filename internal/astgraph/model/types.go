@@ -15,6 +15,14 @@ const (
 	NodeKindImport         NodeKind = "import"
 	NodeKindExternal       NodeKind = "external"
 	NodeKindVariable       NodeKind = "variable"
+	NodeKindField          NodeKind = "field"
+	NodeKindProperty       NodeKind = "property"
+	NodeKindConstant       NodeKind = "constant"
+	NodeKindEnum           NodeKind = "enum"
+	NodeKindEnumMember     NodeKind = "enum_member"
+	NodeKindTrait          NodeKind = "trait"
+	NodeKindProtocol       NodeKind = "protocol"
+	NodeKindTypeAlias      NodeKind = "type_alias"
 	NodeKindRoute          NodeKind = "route"
 	NodeKindHandler        NodeKind = "handler"
 	NodeKindComponentRoute NodeKind = "component_route"
@@ -23,12 +31,19 @@ const (
 type EdgeKind string
 
 const (
-	EdgeKindContains   EdgeKind = "contains"
-	EdgeKindCalls      EdgeKind = "calls"
-	EdgeKindImports    EdgeKind = "imports"
-	EdgeKindHandles    EdgeKind = "handles"
-	EdgeKindRoutesTo   EdgeKind = "routes_to"
-	EdgeKindMiddleware EdgeKind = "middleware"
+	EdgeKindContains     EdgeKind = "contains"
+	EdgeKindCalls        EdgeKind = "calls"
+	EdgeKindImports      EdgeKind = "imports"
+	EdgeKindHandles      EdgeKind = "handles"
+	EdgeKindRoutesTo     EdgeKind = "routes_to"
+	EdgeKindMiddleware   EdgeKind = "middleware"
+	EdgeKindExtends      EdgeKind = "extends"
+	EdgeKindImplements   EdgeKind = "implements"
+	EdgeKindReferences   EdgeKind = "references"
+	EdgeKindTypeOf       EdgeKind = "type_of"
+	EdgeKindReturns      EdgeKind = "returns"
+	EdgeKindInstantiates EdgeKind = "instantiates"
+	EdgeKindOverrides    EdgeKind = "overrides"
 )
 
 type Language string

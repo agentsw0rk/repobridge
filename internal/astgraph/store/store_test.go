@@ -496,6 +496,41 @@ func TestStoreCallgraphFiltersAndLimits(t *testing.T) {
 	}
 }
 
+func TestStoreCallgraphFiltersByEdgeKind(t *testing.T) {
+	graph := openTestStore(t)
+	err := graph.Replace(astgraph.IndexResult{
+		SourcePath:    "/cache/repo",
+		SchemaVersion: 1,
+		CompletedAt:   time.Now(),
+		Nodes: []astgraph.GraphNode{
+			{ID: "root", Kind: astgraph.NodeKindClass, Name: "Root", FilePath: "root.java", Language: astgraph.LanguageJava, StartLine: 1},
+			{ID: "iface", Kind: astgraph.NodeKindInterface, Name: "Runnable", FilePath: "types.java", Language: astgraph.LanguageJava, StartLine: 2},
+			{ID: "helper", Kind: astgraph.NodeKindMethod, Name: "helper", FilePath: "root.java", Language: astgraph.LanguageJava, StartLine: 3},
+		},
+		Edges: []astgraph.GraphEdge{
+			{SourceNodeID: "root", TargetNodeID: "iface", Kind: astgraph.EdgeKindImplements, FilePath: "root.java", Line: 1},
+			{SourceNodeID: "root", TargetNodeID: "helper", Kind: astgraph.EdgeKindCalls, FilePath: "root.java", Line: 4},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	edges, err := graph.Callgraph(astgraph.CallgraphQuery{
+		RootNodeID: "root",
+		Direction:  astgraph.CallgraphDirectionCallees,
+		Depth:      1,
+		Limit:      10,
+		EdgeKinds:  []astgraph.EdgeKind{astgraph.EdgeKindImplements},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edges) != 1 || edges[0].Kind != astgraph.EdgeKindImplements || edges[0].To.ID != "iface" {
+		t.Fatalf("edges = %#v, want only implements edge to iface", edges)
+	}
+}
+
 func TestStoreCallgraphIncludesUnresolvedCalleesWhenRequested(t *testing.T) {
 	graph := openTestStore(t)
 	err := graph.Replace(astgraph.IndexResult{

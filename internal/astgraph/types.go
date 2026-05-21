@@ -20,6 +20,14 @@ const (
 	NodeKindImport         = model.NodeKindImport
 	NodeKindExternal       = model.NodeKindExternal
 	NodeKindVariable       = model.NodeKindVariable
+	NodeKindField          = model.NodeKindField
+	NodeKindProperty       = model.NodeKindProperty
+	NodeKindConstant       = model.NodeKindConstant
+	NodeKindEnum           = model.NodeKindEnum
+	NodeKindEnumMember     = model.NodeKindEnumMember
+	NodeKindTrait          = model.NodeKindTrait
+	NodeKindProtocol       = model.NodeKindProtocol
+	NodeKindTypeAlias      = model.NodeKindTypeAlias
 	NodeKindRoute          = model.NodeKindRoute
 	NodeKindHandler        = model.NodeKindHandler
 	NodeKindComponentRoute = model.NodeKindComponentRoute
@@ -28,12 +36,19 @@ const (
 type EdgeKind = model.EdgeKind
 
 const (
-	EdgeKindContains   = model.EdgeKindContains
-	EdgeKindCalls      = model.EdgeKindCalls
-	EdgeKindImports    = model.EdgeKindImports
-	EdgeKindHandles    = model.EdgeKindHandles
-	EdgeKindRoutesTo   = model.EdgeKindRoutesTo
-	EdgeKindMiddleware = model.EdgeKindMiddleware
+	EdgeKindContains     = model.EdgeKindContains
+	EdgeKindCalls        = model.EdgeKindCalls
+	EdgeKindImports      = model.EdgeKindImports
+	EdgeKindHandles      = model.EdgeKindHandles
+	EdgeKindRoutesTo     = model.EdgeKindRoutesTo
+	EdgeKindMiddleware   = model.EdgeKindMiddleware
+	EdgeKindExtends      = model.EdgeKindExtends
+	EdgeKindImplements   = model.EdgeKindImplements
+	EdgeKindReferences   = model.EdgeKindReferences
+	EdgeKindTypeOf       = model.EdgeKindTypeOf
+	EdgeKindReturns      = model.EdgeKindReturns
+	EdgeKindInstantiates = model.EdgeKindInstantiates
+	EdgeKindOverrides    = model.EdgeKindOverrides
 )
 
 type Language = model.Language
@@ -179,6 +194,7 @@ type CallgraphOptions struct {
 	Limit             int
 	Depth             int
 	Kinds             []NodeKind
+	EdgeKinds         []EdgeKind
 	Languages         []Language
 	PathFilters       []string
 	IncludeUnresolved bool
@@ -213,6 +229,7 @@ type CallgraphQuery struct {
 	Depth             int
 	Limit             int
 	Kinds             []NodeKind
+	EdgeKinds         []EdgeKind
 	Languages         []Language
 	PathFilters       []string
 	IncludeUnresolved bool

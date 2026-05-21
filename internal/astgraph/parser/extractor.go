@@ -38,6 +38,7 @@ func ExtractFromSource(path string, source []byte, language model.Language) (Ext
 
 	result := ExtractionResult{}
 	walkByLanguage(path, source, tree.RootNode(), language, &result)
+	appendExpandedGraphKinds(path, source, language, &result)
 	return result, nil
 }
 

@@ -399,6 +399,7 @@ func newCallgraphCommand(opts Options, direction astgraph.CallgraphDirection) *c
 	var limit int
 	var depth int
 	var kinds []string
+	var edgeKinds []string
 	var languages []string
 	var paths []string
 
@@ -414,6 +415,7 @@ func newCallgraphCommand(opts Options, direction astgraph.CallgraphDirection) *c
 				Limit:             limit,
 				Depth:             depth,
 				Kinds:             parseNodeKinds(kinds),
+				EdgeKinds:         parseEdgeKinds(edgeKinds),
 				Languages:         parseLanguages(languages),
 				PathFilters:       paths,
 				IncludeUnresolved: includeUnresolved,
@@ -436,6 +438,7 @@ func newCallgraphCommand(opts Options, direction astgraph.CallgraphDirection) *c
 	cmd.Flags().IntVar(&limit, "limit", 0, "limit number of call graph edges")
 	cmd.Flags().IntVar(&depth, "depth", 1, "call graph traversal depth")
 	cmd.Flags().StringArrayVar(&kinds, "kind", nil, "filter by node kind")
+	cmd.Flags().StringArrayVar(&edgeKinds, "edge", nil, "filter by edge kind")
 	cmd.Flags().StringArrayVar(&languages, "lang", nil, "filter by language")
 	cmd.Flags().StringArrayVar(&paths, "path", nil, "filter by path substring")
 	return cmd
@@ -445,6 +448,14 @@ func parseNodeKinds(values []string) []astgraph.NodeKind {
 	kinds := make([]astgraph.NodeKind, 0, len(values))
 	for _, value := range values {
 		kinds = append(kinds, astgraph.NodeKind(value))
+	}
+	return kinds
+}
+
+func parseEdgeKinds(values []string) []astgraph.EdgeKind {
+	kinds := make([]astgraph.EdgeKind, 0, len(values))
+	for _, value := range values {
+		kinds = append(kinds, astgraph.EdgeKind(value))
 	}
 	return kinds
 }

@@ -48,3 +48,26 @@ func TestParseSearchQueryAcceptsRouteKinds(t *testing.T) {
 		t.Fatalf("PathFilters = %#v, want /login", got.PathFilters)
 	}
 }
+
+func TestParseSearchQueryAcceptsExpandedGraphKinds(t *testing.T) {
+	got := ParseSearchQuery(`kind:field kind:property kind:constant kind:enum kind:enum_member kind:trait kind:protocol kind:type_alias`)
+
+	want := []NodeKind{
+		NodeKindField,
+		NodeKindProperty,
+		NodeKindConstant,
+		NodeKindEnum,
+		NodeKindEnumMember,
+		NodeKindTrait,
+		NodeKindProtocol,
+		NodeKindTypeAlias,
+	}
+	if len(got.Kinds) != len(want) {
+		t.Fatalf("Kinds = %#v, want %d kinds", got.Kinds, len(want))
+	}
+	for i, kind := range want {
+		if got.Kinds[i] != kind {
+			t.Fatalf("Kinds = %#v, want %v at %d", got.Kinds, kind, i)
+		}
+	}
+}

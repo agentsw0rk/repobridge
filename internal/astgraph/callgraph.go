@@ -48,6 +48,7 @@ func (s *CallgraphService) Callgraph(spec, symbol string, opts CallgraphOptions)
 			Depth:             opts.Depth,
 			Limit:             opts.Limit,
 			Kinds:             opts.Kinds,
+			EdgeKinds:         opts.EdgeKinds,
 			Languages:         opts.Languages,
 			PathFilters:       opts.PathFilters,
 			IncludeUnresolved: opts.IncludeUnresolved,

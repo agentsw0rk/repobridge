@@ -79,6 +79,42 @@ func run() {
 	assertQualifiedNode(t, result.Nodes, model.NodeKindVariable, "b", "formPostBinding")
 }
 
+func TestExtractFromSourceFindsExpandedGoKinds(t *testing.T) {
+	source := []byte(`package demo
+
+type ID string
+type User struct {
+	Name string
+	Profile Profile
+}
+type Profile struct{}
+const MaxUsers = 10
+func NewUser() User { return User{} }
+func Run() { _ = Profile{} }
+`)
+
+	result, err := ExtractFromSource("types.go", source, model.LanguageGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindTypeAlias, "ID", model.LanguageGo)
+	nameID := findNodeID(t, result.Nodes, model.NodeKindField, "Name")
+	profileFieldID := findNodeID(t, result.Nodes, model.NodeKindField, "Profile")
+	profileID := findNodeID(t, result.Nodes, model.NodeKindStruct, "Profile")
+	newUserID := findNodeID(t, result.Nodes, model.NodeKindFunction, "NewUser")
+	runID := findNodeID(t, result.Nodes, model.NodeKindFunction, "Run")
+	userID := findNodeID(t, result.Nodes, model.NodeKindStruct, "User")
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindConstant, "MaxUsers", model.LanguageGo)
+	assertEdge(t, result.Edges, profileFieldID, profileID, model.EdgeKindTypeOf)
+	assertEdge(t, result.Edges, newUserID, userID, model.EdgeKindReturns)
+	assertEdge(t, result.Edges, newUserID, userID, model.EdgeKindInstantiates)
+	assertEdge(t, result.Edges, runID, profileID, model.EdgeKindInstantiates)
+	if nameID == "" {
+		t.Fatalf("Name field ID is empty")
+	}
+}
+
 func TestExtractFromSourceSkipsGoCallsWithoutOwner(t *testing.T) {
 	source := []byte("package demo\nvar x = helper()\nfunc helper() {}\n")
 
@@ -283,6 +319,42 @@ fn run(formatter: &mut Formatter) {
 	}
 }
 
+func TestExtractFromSourceFindsExpandedRustKinds(t *testing.T) {
+	source := []byte(`trait Sink {}
+struct Profile {}
+struct Service {
+    profile: Profile,
+}
+type UserId = String;
+const LIMIT: usize = 10;
+enum Status { Created, Canceled }
+impl Sink for Service {}
+fn build() -> Service { Service { profile: Profile {} } }
+`)
+
+	result, err := ExtractFromSource("lib.rs", source, model.LanguageRust)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serviceID := findNodeID(t, result.Nodes, model.NodeKindStruct, "Service")
+	sinkID := findNodeID(t, result.Nodes, model.NodeKindTrait, "Sink")
+	fieldID := findNodeID(t, result.Nodes, model.NodeKindField, "profile")
+	profileID := findNodeID(t, result.Nodes, model.NodeKindStruct, "Profile")
+	buildID := findNodeID(t, result.Nodes, model.NodeKindFunction, "build")
+	statusID := findNodeID(t, result.Nodes, model.NodeKindEnum, "Status")
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindTypeAlias, "UserId", model.LanguageRust)
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindConstant, "LIMIT", model.LanguageRust)
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindEnumMember, "Canceled", model.LanguageRust)
+	assertEdge(t, result.Edges, serviceID, sinkID, model.EdgeKindImplements)
+	assertEdge(t, result.Edges, fieldID, profileID, model.EdgeKindTypeOf)
+	assertEdge(t, result.Edges, buildID, serviceID, model.EdgeKindReturns)
+	assertEdge(t, result.Edges, buildID, serviceID, model.EdgeKindInstantiates)
+	if statusID == "" {
+		t.Fatalf("Status enum ID is empty")
+	}
+}
+
 func TestExtractFromSourceFindsRustUseImports(t *testing.T) {
 	source := []byte(`use serde_test::{assert_de_tokens, assert_ser_tokens, Token};
 use crate::de::Error as DeError;
@@ -371,6 +443,36 @@ class AuthController {
 	assertNodeWithLanguage(t, result.Nodes, model.NodeKindRoute, "POST /login", model.LanguageJava)
 }
 
+func TestExtractFromSourceFindsExpandedJavaKinds(t *testing.T) {
+	source := []byte(`interface Sink {}
+class Base {}
+class Service extends Base implements Sink {
+  private Profile profile;
+  Status status() { return Status.Canceled; }
+}
+class Profile {}
+enum Status { Created, Canceled }
+`)
+
+	result, err := ExtractFromSource("Service.java", source, model.LanguageJava)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serviceID := findNodeID(t, result.Nodes, model.NodeKindClass, "Service")
+	baseID := findNodeID(t, result.Nodes, model.NodeKindClass, "Base")
+	sinkID := findNodeID(t, result.Nodes, model.NodeKindInterface, "Sink")
+	fieldID := findNodeID(t, result.Nodes, model.NodeKindField, "profile")
+	profileID := findNodeID(t, result.Nodes, model.NodeKindClass, "Profile")
+	methodID := findNodeID(t, result.Nodes, model.NodeKindMethod, "status")
+	statusID := findNodeID(t, result.Nodes, model.NodeKindEnum, "Status")
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindEnumMember, "Canceled", model.LanguageJava)
+	assertEdge(t, result.Edges, serviceID, baseID, model.EdgeKindExtends)
+	assertEdge(t, result.Edges, serviceID, sinkID, model.EdgeKindImplements)
+	assertEdge(t, result.Edges, fieldID, profileID, model.EdgeKindTypeOf)
+	assertEdge(t, result.Edges, methodID, statusID, model.EdgeKindReturns)
+}
+
 func TestExtractFromSourceFindsCSharpMethodAndCall(t *testing.T) {
 	source := []byte(`class App { void Run() { Helper(); } }`)
 
@@ -448,6 +550,40 @@ app.MapPost("/login", Login);`)
 	assertEdge(t, result.Edges, minimalRouteID, minimalHandlerID, model.EdgeKindHandles)
 }
 
+func TestExtractFromSourceFindsExpandedCSharpKinds(t *testing.T) {
+	source := []byte(`interface ISink {}
+class Base {}
+class Service : Base, ISink {
+  private Profile profile;
+  public string Name { get; set; }
+  public const int Limit = 10;
+  public Status Current() { return Status.Canceled; }
+}
+class Profile {}
+enum Status { Created, Canceled }
+`)
+
+	result, err := ExtractFromSource("Service.cs", source, model.LanguageCSharp)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serviceID := findNodeID(t, result.Nodes, model.NodeKindClass, "Service")
+	baseID := findNodeID(t, result.Nodes, model.NodeKindClass, "Base")
+	sinkID := findNodeID(t, result.Nodes, model.NodeKindInterface, "ISink")
+	fieldID := findNodeID(t, result.Nodes, model.NodeKindField, "profile")
+	profileID := findNodeID(t, result.Nodes, model.NodeKindClass, "Profile")
+	methodID := findNodeID(t, result.Nodes, model.NodeKindMethod, "Current")
+	statusID := findNodeID(t, result.Nodes, model.NodeKindEnum, "Status")
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindProperty, "Name", model.LanguageCSharp)
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindConstant, "Limit", model.LanguageCSharp)
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindEnumMember, "Canceled", model.LanguageCSharp)
+	assertEdge(t, result.Edges, serviceID, baseID, model.EdgeKindExtends)
+	assertEdge(t, result.Edges, serviceID, sinkID, model.EdgeKindImplements)
+	assertEdge(t, result.Edges, fieldID, profileID, model.EdgeKindTypeOf)
+	assertEdge(t, result.Edges, methodID, statusID, model.EdgeKindReturns)
+}
+
 func TestExtractFromSourceFindsKotlinFunctionAndCall(t *testing.T) {
 	result, err := ExtractFromSource("App.kt", []byte(`fun run() { helper() }`), model.LanguageKotlin)
 	if err != nil {
@@ -486,6 +622,72 @@ fun run() {
 	if replaceWith.ArgumentCount != 1 {
 		t.Fatalf("ReplaceWith argumentCount = %d, want 1", replaceWith.ArgumentCount)
 	}
+}
+
+func TestExtractFromSourceFindsExpandedKotlinKinds(t *testing.T) {
+	source := []byte(`interface Sink
+open class Base
+class Service : Base(), Sink {
+  val profile: Profile = Profile()
+  fun current(): Status = Status.Canceled
+}
+class Profile
+const val Limit = 10
+typealias UserId = String
+enum class Status { Created, Canceled }
+`)
+
+	result, err := ExtractFromSource("Service.kt", source, model.LanguageKotlin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serviceID := findNodeID(t, result.Nodes, model.NodeKindClass, "Service")
+	baseID := findNodeID(t, result.Nodes, model.NodeKindClass, "Base")
+	sinkID := findNodeID(t, result.Nodes, model.NodeKindInterface, "Sink")
+	propertyID := findNodeID(t, result.Nodes, model.NodeKindProperty, "profile")
+	profileID := findNodeID(t, result.Nodes, model.NodeKindClass, "Profile")
+	currentID := findNodeID(t, result.Nodes, model.NodeKindFunction, "current")
+	statusID := findNodeID(t, result.Nodes, model.NodeKindEnum, "Status")
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindConstant, "Limit", model.LanguageKotlin)
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindTypeAlias, "UserId", model.LanguageKotlin)
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindEnumMember, "Canceled", model.LanguageKotlin)
+	assertEdge(t, result.Edges, serviceID, baseID, model.EdgeKindExtends)
+	assertEdge(t, result.Edges, serviceID, sinkID, model.EdgeKindImplements)
+	assertEdge(t, result.Edges, propertyID, profileID, model.EdgeKindTypeOf)
+	assertEdge(t, result.Edges, currentID, statusID, model.EdgeKindReturns)
+}
+
+func TestExtractFromSourceFindsExpandedTypeScriptKinds(t *testing.T) {
+	source := []byte(`interface Sink {}
+class Base {}
+class Service extends Base implements Sink {
+  profile: Profile
+  status(): Status { return Status.Canceled }
+}
+class Profile {}
+type UserId = string
+enum Status { Created, Canceled }
+`)
+
+	result, err := ExtractFromSource("service.ts", source, model.LanguageTypeScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serviceID := findNodeID(t, result.Nodes, model.NodeKindClass, "Service")
+	baseID := findNodeID(t, result.Nodes, model.NodeKindClass, "Base")
+	sinkID := findNodeID(t, result.Nodes, model.NodeKindInterface, "Sink")
+	propertyID := findNodeID(t, result.Nodes, model.NodeKindProperty, "profile")
+	profileID := findNodeID(t, result.Nodes, model.NodeKindClass, "Profile")
+	methodID := findNodeID(t, result.Nodes, model.NodeKindMethod, "status")
+	statusID := findNodeID(t, result.Nodes, model.NodeKindEnum, "Status")
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindTypeAlias, "UserId", model.LanguageTypeScript)
+	assertNodeWithLanguage(t, result.Nodes, model.NodeKindEnumMember, "Canceled", model.LanguageTypeScript)
+	assertEdge(t, result.Edges, serviceID, baseID, model.EdgeKindExtends)
+	assertEdge(t, result.Edges, serviceID, sinkID, model.EdgeKindImplements)
+	assertEdge(t, result.Edges, propertyID, profileID, model.EdgeKindTypeOf)
+	assertEdge(t, result.Edges, methodID, statusID, model.EdgeKindReturns)
 }
 
 func TestExtractFromSourceFindsKotlinPackageQualifiedNamesAndImports(t *testing.T) {

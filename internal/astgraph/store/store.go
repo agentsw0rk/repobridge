@@ -383,7 +383,7 @@ func (s *Store) Callgraph(query astgraph.CallgraphQuery) ([]astgraph.CallgraphEd
 				if !ok {
 					continue
 				}
-				if !callgraphEdgeKindAllowed(edge.Kind, query.Direction) {
+				if !callgraphEdgeKindAllowed(edge.Kind, query) {
 					continue
 				}
 				if !callgraphEdgeMatchesFilters(edge, query) {
@@ -688,14 +688,45 @@ func callgraphEdgeFromEntity(entity *EdgeEntity, currentID string, depth int, di
 	}
 }
 
-func callgraphEdgeKindAllowed(kind astgraph.EdgeKind, direction astgraph.CallgraphDirection) bool {
-	if direction == astgraph.CallgraphDirectionImpact {
-		return kind == astgraph.EdgeKindCalls || kind == astgraph.EdgeKindImports || kind == astgraph.EdgeKindHandles || kind == astgraph.EdgeKindRoutesTo || kind == astgraph.EdgeKindMiddleware
+func callgraphEdgeKindAllowed(kind astgraph.EdgeKind, query astgraph.CallgraphQuery) bool {
+	if len(query.EdgeKinds) > 0 {
+		for _, allowed := range query.EdgeKinds {
+			if kind == allowed {
+				return true
+			}
+		}
+		return false
+	}
+	if query.Direction == astgraph.CallgraphDirectionImpact {
+		return kind == astgraph.EdgeKindCalls ||
+			kind == astgraph.EdgeKindImports ||
+			kind == astgraph.EdgeKindHandles ||
+			kind == astgraph.EdgeKindRoutesTo ||
+			kind == astgraph.EdgeKindMiddleware ||
+			kind == astgraph.EdgeKindExtends ||
+			kind == astgraph.EdgeKindImplements ||
+			kind == astgraph.EdgeKindReferences ||
+			kind == astgraph.EdgeKindTypeOf ||
+			kind == astgraph.EdgeKindReturns ||
+			kind == astgraph.EdgeKindInstantiates ||
+			kind == astgraph.EdgeKindOverrides
 	}
 	return kind == astgraph.EdgeKindCalls || kind == astgraph.EdgeKindHandles || kind == astgraph.EdgeKindRoutesTo
 }
 
 func callgraphEdgeMatchesFilters(edge astgraph.CallgraphEdge, query astgraph.CallgraphQuery) bool {
+	if len(query.EdgeKinds) > 0 {
+		matched := false
+		for _, allowed := range query.EdgeKinds {
+			if edge.Kind == allowed {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
 	node := edge.To
 	if query.Direction != astgraph.CallgraphDirectionCallees {
 		node = edge.From

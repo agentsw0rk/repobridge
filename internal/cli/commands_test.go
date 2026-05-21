@@ -847,7 +847,7 @@ func TestCallersPrintsHumanReadableEdges(t *testing.T) {
 		}},
 	}}
 
-	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "callers", "--depth", "2", "--limit", "5", "--kind", "method", "--lang", "kotlin", "--path", "controller", "demo@v1", "login")
+	stdout, stderr, err := executeForTestWithOptions(Options{App: app}, "callers", "--depth", "2", "--limit", "5", "--kind", "method", "--lang", "kotlin", "--path", "controller", "--edge", "implements", "--edge", "instantiates", "demo@v1", "login")
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -877,6 +877,9 @@ func TestCallersPrintsHumanReadableEdges(t *testing.T) {
 	}
 	if len(app.callgraphOpts.PathFilters) != 1 || app.callgraphOpts.PathFilters[0] != "controller" {
 		t.Fatalf("paths = %#v, want controller", app.callgraphOpts.PathFilters)
+	}
+	if len(app.callgraphOpts.EdgeKinds) != 2 || app.callgraphOpts.EdgeKinds[0] != astgraph.EdgeKindImplements || app.callgraphOpts.EdgeKinds[1] != astgraph.EdgeKindInstantiates {
+		t.Fatalf("edge kinds = %#v, want implements and instantiates", app.callgraphOpts.EdgeKinds)
 	}
 }
 
