@@ -209,7 +209,22 @@ AST-Graph Engine indexing currently parses Go, Java, Kotlin, C#, JavaScript, Typ
 | `repobridge remove <spec...>` | Removes selected cached sources. |
 | `repobridge clean` | Removes cached sources, optionally scoped by flags. |
 
-Most commands that resolve package versions accept `--cwd` for lockfile detection. `fetch` also accepts `--quiet`; `path` accepts `--verbose`; `scan` accepts `--json`, `--fetch`, `--limit`, and `--no-imports`; `search` accepts `--json`, `--limit`, `--kind`, `--lang`, `--path`, `--calls`, and `--no-sync-index`; `status`, `files`, `node`, `callers`, `callees`, `impact`, `context`, and `explore` accept `--json` and `--no-sync-index`; `files` adds `--path` and `--limit`; `node` adds `--source-lines`; callgraph commands add `--depth`, `--kind`, `--lang`, `--path`, `--limit`, and `--include-unresolved`; `context` and `explore` add `--budget`, `--limit`, and `--depth`; `install-agent` accepts `--target`, `--version`, `--dry-run`, and `--print-config`; `clean` accepts filters such as `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, and `--nuget`.
+Common command flags:
+
+| Command group | Useful flags |
+| --- | --- |
+| Version-aware commands | `--cwd` for lockfile and manifest detection. |
+| `fetch` | `--quiet` to suppress progress output. |
+| `path` | `--verbose` to show fetch progress. |
+| `scan` | `--json`, `--fetch`, `--limit`, `--no-imports`. |
+| `search` | `--json`, `--limit`, `--kind`, `--lang`, `--path`, `--calls`, `--no-sync-index`. |
+| `status`, `files`, `node`, `callers`, `callees`, `impact`, `context`, `explore` | `--json`, `--no-sync-index`. |
+| `files` | `--path`, `--limit`. |
+| `node` | `--source-lines`. |
+| `callers`, `callees`, `impact` | `--depth`, `--kind`, `--lang`, `--path`, `--limit`, `--include-unresolved`. |
+| `context`, `explore` | `--budget`, `--limit`, `--depth`. |
+| `install-agent` | `--target`, `--version`, `--dry-run`, `--print-config`. |
+| `clean` | `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, `--nuget`. |
 
 Useful search query tokens include `kind:route`, `kind:handler`, `kind:component_route`, `path:/some/route`, `lang:python`, `calls:<symbol>`, and free text such as `POST /login`.
 
