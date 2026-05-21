@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"go/build"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,6 +13,7 @@ import (
 
 type Options struct {
 	MaxFileSize int64
+	GoBuildTags []string
 }
 
 type SourceFile struct {
@@ -26,6 +28,8 @@ func ScanSourceFiles(root string, opts Options) ([]SourceFile, error) {
 	if opts.MaxFileSize <= 0 {
 		opts.MaxFileSize = 1024 * 1024
 	}
+	buildContext := build.Default
+	buildContext.BuildTags = append([]string{}, opts.GoBuildTags...)
 	var files []SourceFile
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -48,6 +52,9 @@ func ScanSourceFiles(root string, opts Options) ([]SourceFile, error) {
 		if language == model.LanguageUnknown {
 			return nil
 		}
+		if language == model.LanguageGo && !matchesGoBuildContext(buildContext, path) {
+			return nil
+		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return nil
@@ -63,6 +70,11 @@ func ScanSourceFiles(root string, opts Options) ([]SourceFile, error) {
 	})
 	sort.Slice(files, func(i, j int) bool { return files[i].RelativePath < files[j].RelativePath })
 	return files, err
+}
+
+func matchesGoBuildContext(ctx build.Context, file string) bool {
+	match, err := ctx.MatchFile(filepath.Dir(file), filepath.Base(file))
+	return err == nil && match
 }
 
 func DetectLanguage(path string) model.Language {

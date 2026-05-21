@@ -9,6 +9,10 @@ import (
 )
 
 func walkGo(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
+	appendGoImportNodes(path, source, result)
+	appendGoInterfaceNodes(path, source, result)
+	appendGoValueAliasNodes(path, source, result)
+	appendGoParameterAliasNodes(path, source, result)
 	walkGoNode(path, source, node, result, "", map[string]string{})
 }
 
@@ -349,6 +353,578 @@ func appendGoNode(path string, source []byte, node *tree_sitter.Node, kind model
 		Signature:      strings.TrimSpace(nodeText(source, node)),
 	})
 	return id
+}
+
+type goImportSpec struct {
+	alias string
+	path  string
+	line  int
+}
+
+func appendGoImportNodes(path string, source []byte, result *ExtractionResult) {
+	for _, spec := range goImportSpecs(source) {
+		if spec.alias == "" || spec.alias == "_" || spec.alias == "." || spec.path == "" {
+			continue
+		}
+		id := stableNodeID(path, model.NodeKindImport, spec.path, spec.line)
+		result.Nodes = append(result.Nodes, model.GraphNode{
+			ID:            id,
+			Kind:          model.NodeKindImport,
+			Name:          spec.alias,
+			QualifiedName: spec.path,
+			FilePath:      path,
+			Language:      model.LanguageGo,
+			StartLine:     spec.line,
+			EndLine:       spec.line,
+			Signature:     fmt.Sprintf("import %s %q", spec.alias, spec.path),
+		})
+	}
+}
+
+type goInterface struct {
+	name      string
+	line      int
+	signature string
+	methods   []goInterfaceMethod
+}
+
+type goInterfaceMethod struct {
+	name           string
+	line           int
+	signature      string
+	parameterTypes []string
+	returnType     string
+}
+
+func appendGoInterfaceNodes(path string, source []byte, result *ExtractionResult) {
+	for _, iface := range goInterfaces(source) {
+		if iface.name == "" {
+			continue
+		}
+		interfaceID := stableNodeID(path, model.NodeKindInterface, iface.name, iface.line)
+		result.Nodes = append(result.Nodes, model.GraphNode{
+			ID:            interfaceID,
+			Kind:          model.NodeKindInterface,
+			Name:          iface.name,
+			QualifiedName: iface.name,
+			FilePath:      path,
+			Language:      model.LanguageGo,
+			StartLine:     iface.line,
+			EndLine:       iface.line,
+			Signature:     iface.signature,
+		})
+		for _, method := range iface.methods {
+			if method.name == "" {
+				continue
+			}
+			methodID := stableNodeID(path, model.NodeKindMethod, iface.name+"."+method.name, method.line)
+			result.Nodes = append(result.Nodes, model.GraphNode{
+				ID:             methodID,
+				Kind:           model.NodeKindMethod,
+				Name:           method.name,
+				QualifiedName:  qualifiedMemberName(iface.name, method.name),
+				ReceiverType:   iface.name,
+				ParameterCount: len(method.parameterTypes),
+				ParameterTypes: method.parameterTypes,
+				ReturnType:     method.returnType,
+				FilePath:       path,
+				Language:       model.LanguageGo,
+				StartLine:      method.line,
+				EndLine:        method.line,
+				Signature:      method.signature,
+			})
+		}
+	}
+}
+
+type goValueAlias struct {
+	name      string
+	typ       string
+	source    string
+	line      int
+	signature string
+}
+
+func appendGoValueAliasNodes(path string, source []byte, result *ExtractionResult) {
+	for _, alias := range goValueAliases(source) {
+		if alias.name == "" || alias.typ == "" {
+			continue
+		}
+		id := stableNodeID(path, model.NodeKindVariable, alias.name, alias.line)
+		result.Nodes = append(result.Nodes, model.GraphNode{
+			ID:            id,
+			Kind:          model.NodeKindVariable,
+			Name:          alias.name,
+			QualifiedName: alias.typ,
+			ReceiverType:  alias.typ,
+			ReturnType:    alias.source,
+			FilePath:      path,
+			Language:      model.LanguageGo,
+			StartLine:     alias.line,
+			EndLine:       alias.line,
+			Signature:     alias.signature,
+		})
+	}
+}
+
+func appendGoParameterAliasNodes(path string, source []byte, result *ExtractionResult) {
+	for _, alias := range goFunctionParameterAliases(source) {
+		if alias.name == "" || alias.typ == "" {
+			continue
+		}
+		id := stableNodeID(path, model.NodeKindVariable, alias.name, alias.line)
+		result.Nodes = append(result.Nodes, model.GraphNode{
+			ID:            id,
+			Kind:          model.NodeKindVariable,
+			Name:          alias.name,
+			QualifiedName: alias.typ,
+			ReceiverType:  alias.typ,
+			ReturnType:    alias.source,
+			FilePath:      path,
+			Language:      model.LanguageGo,
+			StartLine:     alias.line,
+			EndLine:       alias.line,
+			Signature:     alias.signature,
+		})
+	}
+}
+
+func goValueAliases(source []byte) []goValueAlias {
+	lines := strings.Split(string(source), "\n")
+	packageAliases := map[string]string{}
+	var aliases []goValueAlias
+	inVarBlock := false
+	for index, line := range lines {
+		lineNumber := index + 1
+		trimmed := strings.TrimSpace(stripLineComment(line))
+		if trimmed == "" {
+			continue
+		}
+		if inVarBlock {
+			if strings.HasPrefix(trimmed, ")") {
+				inVarBlock = false
+				continue
+			}
+			if alias, ok := parseGoVarAlias(trimmed, lineNumber, packageAliases); ok {
+				aliases = append(aliases, alias)
+				packageAliases[alias.name] = alias.typ
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "var (") {
+			inVarBlock = true
+			continue
+		}
+		if strings.HasPrefix(trimmed, "var ") {
+			if alias, ok := parseGoVarAlias(strings.TrimSpace(strings.TrimPrefix(trimmed, "var ")), lineNumber, packageAliases); ok {
+				aliases = append(aliases, alias)
+				packageAliases[alias.name] = alias.typ
+			}
+			continue
+		}
+		if alias, ok := parseGoShortAlias(trimmed, lineNumber, packageAliases); ok {
+			aliases = append(aliases, alias)
+		}
+	}
+	return aliases
+}
+
+func parseGoVarAlias(text string, line int, known map[string]string) (goValueAlias, bool) {
+	name, rhs, ok := splitGoAssignment(text, "=")
+	if !ok {
+		return goValueAlias{}, false
+	}
+	fields := strings.Fields(name)
+	if len(fields) == 0 {
+		return goValueAlias{}, false
+	}
+	aliasName := fields[0]
+	if strings.Contains(aliasName, ",") {
+		return goValueAlias{}, false
+	}
+	typ := goAliasType(rhs, known)
+	if typ == "" && len(fields) > 1 {
+		typ = strings.TrimPrefix(strings.TrimSpace(fields[len(fields)-1]), "*")
+	}
+	if typ == "" {
+		typ = goIdentifierAlias(rhs)
+	}
+	if typ == "" {
+		return goValueAlias{}, false
+	}
+	return goValueAlias{name: aliasName, typ: typ, source: strings.TrimSpace(rhs), line: line, signature: strings.TrimSpace(text)}, true
+}
+
+func parseGoShortAlias(text string, line int, known map[string]string) (goValueAlias, bool) {
+	name, rhs, ok := splitGoAssignment(text, ":=")
+	if !ok {
+		return goValueAlias{}, false
+	}
+	name = strings.TrimSpace(name)
+	if name == "" || strings.Contains(name, ",") {
+		return goValueAlias{}, false
+	}
+	typ := goAliasType(rhs, known)
+	if typ == "" {
+		typ = goCallReturnAlias(rhs)
+	}
+	if typ == "" {
+		typ = goIdentifierAlias(rhs)
+	}
+	if typ == "" {
+		return goValueAlias{}, false
+	}
+	return goValueAlias{name: name, typ: typ, source: strings.TrimSpace(rhs), line: line, signature: strings.TrimSpace(text)}, true
+}
+
+func goInterfaces(source []byte) []goInterface {
+	lines := strings.Split(string(source), "\n")
+	var interfaces []goInterface
+	var current *goInterface
+	for index, line := range lines {
+		lineNumber := index + 1
+		trimmed := strings.TrimSpace(stripLineComment(line))
+		if trimmed == "" {
+			continue
+		}
+		if current != nil {
+			if before, _, ok := strings.Cut(trimmed, "}"); ok {
+				for _, methodText := range splitGoInterfaceMethodTexts(before) {
+					if method, ok := parseGoInterfaceMethod(methodText, lineNumber); ok {
+						current.methods = append(current.methods, method)
+					}
+				}
+				interfaces = append(interfaces, *current)
+				current = nil
+				continue
+			}
+			if method, ok := parseGoInterfaceMethod(trimmed, lineNumber); ok {
+				current.methods = append(current.methods, method)
+			}
+			continue
+		}
+		name, after, ok := parseGoInterfaceStart(trimmed)
+		if !ok {
+			continue
+		}
+		iface := goInterface{name: name, line: lineNumber, signature: trimmed}
+		if before, _, closed := strings.Cut(after, "}"); closed {
+			for _, methodText := range splitGoInterfaceMethodTexts(before) {
+				if method, ok := parseGoInterfaceMethod(methodText, lineNumber); ok {
+					iface.methods = append(iface.methods, method)
+				}
+			}
+			interfaces = append(interfaces, iface)
+			continue
+		}
+		for _, methodText := range splitGoInterfaceMethodTexts(after) {
+			if method, ok := parseGoInterfaceMethod(methodText, lineNumber); ok {
+				iface.methods = append(iface.methods, method)
+			}
+		}
+		current = &iface
+	}
+	if current != nil {
+		interfaces = append(interfaces, *current)
+	}
+	return interfaces
+}
+
+func parseGoInterfaceStart(text string) (string, string, bool) {
+	if !strings.HasPrefix(text, "type ") || !strings.Contains(text, " interface") {
+		return "", "", false
+	}
+	afterType := strings.TrimSpace(strings.TrimPrefix(text, "type "))
+	fields := strings.Fields(afterType)
+	if len(fields) < 2 || fields[1] != "interface" {
+		return "", "", false
+	}
+	open := strings.Index(text, "{")
+	if open < 0 {
+		return fields[0], "", true
+	}
+	return fields[0], strings.TrimSpace(text[open+1:]), true
+}
+
+func splitGoInterfaceMethodTexts(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	var values []string
+	for _, part := range splitTopLevel(text, ';') {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			values = append(values, part)
+		}
+	}
+	return values
+}
+
+func parseGoInterfaceMethod(text string, line int) (goInterfaceMethod, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" || strings.Contains(text, " ") && !strings.Contains(text, "(") {
+		return goInterfaceMethod{}, false
+	}
+	open := strings.Index(text, "(")
+	if open <= 0 {
+		return goInterfaceMethod{}, false
+	}
+	name := strings.TrimSpace(text[:open])
+	if name == "" || strings.ContainsAny(name, " \t") {
+		return goInterfaceMethod{}, false
+	}
+	close := matchingParen(text, open)
+	if close < 0 {
+		return goInterfaceMethod{}, false
+	}
+	parameters := text[open+1 : close]
+	returnType := strings.TrimSpace(text[close+1:])
+	return goInterfaceMethod{
+		name:           name,
+		line:           line,
+		signature:      text,
+		parameterTypes: parameterTypesFromList(parameters),
+		returnType:     strings.TrimPrefix(strings.TrimSpace(returnType), "*"),
+	}, true
+}
+
+func goFunctionParameterAliases(source []byte) []goValueAlias {
+	lines := strings.Split(string(source), "\n")
+	var aliases []goValueAlias
+	for index := 0; index < len(lines); index++ {
+		lineNumber := index + 1
+		trimmed := strings.TrimSpace(stripLineComment(lines[index]))
+		if !strings.HasPrefix(trimmed, "func ") && !strings.HasPrefix(trimmed, "func(") {
+			continue
+		}
+		header := trimmed
+		for !strings.Contains(header, "{") && index+1 < len(lines) {
+			index++
+			header += " " + strings.TrimSpace(stripLineComment(lines[index]))
+		}
+		if before, _, ok := strings.Cut(header, "{"); ok {
+			header = strings.TrimSpace(before)
+		}
+		_, parameters, ok := goFunctionHeaderNameAndParams(header)
+		if !ok {
+			continue
+		}
+		for _, alias := range goParameterAliasesFromList(parameters, lineNumber) {
+			aliases = append(aliases, alias)
+		}
+	}
+	return aliases
+}
+
+func goFunctionHeaderNameAndParams(header string) (string, string, bool) {
+	header = strings.TrimSpace(header)
+	if !strings.HasPrefix(header, "func") {
+		return "", "", false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(header, "func"))
+	if strings.HasPrefix(rest, "(") {
+		close := matchingParen(rest, 0)
+		if close < 0 || close+1 >= len(rest) {
+			return "", "", false
+		}
+		rest = strings.TrimSpace(rest[close+1:])
+	}
+	nameEnd := 0
+	for nameEnd < len(rest) {
+		r := rest[nameEnd]
+		if !(r == '_' || r == '.' || r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z') {
+			break
+		}
+		nameEnd++
+	}
+	if nameEnd == 0 {
+		return "", "", false
+	}
+	name := rest[:nameEnd]
+	afterName := strings.TrimSpace(rest[nameEnd:])
+	if !strings.HasPrefix(afterName, "(") {
+		return "", "", false
+	}
+	close := matchingParen(afterName, 0)
+	if close < 0 {
+		return "", "", false
+	}
+	return name, afterName[1:close], true
+}
+
+func goParameterAliasesFromList(parameters string, line int) []goValueAlias {
+	var aliases []goValueAlias
+	for _, part := range splitTopLevel(parameters, ',') {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		fields := strings.Fields(part)
+		if len(fields) < 2 {
+			continue
+		}
+		typ := normalizeGoTypeName(fields[len(fields)-1])
+		for _, name := range fields[:len(fields)-1] {
+			name = strings.Trim(strings.TrimSpace(name), ",")
+			if name == "" || name == "_" || strings.ContainsAny(name, "*[]{}().") {
+				continue
+			}
+			aliases = append(aliases, goValueAlias{
+				name:      name,
+				typ:       typ,
+				source:    typ,
+				line:      line,
+				signature: fmt.Sprintf("param %s %s", name, typ),
+			})
+		}
+	}
+	return aliases
+}
+
+func splitGoAssignment(text, operator string) (string, string, bool) {
+	left, right, ok := strings.Cut(text, operator)
+	if !ok {
+		return "", "", false
+	}
+	right = strings.TrimSpace(right)
+	if i := strings.IndexAny(right, ";"); i >= 0 {
+		right = strings.TrimSpace(right[:i])
+	}
+	return strings.TrimSpace(left), right, true
+}
+
+func goAliasType(expr string, known map[string]string) string {
+	expr = strings.TrimSpace(expr)
+	expr = strings.Trim(expr, "()")
+	expr = strings.TrimPrefix(expr, "*")
+	expr = strings.TrimSpace(expr)
+	if before, _, ok := strings.Cut(expr, "{"); ok {
+		return normalizeGoTypeName(before)
+	}
+	if typ, ok := known[expr]; ok {
+		return typ
+	}
+	return ""
+}
+
+func goCallReturnAlias(expr string) string {
+	expr = strings.TrimSpace(expr)
+	expr = strings.TrimPrefix(expr, "&")
+	expr = strings.TrimSpace(expr)
+	open := strings.Index(expr, "(")
+	if open <= 0 {
+		return ""
+	}
+	callee := strings.TrimSpace(expr[:open])
+	if callee == "" || strings.ContainsAny(callee, " \t{}[]+-*/%!&|<>=,:") {
+		return ""
+	}
+	return "return:" + callee
+}
+
+func goIdentifierAlias(expr string) string {
+	expr = strings.TrimSpace(expr)
+	if expr == "" || strings.ContainsAny(expr, " .(){}[]+-*/%!&|<>=,:") {
+		return ""
+	}
+	return expr
+}
+
+func normalizeGoTypeName(typ string) string {
+	typ = strings.TrimSpace(typ)
+	typ = strings.TrimPrefix(typ, "*")
+	typ = strings.TrimPrefix(typ, "&")
+	typ = strings.TrimSpace(typ)
+	return typ
+}
+
+func goImportSpecs(source []byte) []goImportSpec {
+	var specs []goImportSpec
+	inBlock := false
+	for index, line := range strings.Split(string(source), "\n") {
+		lineNumber := index + 1
+		trimmed := strings.TrimSpace(stripLineComment(line))
+		if trimmed == "" {
+			continue
+		}
+		if inBlock {
+			if strings.HasPrefix(trimmed, ")") {
+				inBlock = false
+				continue
+			}
+			if spec, ok := parseGoImportSpec(trimmed, lineNumber); ok {
+				specs = append(specs, spec)
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "import (") {
+			inBlock = true
+			after := strings.TrimSpace(strings.TrimPrefix(trimmed, "import ("))
+			if after != "" && after != ")" {
+				if before, _, ok := strings.Cut(after, ")"); ok {
+					after = strings.TrimSpace(before)
+					inBlock = false
+				}
+				if spec, ok := parseGoImportSpec(after, lineNumber); ok {
+					specs = append(specs, spec)
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "import ") {
+			specText := strings.TrimSpace(strings.TrimPrefix(trimmed, "import "))
+			if spec, ok := parseGoImportSpec(specText, lineNumber); ok {
+				specs = append(specs, spec)
+			}
+		}
+	}
+	return specs
+}
+
+func parseGoImportSpec(spec string, line int) (goImportSpec, bool) {
+	firstQuote := strings.Index(spec, `"`)
+	if firstQuote < 0 {
+		return goImportSpec{}, false
+	}
+	secondQuote := strings.Index(spec[firstQuote+1:], `"`)
+	if secondQuote < 0 {
+		return goImportSpec{}, false
+	}
+	secondQuote += firstQuote + 1
+	importPath := strings.TrimSpace(spec[firstQuote+1 : secondQuote])
+	if importPath == "" {
+		return goImportSpec{}, false
+	}
+	alias := ""
+	if prefix := strings.TrimSpace(spec[:firstQuote]); prefix != "" {
+		fields := strings.Fields(prefix)
+		if len(fields) > 0 {
+			alias = fields[len(fields)-1]
+		}
+	}
+	if alias == "" {
+		alias = goDefaultImportAlias(importPath)
+	}
+	return goImportSpec{alias: alias, path: importPath, line: line}, true
+}
+
+func goDefaultImportAlias(importPath string) string {
+	importPath = strings.Trim(importPath, "/")
+	if importPath == "" {
+		return ""
+	}
+	if i := strings.LastIndex(importPath, "/"); i >= 0 {
+		return importPath[i+1:]
+	}
+	return importPath
+}
+
+func stripLineComment(line string) string {
+	if i := strings.Index(line, "//"); i >= 0 {
+		return line[:i]
+	}
+	return line
 }
 
 func appendLanguageNode(path string, source []byte, node *tree_sitter.Node, kind model.NodeKind, language model.Language, result *ExtractionResult) string {

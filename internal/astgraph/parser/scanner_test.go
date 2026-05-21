@@ -56,6 +56,42 @@ func TestScanSourceFilesSkipsSymlinks(t *testing.T) {
 	}
 }
 
+func TestScanSourceFilesAppliesGoBuildTags(t *testing.T) {
+	root := t.TempDir()
+	writeParserFixture(t, root, "binding.go", "//go:build !nomsgpack\n\npackage demo\n")
+	writeParserFixture(t, root, "binding_nomsgpack.go", "//go:build nomsgpack\n\npackage demo\n")
+
+	files, err := ScanSourceFiles(root, Options{MaxFileSize: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := relativePaths(files); !equalStringSlices(got, []string{"binding.go"}) {
+		t.Fatalf("files = %#v, want only default binding.go", got)
+	}
+
+	files, err = ScanSourceFiles(root, Options{MaxFileSize: 1024, GoBuildTags: []string{"nomsgpack"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := relativePaths(files); !equalStringSlices(got, []string{"binding_nomsgpack.go"}) {
+		t.Fatalf("files = %#v, want only nomsgpack file", got)
+	}
+}
+
+func TestScanSourceFilesAppliesGoVersionBuildTags(t *testing.T) {
+	root := t.TempDir()
+	writeParserFixture(t, root, "bytesconv_legacy.go", "//go:build !go1.20\n\npackage demo\n")
+	writeParserFixture(t, root, "bytesconv_go120.go", "//go:build go1.20\n\npackage demo\n")
+
+	files, err := ScanSourceFiles(root, Options{MaxFileSize: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := relativePaths(files); !equalStringSlices(got, []string{"bytesconv_go120.go"}) {
+		t.Fatalf("files = %#v, want only go1.20+ file", got)
+	}
+}
+
 func writeParserFixture(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))
@@ -65,4 +101,24 @@ func writeParserFixture(t *testing.T, root, rel, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func relativePaths(files []SourceFile) []string {
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.RelativePath)
+	}
+	return paths
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }

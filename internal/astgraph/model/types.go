@@ -13,6 +13,8 @@ const (
 	NodeKindFunction       NodeKind = "function"
 	NodeKindMethod         NodeKind = "method"
 	NodeKindImport         NodeKind = "import"
+	NodeKindExternal       NodeKind = "external"
+	NodeKindVariable       NodeKind = "variable"
 	NodeKindRoute          NodeKind = "route"
 	NodeKindHandler        NodeKind = "handler"
 	NodeKindComponentRoute NodeKind = "component_route"

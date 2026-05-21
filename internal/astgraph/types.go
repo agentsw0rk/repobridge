@@ -18,6 +18,8 @@ const (
 	NodeKindFunction       = model.NodeKindFunction
 	NodeKindMethod         = model.NodeKindMethod
 	NodeKindImport         = model.NodeKindImport
+	NodeKindExternal       = model.NodeKindExternal
+	NodeKindVariable       = model.NodeKindVariable
 	NodeKindRoute          = model.NodeKindRoute
 	NodeKindHandler        = model.NodeKindHandler
 	NodeKindComponentRoute = model.NodeKindComponentRoute

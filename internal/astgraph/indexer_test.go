@@ -56,8 +56,8 @@ func main() {
 	if hasUnresolved(result.Unresolved, mainID, "helper") {
 		t.Fatalf("Unresolved = %#v, helper should have resolved", result.Unresolved)
 	}
-	if !hasUnresolved(result.Unresolved, mainID, "Println") {
-		t.Fatalf("Unresolved = %#v, want external Println to remain unresolved", result.Unresolved)
+	if hasUnresolved(result.Unresolved, mainID, "Println") {
+		t.Fatalf("Unresolved = %#v, external Println should have been filtered", result.Unresolved)
 	}
 }
 
@@ -161,6 +161,281 @@ function parse(value: unknown) {
 	}
 	if hasUnresolved(result.Unresolved, parseID, "parseValue") {
 		t.Fatalf("Unresolved = %#v, parseValue should have resolved", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesGoCallsWithOmittedVariadicArguments(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "main.go", `package main
+type Option func()
+func New(opts ...Option) {}
+func Default() {
+	New()
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defaultID := nodeIDByName(t, result.Nodes, NodeKindFunction, "Default")
+	newID := nodeIDByName(t, result.Nodes, NodeKindFunction, "New")
+	if !hasEdge(result.Edges, defaultID, newID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want Default -> New with omitted variadic arguments", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, defaultID, "New") {
+		t.Fatalf("Unresolved = %#v, New should have resolved", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesGoCompositeLiteralReceiverCalls(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "main.go", `package main
+type Writer struct{}
+type JSON struct{ Data any }
+type XML struct{ Data any }
+func (r JSON) Render(w Writer) error { return nil }
+func (r XML) Render(w Writer) error { return nil }
+func run(data any, w Writer) {
+	(JSON{Data: data}).Render(w)
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	renderID := nodeIDByNameAndReceiver(t, result.Nodes, NodeKindMethod, "Render", "JSON")
+	if !hasEdge(result.Edges, runID, renderID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want run -> JSON.Render for composite literal receiver", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "Render") {
+		t.Fatalf("Unresolved = %#v, Render should have resolved", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesGoPackageVariablesAndLocalAliases(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "vars.go", `package main
+type Request struct{}
+type formBinding struct{}
+type formPostBinding struct{}
+
+var FormPost = formPostBinding{}
+
+func (formBinding) Bind(req Request) error { return nil }
+func (formBinding) Name() string { return "form" }
+func (formPostBinding) Bind(req Request) error { return nil }
+func (formPostBinding) Name() string { return "form-urlencoded" }
+`)
+	writeASTGraphFixture(t, root, "main.go", `package main
+func run(req Request) {
+	FormPost.Bind(req)
+	b := FormPost
+	b.Name()
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	bindID := nodeIDByNameAndReceiver(t, result.Nodes, NodeKindMethod, "Bind", "formPostBinding")
+	nameID := nodeIDByNameAndReceiver(t, result.Nodes, NodeKindMethod, "Name", "formPostBinding")
+	if !hasEdge(result.Edges, runID, bindID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want run -> formPostBinding.Bind through FormPost package variable", result.Edges)
+	}
+	if !hasEdge(result.Edges, runID, nameID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want run -> formPostBinding.Name through local alias b", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "Bind") || hasUnresolved(result.Unresolved, runID, "Name") {
+		t.Fatalf("Unresolved = %#v, Bind and Name should have resolved through Go aliases", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesGoLocalVariablesFromReturnTypes(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "main.go", `package main
+type Engine struct{}
+type RouterGroup struct{}
+
+func New() *Engine { return &Engine{} }
+func Default() *Engine { return New() }
+func (e *Engine) Group(path string) *RouterGroup { return &RouterGroup{} }
+func (e *Engine) ServeHTTP() {}
+func (g *RouterGroup) GET(path string) {}
+
+func run() {
+	router := Default()
+	router.Group("/api").GET("/users")
+	router.ServeHTTP()
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	serveID := nodeIDByNameAndReceiver(t, result.Nodes, NodeKindMethod, "ServeHTTP", "Engine")
+	if !hasEdge(result.Edges, runID, serveID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want run -> Engine.ServeHTTP through inferred Go return type", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "ServeHTTP") {
+		t.Fatalf("Unresolved = %#v, ServeHTTP should have resolved through inferred Go return type", result.Unresolved)
+	}
+}
+
+func TestIndexerClassifiesUnresolvedGoReceiverChainsAsExternal(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "main.go", `package main
+type Request struct{ Header Header }
+type Header struct{}
+func run(req Request) {
+	req.Header.Add("Accept", "application/json")
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	externalID := nodeIDByQualifiedName(t, result.Nodes, NodeKindExternal, "external:req.Header.Add")
+	if !hasEdge(result.Edges, runID, externalID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want req.Header.Add classified as external receiver chain", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "Add") {
+		t.Fatalf("Unresolved = %#v, Add should have been classified as external receiver chain", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesGoFunctionValuedVariables(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "main.go", `package main
+func statusColor(code int) string { return "" }
+
+var colorForStatus = statusColor
+
+func run() {
+	colorForStatus(200)
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	statusID := nodeIDByName(t, result.Nodes, NodeKindFunction, "statusColor")
+	if !hasEdge(result.Edges, runID, statusID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want function-valued variable call to resolve to statusColor", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "colorForStatus") {
+		t.Fatalf("Unresolved = %#v, colorForStatus should resolve as a function-valued variable", result.Unresolved)
+	}
+}
+
+func TestIndexerResolvesGoInterfaceTypedParameters(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "main.go", `package main
+type Request struct{}
+type Binding interface {
+	Name() string
+	Bind(Request) error
+}
+type formBinding struct{}
+type formPostBinding struct{}
+
+func (formBinding) Name() string { return "form" }
+func (formBinding) Bind(req Request) error { return nil }
+func (formPostBinding) Name() string { return "form" }
+func (formPostBinding) Bind(req Request) error { return nil }
+
+func run(b Binding, req Request) {
+	b.Name()
+	b.Bind(req)
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	nameID := nodeIDByNameAndReceiver(t, result.Nodes, NodeKindMethod, "Name", "Binding")
+	bindID := nodeIDByNameAndReceiver(t, result.Nodes, NodeKindMethod, "Bind", "Binding")
+	if !hasEdge(result.Edges, runID, nameID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want b.Name to resolve through interface-typed parameter", result.Edges)
+	}
+	if !hasEdge(result.Edges, runID, bindID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want b.Bind to resolve through interface-typed parameter", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, runID, "Name") || hasUnresolved(result.Unresolved, runID, "Bind") {
+		t.Fatalf("Unresolved = %#v, interface-typed parameter calls should resolve", result.Unresolved)
+	}
+}
+
+func TestIndexerFiltersGoBuiltinsAndExternalImportsFromUnresolved(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "main.go", `package main
+import (
+  "fmt"
+  "github.com/stretchr/testify/assert"
+)
+func run() {
+  values := []string{"a"}
+  len(values)
+  make([]string, 0)
+  string([]byte("x"))
+  fmt.Println("ok")
+  assert.Equal(nil, 1, 1)
+  missing()
+}
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 1024})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runID := nodeIDByName(t, result.Nodes, NodeKindFunction, "run")
+	for _, name := range []string{"len", "make", "string", "Println", "Equal"} {
+		if hasUnresolved(result.Unresolved, runID, name) {
+			t.Fatalf("Unresolved = %#v, %s should have been filtered as builtin or imported external call", result.Unresolved, name)
+		}
+	}
+	for _, qualifiedName := range []string{
+		"external:builtin.len",
+		"external:builtin.make",
+		"external:builtin.string",
+		"external:fmt.Println",
+		"external:assert.Equal",
+	} {
+		externalID := nodeIDByQualifiedName(t, result.Nodes, NodeKind("external"), qualifiedName)
+		if !hasEdge(result.Edges, runID, externalID, EdgeKindCalls) {
+			t.Fatalf("Edges = %#v, want run -> %s", result.Edges, qualifiedName)
+		}
+	}
+	if !hasUnresolved(result.Unresolved, runID, "missing") {
+		t.Fatalf("Unresolved = %#v, missing internal call should remain unresolved", result.Unresolved)
 	}
 }
 

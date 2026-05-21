@@ -29,10 +29,54 @@ func (s Service) Run() {
 	}
 	assertNode(t, result.Nodes, model.NodeKindFunction, "helper")
 	assertNode(t, result.Nodes, model.NodeKindMethod, "Run")
+	assertQualifiedNode(t, result.Nodes, model.NodeKindImport, "fmt", "fmt")
 	assertUnresolved(t, result.Unresolved, "helper")
 	assertUnresolved(t, result.Unresolved, "Println")
 	runID := findNodeID(t, result.Nodes, model.NodeKindMethod, "Run")
 	assertUnresolvedFrom(t, result.Unresolved, "helper", runID)
+}
+
+func TestExtractFromSourceFindsGoImports(t *testing.T) {
+	source := []byte(`package demo
+
+import (
+	"fmt"
+	h "net/http"
+	assert "github.com/stretchr/testify/assert"
+)
+
+func run() { fmt.Println("ok"); h.NewRequest("GET", "/", nil); assert.Equal(1, 1) }
+`)
+
+	result, err := ExtractFromSource("service.go", source, model.LanguageGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertQualifiedNode(t, result.Nodes, model.NodeKindImport, "fmt", "fmt")
+	assertQualifiedNode(t, result.Nodes, model.NodeKindImport, "h", "net/http")
+	assertQualifiedNode(t, result.Nodes, model.NodeKindImport, "assert", "github.com/stretchr/testify/assert")
+}
+
+func TestExtractFromSourceFindsGoValueAliases(t *testing.T) {
+	source := []byte(`package demo
+
+type formPostBinding struct{}
+var FormPost = formPostBinding{}
+
+func run() {
+	b := FormPost
+	_ = b
+}
+`)
+
+	result, err := ExtractFromSource("service.go", source, model.LanguageGo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertQualifiedNode(t, result.Nodes, model.NodeKindVariable, "FormPost", "formPostBinding")
+	assertQualifiedNode(t, result.Nodes, model.NodeKindVariable, "b", "formPostBinding")
 }
 
 func TestExtractFromSourceSkipsGoCallsWithoutOwner(t *testing.T) {

@@ -46,7 +46,7 @@ func ParseSearchQuery(raw string) SearchQuery {
 
 func parseNodeKind(value string) (NodeKind, bool) {
 	switch kind := NodeKind(value); kind {
-	case NodeKindFile, NodeKindModule, NodeKindClass, NodeKindStruct, NodeKindInterface, NodeKindFunction, NodeKindMethod, NodeKindImport, NodeKindRoute, NodeKindHandler, NodeKindComponentRoute:
+	case NodeKindFile, NodeKindModule, NodeKindClass, NodeKindStruct, NodeKindInterface, NodeKindFunction, NodeKindMethod, NodeKindImport, NodeKindExternal, NodeKindVariable, NodeKindRoute, NodeKindHandler, NodeKindComponentRoute:
 		return kind, true
 	default:
 		return "", false
