@@ -5,7 +5,7 @@
 <h1 align="center">RepoBridge</h1>
 
 <p align="center">
-  <strong>Fetch package and repository source code into stable local paths for coding agents and developer tooling.</strong>
+  <strong>Index project, package, and repository source code into stable local graph context for coding agents.</strong>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 
 ## Introduction
 
-`repobridge` is a small Go CLI for turning package, repository, and local project specs into searchable AST-Graph Engine indexes. It supports npm, pypi, crates.io, maven, nuget, common git repository hosts, and `project:` sources for the current repository.
+`repobridge` is a small Go CLI for turning local projects, package sources, and repository snapshots into searchable AST-Graph Engine indexes. It supports `project:` specs for the current repository, npm, pypi, crates.io, maven, nuget, and common git repository hosts.
 
 ## Benchmark
 
@@ -35,7 +35,7 @@ The E2E Token-Reduction-Benchmark compares `repobridge search` with comparable `
 
 - Resolve package specs from npm, pypi, crates.io, maven, and nuget.
 - Fetch Git repositories from GitHub, GitLab, and Bitbucket.
-- Treat the current project as a searchable source with `project:.`, `project:./path`, or `project:/absolute/path`.
+- Treat the current project as a searchable source with `project:.`, a subtree with `project:./path`, or another local checkout with `project:/absolute/path`.
 - Scan a project for dependency source specs from manifests, lockfiles, and imports.
 - Build local Tree-sitter AST graphs for cached sources and search them by symbol, kind, path, language, and calls.
 - Store structure containment edges from files and modules to classes, functions, methods, fields, properties, imports, and nested types.
@@ -76,7 +76,7 @@ go build -o ./bin/repobridge ./cmd/repobridge
 
 ## Quick Start
 
-RepoBridge is designed to sit behind a coding agent. The agent uses it to fetch dependency sources, build AST-Graph Engine indexes, and ask targeted questions without reading entire repositories.
+RepoBridge is designed to sit behind a coding agent. The agent uses it to index the current project, fetch dependency sources, build AST-Graph Engine indexes, and ask targeted questions without reading entire repositories.
 
 Install the bundled RepoBridge skill for a coding agent:
 
@@ -88,7 +88,15 @@ repobridge install-agent --target codex --print-config
 
 `install-agent` writes only the RepoBridge skill files for the selected agent target.
 
-From a project root, scan dependencies and fetch source references for the agent:
+From a project root, index the project itself and inspect it through graph commands:
+
+```bash
+repobridge status --cwd . project:.
+repobridge search --cwd . project:. "kind:function name:NewRootCommand"
+repobridge context --cwd . project:. "scan command dependency detection flow" --budget small
+```
+
+Scan dependencies and fetch source references for the agent:
 
 ```bash
 repobridge scan --cwd . --fetch --limit 10
@@ -97,6 +105,8 @@ repobridge scan --cwd . --fetch --limit 10
 You can also prepare specific sources manually:
 
 ```bash
+repobridge path --cwd . project:.
+repobridge path --cwd . project:./internal/cli
 repobridge fetch react@19.0.0 vercel/next.js
 repobridge path react
 repobridge path pypi:requests==2.32.3
@@ -167,7 +177,7 @@ repobridge clean --repos
 
 Package inputs default to npm. Use a registry prefix for non-npm packages.
 
-`project:` inputs are read-only local sources. Relative project specs resolve against `--cwd`, and their graph data is stored under `REPOBRIDGE_HOME/projects/<id>/.repobridge-graph` instead of inside the working tree.
+`project:` inputs are read-only local sources. Relative project specs resolve against `--cwd`, so `project:.` means the current project root and `project:./internal/cli` indexes only that subtree. Absolute specs such as `project:/Users/me/app` are allowed for another local checkout. Project graph data is stored under `REPOBRIDGE_HOME/projects/<id>/.repobridge-graph` instead of inside the working tree.
 
 Maven inputs use `groupId:artifactId@version`. RepoBridge reads Maven repositories from `pom.xml`, local parent POMs, active Maven profiles, and `settings.xml` mirrors under `--cwd`, then tries source JARs in repository order. It falls back to SCM metadata from the POM only after source JAR lookup misses in the configured repositories. If no project repository configuration is found, Maven's default Central repository is used.
 
@@ -187,10 +197,10 @@ Indexes are built in the background after `path`, `fetch`, and `scan --fetch`. C
 
 | Command | Description |
 | --- | --- |
-| `repobridge fetch <spec...>` | Downloads sources into the cache, or validates local `project:` sources without network access. |
+| `repobridge fetch <spec...>` | Downloads package or repository sources into the cache, or validates local `project:` sources without network access. |
 | `repobridge path <spec...>` | Fetches on cache miss and prints absolute source paths, including local `project:` paths. |
 | `repobridge scan` | Scans a project and proposes dependency source specs. |
-| `repobridge search <spec> <query>` | Searches the local AST graph for a cached source, including framework routes such as `kind:route path:/login`, building the graph synchronously if needed. |
+| `repobridge search <spec> <query>` | Searches the local AST graph for a project, cached dependency, or repository source, including framework routes such as `kind:route path:/login`, building the graph synchronously if needed. |
 | `repobridge status <spec>` | Shows graph path, freshness status, schema version, file/node/edge counts, and warnings. |
 | `repobridge files <spec>` | Lists files stored in the AST graph without walking the source tree again. |
 | `repobridge node <spec> <id-or-name>` | Shows one symbol's kind, qualified name, location, calls, and optional source lines. |
@@ -232,7 +242,7 @@ Useful search query tokens include `kind:file`, `kind:module`, `kind:route`, `ki
 | `GITLAB_TOKEN` | Token for private GitLab repositories. |
 | `BITBUCKET_TOKEN` | Token for private Bitbucket repositories. |
 
-The cache contains cloned source trees and a `sources.json` index under `REPOBRIDGE_HOME`. Repository fetches remove `.git` so the cache stores source snapshots rather than nested working trees.
+The cache contains cloned source trees and a `sources.json` index under `REPOBRIDGE_HOME`. Repository fetches remove `.git` so the cache stores source snapshots rather than nested working trees. Project sources are not copied into the cache; RepoBridge indexes the local path directly and keeps only graph data under `REPOBRIDGE_HOME/projects`.
 
 After successful `path`, `fetch`, and `scan --fetch` calls, RepoBridge starts background AST indexing for the source. Dependency and repository graph data is stored beside the cached source in `.repobridge-graph/`; local `project:` graph data is stored under `REPOBRIDGE_HOME/projects/<id>/.repobridge-graph` so the working tree stays clean. The first `search`, `status`, `files`, `node`, `callers`, `callees`, `impact`, `context`, or `explore` call builds a missing or stale graph synchronously unless `--no-sync-index` is set.
 
