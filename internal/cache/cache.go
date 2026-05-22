@@ -1,6 +1,8 @@
 package cache
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +15,7 @@ const (
 	envHome     = "REPOBRIDGE_HOME"
 	defaultDir  = ".repobridge"
 	reposDir    = "repos"
+	projectsDir = "projects"
 	sourcesFile = "sources.json"
 	graphDir    = ".repobridge-graph"
 )
@@ -88,6 +91,23 @@ func GraphDirForSource(sourcePath string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(abs, graphDir), nil
+}
+
+func ProjectGraphDirForSource(sourcePath string) (string, error) {
+	if strings.TrimSpace(sourcePath) == "" {
+		return "", fmt.Errorf("source path must not be empty")
+	}
+	abs, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return "", err
+	}
+	home, err := Home()
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(abs))
+	id := hex.EncodeToString(sum[:])[:24]
+	return filepath.Join(home, projectsDir, id, graphDir), nil
 }
 
 func ReadSources() (SourcesIndex, error) {

@@ -2,6 +2,16 @@
 
 Use these examples as command patterns. Replace specs, paths, and node IDs with values from the current project.
 
+## Current Project Source
+
+```bash
+repobridge status --cwd . project:.
+repobridge files --cwd . project:. --path internal/cli
+repobridge search --cwd . project:. "kind:function name:NewRootCommand"
+repobridge context --cwd . project:. "scan command dependency detection flow" --budget small
+repobridge callees --cwd . project:. <file-or-class-node-id> --edge contains --limit 20
+```
+
 ## Kotlin Stdlib Structure
 
 ```bash

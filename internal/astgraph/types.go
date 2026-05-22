@@ -133,6 +133,7 @@ type GraphInspectOptions struct {
 type GraphInspectStatus struct {
 	Source        string      `json:"source"`
 	SourcePath    string      `json:"sourcePath"`
+	SourceKind    string      `json:"sourceKind,omitempty"`
 	GraphPath     string      `json:"graphPath"`
 	Status        string      `json:"status"`
 	SchemaVersion int         `json:"schemaVersion"`

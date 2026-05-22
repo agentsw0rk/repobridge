@@ -21,6 +21,13 @@ repobridge scan --cwd <project-root> --json
 
 Review high-confidence direct dependency candidates from manifests and lockfiles first. Import-derived candidates are supporting evidence, not automatic fetch targets.
 
+For the current repository itself, use `project:.` directly instead of scanning for a dependency spec:
+
+```bash
+repobridge search --cwd <project-root> project:. "kind:function name:<name>"
+repobridge context --cwd <project-root> project:. "<task query>" --budget small
+```
+
 ## Fetch
 
 ```bash

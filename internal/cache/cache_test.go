@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -117,6 +118,25 @@ func TestGraphDirForSourceStaysInsideSourcePath(t *testing.T) {
 func TestGraphDirForSourceRejectsEmptyPath(t *testing.T) {
 	if _, err := GraphDirForSource(""); err == nil {
 		t.Fatal("GraphDirForSource() error = nil, want error")
+	}
+}
+
+func TestProjectGraphDirForSourceUsesRepoBridgeHome(t *testing.T) {
+	home := withHome(t)
+	source := filepath.Join(t.TempDir(), "repo")
+
+	got, err := ProjectGraphDirForSource(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got, filepath.Join(home, "projects")+string(os.PathSeparator)) {
+		t.Fatalf("ProjectGraphDirForSource() = %q, want under projects dir %q", got, filepath.Join(home, "projects"))
+	}
+	if !strings.HasSuffix(got, ".repobridge-graph") {
+		t.Fatalf("ProjectGraphDirForSource() = %q, want graph dir suffix", got)
+	}
+	if strings.HasPrefix(got, source) {
+		t.Fatalf("ProjectGraphDirForSource() = %q, must not be inside source %q", got, source)
 	}
 }
 

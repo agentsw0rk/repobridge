@@ -58,6 +58,63 @@ func main() {}
 	}
 }
 
+func TestGraphLifecycleUsesOutcomeGraphPath(t *testing.T) {
+	sourceDir := t.TempDir()
+	writeASTGraphFixture(t, sourceDir, "main.go", `package main
+func main() {}
+`)
+	graphDir := t.TempDir()
+	store := &lifecycleStore{status: astgraph.GraphStatus{Status: "missing"}}
+	var openedDir string
+	lifecycle := astgraph.NewGraphLifecycle(astgraph.GraphLifecycleOptions{
+		Resolver: &fakeSourceResolver{
+			outcome: source.Outcome{Path: sourceDir, Name: "project:.", SourceLabel: "project:.", GraphPath: graphDir},
+		},
+		StoreOpener: func(dir string) (astgraph.GraphStore, error) {
+			openedDir = dir
+			return store, nil
+		},
+	})
+
+	err := lifecycle.UseReady("project:.", astgraph.GraphUseOptions{SyncIndex: true}, func(astgraph.GraphSession) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if openedDir != graphDir {
+		t.Fatalf("opened graph dir = %q, want outcome graph dir %q", openedDir, graphDir)
+	}
+}
+
+func TestGraphLifecycleCarriesOutcomeSourceKind(t *testing.T) {
+	sourceDir := t.TempDir()
+	store := &lifecycleStore{status: astgraph.GraphStatus{Status: "complete", SchemaVersion: astgraph.SchemaVersion}}
+	lifecycle := astgraph.NewGraphLifecycle(astgraph.GraphLifecycleOptions{
+		Resolver: &fakeSourceResolver{
+			outcome: source.Outcome{Path: sourceDir, Name: "project:.", SourceKind: "project"},
+		},
+		StoreOpener: func(string) (astgraph.GraphStore, error) {
+			return store, nil
+		},
+		CurrentFiles: func(string) ([]astgraph.GraphFile, error) {
+			return nil, nil
+		},
+	})
+
+	var session astgraph.GraphSession
+	err := lifecycle.UseInspectable("project:.", astgraph.GraphUseOptions{SyncIndex: false}, func(got astgraph.GraphSession) error {
+		session = got
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.SourceKind != "project" {
+		t.Fatalf("SourceKind = %q, want project", session.SourceKind)
+	}
+}
+
 func TestGraphLifecycleUseReadyNoSyncReturnsStaleError(t *testing.T) {
 	sourceDir := t.TempDir()
 	stored := []astgraph.GraphFile{{Path: "main.go", ContentHash: "old", Size: 1}}

@@ -84,6 +84,7 @@ func inspectStatusFromSession(session GraphSession, counts GraphCounts) GraphIns
 	return GraphInspectStatus{
 		Source:        session.SourceLabel,
 		SourcePath:    session.SourcePath,
+		SourceKind:    session.SourceKind,
 		GraphPath:     session.GraphDir,
 		Status:        normalizeGraphStatus(session.Status.Status),
 		SchemaVersion: session.Status.SchemaVersion,

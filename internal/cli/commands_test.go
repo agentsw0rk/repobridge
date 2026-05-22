@@ -246,6 +246,40 @@ func TestIndexOutcomePathMarksGraphFailedWhenIndexingFails(t *testing.T) {
 	}
 }
 
+func TestIndexOutcomeUsesOutcomeGraphPath(t *testing.T) {
+	sourceDir := t.TempDir()
+	graphDir := filepath.Join(t.TempDir(), "project-graph")
+	originalIndexSourcePath := indexSourcePath
+	indexSourcePath = func(sourcePath string) (astgraph.IndexResult, error) {
+		return astgraph.IndexResult{
+			SourcePath:    sourcePath,
+			SchemaVersion: astgraph.SchemaVersion,
+		}, nil
+	}
+	defer func() {
+		indexSourcePath = originalIndexSourcePath
+	}()
+
+	if err := indexOutcome(source.Outcome{Path: sourceDir, GraphPath: graphDir}); err != nil {
+		t.Fatal(err)
+	}
+	graph, err := store.Open(graphDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer graph.Close()
+	status, err := graph.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.SourcePath != sourceDir || status.Status != "complete" {
+		t.Fatalf("status = %#v, want indexed source in outcome graph path", status)
+	}
+	if _, err := os.Stat(filepath.Join(sourceDir, ".repobridge-graph")); !os.IsNotExist(err) {
+		t.Fatalf("project graph was written inside source dir, stat err = %v", err)
+	}
+}
+
 func TestRemoveAlias(t *testing.T) {
 	_, _, err := executeForTest("rm")
 	if err == nil {

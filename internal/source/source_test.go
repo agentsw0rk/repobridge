@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"repobridge/internal/cache"
@@ -131,6 +132,91 @@ func TestEnsureCachedReturnsExistingPackageCacheEntry(t *testing.T) {
 	}
 	if got.Name != "zod" || got.Version != "3.22.4" {
 		t.Fatalf("name/version = %q/%q, want zod/3.22.4", got.Name, got.Version)
+	}
+}
+
+func TestEnsureCachedResolvesProjectSpecWithoutFetching(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOBRIDGE_HOME", home)
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wantProject, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetcher := &fakeFetcher{}
+
+	got, err := EnsureCached("project:.", Options{CWD: project, Fetcher: fetcher})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetcher.packageCalls != 0 || fetcher.repoCalls != 0 {
+		t.Fatalf("fetcher calls = package:%d repo:%d, want none", fetcher.packageCalls, fetcher.repoCalls)
+	}
+	if got.Path != wantProject {
+		t.Fatalf("Path = %q, want %q", got.Path, wantProject)
+	}
+	if got.Name != "project:." || got.SourceLabel != "project" || got.SourceKind != "project" {
+		t.Fatalf("outcome = %#v, want project metadata", got)
+	}
+	if got.GraphPath == "" {
+		t.Fatalf("GraphPath empty, outcome = %#v", got)
+	}
+	if !strings.HasPrefix(got.GraphPath, filepath.Join(home, "projects")+string(os.PathSeparator)) {
+		t.Fatalf("GraphPath = %q, want under %q", got.GraphPath, filepath.Join(home, "projects"))
+	}
+	if strings.HasPrefix(got.GraphPath, wantProject) {
+		t.Fatalf("GraphPath = %q, must not be inside project %q", got.GraphPath, wantProject)
+	}
+}
+
+func TestEnsureCachedResolvesProjectRelativeSubtree(t *testing.T) {
+	project := t.TempDir()
+	subtree := filepath.Join(project, "internal", "cli")
+	if err := os.MkdirAll(subtree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wantSubtree, err := filepath.EvalSymlinks(subtree)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := EnsureCached("project:./internal/cli", Options{CWD: project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Path != wantSubtree {
+		t.Fatalf("Path = %q, want %q", got.Path, wantSubtree)
+	}
+}
+
+func TestEnsureCachedResolvesAbsoluteProjectOutsideCWD(t *testing.T) {
+	project := t.TempDir()
+	outside := t.TempDir()
+	wantOutside, err := filepath.EvalSymlinks(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := EnsureCached("project:"+outside, Options{CWD: project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Path != wantOutside {
+		t.Fatalf("Path = %q, want %q", got.Path, wantOutside)
+	}
+	if got.Name != "project:"+filepath.ToSlash(wantOutside) {
+		t.Fatalf("Name = %q, want absolute project spec", got.Name)
+	}
+}
+
+func TestEnsureCachedRejectsProjectTraversalOutsideCWD(t *testing.T) {
+	project := t.TempDir()
+	_, err := EnsureCached("project:../outside", Options{CWD: project})
+	if err == nil {
+		t.Fatal("EnsureCached(project traversal) error = nil, want error")
 	}
 }
 

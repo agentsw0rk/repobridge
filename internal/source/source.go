@@ -23,6 +23,8 @@ type Outcome struct {
 	Name        string
 	Version     string
 	SourceLabel string
+	SourceKind  string
+	GraphPath   string
 	FromCache   bool
 	Warning     string
 }
@@ -126,6 +128,9 @@ func EnsureCached(spec string, opts Options) (Outcome, error) {
 }
 
 func (a *Acquirer) Ensure(ctx context.Context, req Request) (Outcome, error) {
+	if isProjectSpec(req.Spec) {
+		return resolveProjectSource(req.Spec, req.CWD)
+	}
 	switch registry.DetectInputType(req.Spec) {
 	case registry.RepoInput:
 		return a.ensureRepoCached(ctx, req.Spec)

@@ -24,6 +24,7 @@ type GraphSession struct {
 	Outcome     source.Outcome
 	SourcePath  string
 	SourceLabel string
+	SourceKind  string
 	GraphDir    string
 	Status      GraphStatus
 	Store       GraphStore
@@ -106,9 +107,13 @@ func (s *GraphLifecycleService) openSession(spec string, opts GraphUseOptions) (
 	if err != nil {
 		return GraphSession{}, err
 	}
-	graphDir, err := cache.GraphDirForSource(outcome.Path)
-	if err != nil {
-		return GraphSession{}, err
+	graphDir := outcome.GraphPath
+	if graphDir == "" {
+		var err error
+		graphDir, err = cache.GraphDirForSource(outcome.Path)
+		if err != nil {
+			return GraphSession{}, err
+		}
 	}
 	graph, err := s.storeOpener(graphDir)
 	if err != nil {
@@ -119,6 +124,7 @@ func (s *GraphLifecycleService) openSession(spec string, opts GraphUseOptions) (
 		Outcome:     outcome,
 		SourcePath:  outcome.Path,
 		SourceLabel: searchSourceLabel(outcome),
+		SourceKind:  outcome.SourceKind,
 		GraphDir:    graphDir,
 		Store:       graph,
 	}, nil

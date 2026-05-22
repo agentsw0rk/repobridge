@@ -61,6 +61,25 @@ func helper() {}
 	}
 }
 
+func TestInspectStatusIncludesSourceKind(t *testing.T) {
+	sourceDir := t.TempDir()
+	resolver := &fakeSourceResolver{
+		outcome: source.Outcome{Path: sourceDir, Name: "project:.", SourceKind: "project"},
+	}
+	service := astgraph.NewInspectService(astgraph.SearchServiceOptions{
+		Resolver:    resolver,
+		StoreOpener: openGraphStore,
+	})
+
+	status, err := service.Status("project:.", astgraph.GraphInspectOptions{SyncIndex: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.SourceKind != "project" {
+		t.Fatalf("SourceKind = %q, want project", status.SourceKind)
+	}
+}
+
 func TestInspectStatusNoSyncReportsStaleGraph(t *testing.T) {
 	sourceDir := t.TempDir()
 	writeASTGraphFixture(t, sourceDir, "main.go", `package main

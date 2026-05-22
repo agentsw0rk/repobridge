@@ -44,6 +44,7 @@ repobridge search --cwd <project-root> --json --limit 20 --kind function --lang 
 
 ```bash
 repobridge search --cwd . react@19.0.0 "kind:function name:render"
+repobridge search --cwd . project:. "kind:function name:NewRootCommand"
 repobridge search --cwd . pypi:requests==2.32.3 "calls:send lang:python"
 repobridge search --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 "kind:file path:ArrayList.kt"
 repobridge search --cwd . maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 "kind:class name:ArrayList lang:kotlin"

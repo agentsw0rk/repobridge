@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="repobridge fetches dependency sources, builds local AST-Graph Engine indexes, and gives AI agents searchable framework context."
+      content="repobridge indexes project, dependency, and repository sources into local AST graphs for AI-agent source context."
     />
     <title>repobridge Documentation</title>
     <link rel="icon" type="image/png" href="logo.png" />
@@ -798,11 +798,11 @@
     <main id="top">
       <section class="hero shell">
         <div>
-          <p class="eyebrow">Go CLI · package sources · AST-Graph Engine indexes</p>
+          <p class="eyebrow">Go CLI · project and package sources · AST-Graph Engine indexes</p>
           <h1>searchable source context for ai agents</h1>
           <p class="hero-copy">
-            repobridge scans a project, detects the frameworks and libraries it uses, fetches their source code,
-            indexes local AST graphs, and gives AI agents stable reference paths for symbol, structure, and call investigation.
+            repobridge scans a project, indexes the local repository with <code>project:.</code>, detects frameworks and libraries,
+            fetches dependency sources, and gives AI agents stable graph context for symbol, structure, and call investigation.
           </p>
           <div class="install-stack">
             <div class="install-callout" aria-label="Install the latest repobridge CLI binary">
@@ -826,6 +826,9 @@
             <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge scan --cwd . --fetch --limit 10</span></span>
             <span class="line dim">Fetched sources and queued background AST indexing</span>
             <span class="line">&nbsp;</span>
+            <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge search --cwd . project:. "kind:function name:NewRootCommand"</span></span>
+            <span class="line out">function NewRootCommand internal/cli/root.go:181</span>
+            <span class="line">&nbsp;</span>
             <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge search react@19.0.0 "calls:createRoot"</span></span>
             <span class="line out">function render src/client/ReactDOMRoot.js:92</span>
             <span class="line">&nbsp;</span>
@@ -835,6 +838,7 @@
             <span class="line"><span class="prompt">$</span> <span class="cmd">repobridge callees maven:org.jetbrains.kotlin:kotlin-stdlib@2.0.20 commonMain/kotlin/collections/ArrayList.kt --edge contains</span></span>
             <span class="line out">file commonMain/kotlin/collections/ArrayList.kt contains kotlin.collections.ArrayList</span>
             <div class="terminal-grid">
+              <div class="terminal-chip">project:. · deps</div>
               <div class="terminal-chip">AST nodes · routes</div>
               <div class="terminal-chip">contains edges</div>
               <div class="terminal-chip">Go · Java · Kotlin</div>
@@ -853,7 +857,7 @@
             <p class="section-kicker">Quick start</p>
             <h2>Scan a project before the agent starts guessing.</h2>
           </div>
-          <p>Turn manifests, lockfiles, and imports into source-code references an AI agent skill can search locally.</p>
+          <p>Turn the current project, manifests, lockfiles, and imports into source-code references an AI agent skill can search locally.</p>
         </div>
         <div class="code-panel">
           <div class="copy-row">
@@ -866,6 +870,10 @@ repobridge install-agent --target codex --dry-run
 # Used by the installed repobridge skill
 repobridge scan --cwd . --json
 repobridge scan --cwd . --fetch --limit 10
+
+repobridge path --cwd . project:.
+repobridge search --cwd . project:. "kind:function name:NewRootCommand"
+repobridge context --cwd . project:. "scan command dependency detection flow" --budget small
 
 repobridge search react@19.0.0 "kind:function calls:createRoot"
 repobridge search maven:org.jetbrains.kotlin:kotlin-stdlib@2.1.0 "lang:kotlin kind:function"
@@ -940,7 +948,7 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
             <p class="section-kicker">Core features</p>
             <h2>Built for source-aware AI agents.</h2>
           </div>
-          <p>repobridge turns project dependencies into searchable local reference code.</p>
+          <p>repobridge turns the current project and its dependencies into searchable local graph context.</p>
         </div>
         <div class="cards">
           <article class="feature-card">
@@ -960,7 +968,7 @@ repobridge explore github.com/meltwater/kotlin-compose@953e574e6fb15018ba3be02af
           </article>
           <article class="feature-card">
             <h3>Search AST-Graph Engine indexes</h3>
-            <p>Query cached source graphs by symbol name, node kind, path, language, framework route, and function calls without touching dependency code.</p>
+            <p>Query project and cached dependency graphs by symbol name, node kind, path, language, framework route, and function calls.</p>
             <div class="tag-row">
               <span class="tag">search</span><span class="tag">kind:route</span><span class="tag">component_route</span>
             </div>
@@ -1143,6 +1151,10 @@ repobridge install-agent --target codex --print-config</code></pre>
 repobridge scan --cwd . --fetch --limit 10
 repobridge scan --cwd . --no-imports
 
+repobridge path --cwd . project:.
+repobridge search --cwd . project:. "kind:function name:NewRootCommand"
+repobridge context --cwd . project:. "scan command dependency detection flow" --budget small
+
 repobridge path --cwd . react
 repobridge path --cwd . github.com/spf13/cobra
 
@@ -1153,6 +1165,7 @@ repobridge search github.com/acme/service "kind:route path:/login"
 repobridge search github.com/acme/web "kind:component_route path:/settings"
 repobridge search github.com/acme/api "kind:route lang:go path:/api/users"
 
+repobridge status --cwd . project:.
 repobridge status react@19.0.0
 repobridge files react@19.0.0 --path packages/react-dom --limit 10
 repobridge node react@19.0.0 createRoot --source-lines 20
@@ -1180,7 +1193,7 @@ repobridge install-agent --target all --dry-run</code></pre>
             <p class="section-kicker">AST-Graph Engine</p>
             <h2>Search behavior, not only text.</h2>
           </div>
-          <p>Graph data is stored beside each cached source in <code>.repobridge-graph/</code> and rebuilt when the source changes.</p>
+          <p>Dependency graph data is stored beside each cached source in <code>.repobridge-graph/</code>. Local <code>project:</code> graph data is stored under <code>REPOBRIDGE_HOME/projects</code> so working trees stay clean.</p>
         </div>
         <div class="cards">
           <article class="feature-card">

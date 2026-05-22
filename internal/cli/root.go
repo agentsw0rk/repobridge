@@ -121,14 +121,21 @@ func (o Options) indexer() IndexScheduler {
 }
 
 func indexOutcome(outcome source.Outcome) error {
-	return indexOutcomePath(outcome.Path)
+	return indexOutcomePathWithGraphDir(outcome.Path, outcome.GraphPath)
 }
 
 func indexOutcomePath(sourcePath string) error {
+	return indexOutcomePathWithGraphDir(sourcePath, "")
+}
+
+func indexOutcomePathWithGraphDir(sourcePath, graphDir string) error {
 	startedAt := time.Now().UTC()
-	graphDir, err := cache.GraphDirForSource(sourcePath)
-	if err != nil {
-		return err
+	if graphDir == "" {
+		var err error
+		graphDir, err = cache.GraphDirForSource(sourcePath)
+		if err != nil {
+			return err
+		}
 	}
 	graph, err := store.Open(graphDir)
 	if err != nil {
@@ -164,7 +171,11 @@ func (s processIndexScheduler) Schedule(outcome source.Outcome) {
 	if strings.TrimSpace(s.executable) == "" || strings.TrimSpace(outcome.Path) == "" {
 		return
 	}
-	cmd := exec.Command(s.executable, "__astgraph-index", outcome.Path)
+	args := []string{"__astgraph-index", outcome.Path}
+	if strings.TrimSpace(outcome.GraphPath) != "" {
+		args = []string{"__astgraph-index", "--graph-dir", outcome.GraphPath, outcome.Path}
+	}
+	cmd := exec.Command(s.executable, args...)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
@@ -217,12 +228,15 @@ func NewRootCommand(opts Options) *cobra.Command {
 }
 
 func newASTGraphIndexCommand() *cobra.Command {
-	return &cobra.Command{
+	var graphDir string
+	cmd := &cobra.Command{
 		Use:    "__astgraph-index <source-path>",
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return indexOutcomePath(args[0])
+			return indexOutcomePathWithGraphDir(args[0], graphDir)
 		},
 	}
+	cmd.Flags().StringVar(&graphDir, "graph-dir", "", "override AST graph storage directory")
+	return cmd
 }
