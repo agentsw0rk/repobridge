@@ -151,6 +151,52 @@ class Service {
 	}
 }
 
+func TestCallgraphServiceDefaultsContainmentTraversalDeepEnoughForKotlinClassCallees(t *testing.T) {
+	sourceDir := t.TempDir()
+	writeASTGraphFixture(t, sourceDir, "api/Port.kt", `package api
+
+interface Port {
+  fun save(id: String)
+}
+`)
+	writeASTGraphFixture(t, sourceDir, "svc/Service.kt", `package svc
+
+import api.Port
+
+class Service(private val port: Port) {
+  fun handle(id: String) {
+    port.save(id)
+    helper(id)
+    RuntimeException(id)
+  }
+
+  private fun helper(id: String) {}
+}
+
+class RuntimeException(message: String)
+`)
+	resolver := &fakeSourceResolver{
+		outcome: source.Outcome{Path: sourceDir, Name: "demo", Version: "v1"},
+	}
+	service := astgraph.NewCallgraphService(astgraph.SearchServiceOptions{
+		Resolver:    resolver,
+		StoreOpener: openGraphStore,
+	})
+
+	result, err := service.Callgraph("demo@v1", "Service", astgraph.CallgraphOptions{
+		Direction: astgraph.CallgraphDirectionCallees,
+		SyncIndex: true,
+		Limit:     20,
+		EdgeKinds: []astgraph.EdgeKind{astgraph.EdgeKindContains, astgraph.EdgeKindCalls},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !callgraphContainsTarget(result.Edges, "api.Port.save") {
+		t.Fatalf("edges = %#v, want class containment traversal to include injected interface Port.save callee", result.Edges)
+	}
+}
+
 func callgraphContainsTarget(edges []astgraph.CallgraphEdge, qualifiedName string) bool {
 	for _, edge := range edges {
 		if edge.To.QualifiedName == qualifiedName {

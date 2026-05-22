@@ -64,10 +64,19 @@ func normalizedCallgraphDepth(requested int, edgeKinds []EdgeKind, rootKind Node
 		}
 		return requested
 	}
-	if containsEdgeKind(edgeKinds, EdgeKindContains) && (rootKind == NodeKindFile || rootKind == NodeKindModule) {
+	if containsEdgeKind(edgeKinds, EdgeKindContains) && callgraphContainmentRootKind(rootKind) {
 		return 5
 	}
 	return 1
+}
+
+func callgraphContainmentRootKind(kind NodeKind) bool {
+	switch kind {
+	case NodeKindFile, NodeKindModule, NodeKindClass, NodeKindStruct, NodeKindInterface, NodeKindEnum, NodeKindTrait, NodeKindProtocol:
+		return true
+	default:
+		return false
+	}
 }
 
 func containsEdgeKind(edgeKinds []EdgeKind, kind EdgeKind) bool {

@@ -1004,6 +1004,61 @@ fun run() {
 	}
 }
 
+func TestIndexerResolvesKotlinReceiverCallsFromInterfaceConstructorProperties(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "api/Port.kt", `package api
+
+interface Port {
+  fun save(id: String)
+}
+`)
+	writeASTGraphFixture(t, root, "impl/Other.kt", `package impl
+
+class Other {
+  fun save(id: String) {}
+}
+`)
+	writeASTGraphFixture(t, root, "svc/Service.kt", `package svc
+
+import api.Port
+
+class Service(private val port: Port) {
+  fun handle(id: String) {
+    port.save(id)
+    helper(id)
+    RuntimeException(id)
+  }
+
+  private fun helper(id: String) {}
+}
+
+class RuntimeException(message: String)
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 2048})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handleID := nodeIDByNameAndReceiver(t, result.Nodes, NodeKindFunction, "handle", "Service")
+	saveID := nodeIDByQualifiedName(t, result.Nodes, NodeKindFunction, "api.Port.save")
+	helperID := nodeIDByNameAndReceiver(t, result.Nodes, NodeKindFunction, "helper", "Service")
+	exceptionID := nodeIDByName(t, result.Nodes, NodeKindClass, "RuntimeException")
+	if !hasEdge(result.Edges, handleID, saveID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want Service.handle -> Port.save through interface-typed constructor property", result.Edges)
+	}
+	if !hasEdge(result.Edges, handleID, helperID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want Service.handle -> Service.helper", result.Edges)
+	}
+	if !hasEdge(result.Edges, handleID, exceptionID, EdgeKindCalls) {
+		t.Fatalf("Edges = %#v, want Service.handle -> RuntimeException constructor", result.Edges)
+	}
+	if hasUnresolved(result.Unresolved, handleID, "save") {
+		t.Fatalf("Unresolved = %#v, port.save should resolve through interface-typed constructor property", result.Unresolved)
+	}
+}
+
 func TestIndexerResolvesKotlinCallsThroughWildcardImports(t *testing.T) {
 	root := t.TempDir()
 	writeASTGraphFixture(t, root, "contracts/Contract.kt", `package kotlin.contracts
