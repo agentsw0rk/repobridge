@@ -395,6 +395,22 @@ func TestEnsureCachedInvalidRepoSpecReturnsTypedError(t *testing.T) {
 	}
 }
 
+func TestEnsureCachedUnknownSchemeReturnsTypedError(t *testing.T) {
+	t.Setenv("REPOBRIDGE_HOME", t.TempDir())
+
+	_, err := EnsureCached("foo:bar", Options{Fetcher: &fakeFetcher{}})
+	if err == nil {
+		t.Fatal("EnsureCached() error = nil, want UnknownSchemeError")
+	}
+	var schemeErr repobridge.UnknownSchemeError
+	if !errors.As(err, &schemeErr) {
+		t.Fatalf("EnsureCached() error = %T %q, want UnknownSchemeError", err, err)
+	}
+	if schemeErr.Scheme != "foo" {
+		t.Fatalf("UnknownSchemeError.Scheme = %q, want %q", schemeErr.Scheme, "foo")
+	}
+}
+
 func TestGitFetcherUsesSourceArchiveBeforeGit(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("REPOBRIDGE_HOME", home)

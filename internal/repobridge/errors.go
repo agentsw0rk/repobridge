@@ -43,6 +43,15 @@ func (e InvalidRepoSpecError) Error() string {
 	return fmt.Sprintf("Invalid repository format: %s", e.Spec)
 }
 
+type UnknownSchemeError struct {
+	Spec   string
+	Scheme string
+}
+
+func (e UnknownSchemeError) Error() string {
+	return fmt.Sprintf("Unknown source scheme %q in %q. Supported schemes: npm:, pypi:, crates:, maven:, nuget:, github:, gitlab:, bitbucket:, project:, or a bare package name (defaults to npm).", e.Scheme, e.Spec)
+}
+
 type CloneFailedError struct {
 	Message string
 }
