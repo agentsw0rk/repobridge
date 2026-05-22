@@ -13,12 +13,6 @@ func (s *CallgraphService) Callgraph(spec, symbol string, opts CallgraphOptions)
 	if opts.Direction == "" {
 		opts.Direction = CallgraphDirectionCallees
 	}
-	if opts.Depth <= 0 {
-		opts.Depth = 1
-	}
-	if opts.Depth > 5 {
-		opts.Depth = 5
-	}
 
 	result := CallgraphResult{
 		Symbol:    symbol,
@@ -41,11 +35,12 @@ func (s *CallgraphService) Callgraph(spec, symbol string, opts CallgraphOptions)
 		}
 		root := details[0]
 		result.Root = &root
+		depth := normalizedCallgraphDepth(opts.Depth, opts.EdgeKinds, root.Kind)
 
 		edges, err := session.Store.Callgraph(CallgraphQuery{
 			RootNodeID:        root.ID,
 			Direction:         opts.Direction,
-			Depth:             opts.Depth,
+			Depth:             depth,
 			Limit:             opts.Limit,
 			Kinds:             opts.Kinds,
 			EdgeKinds:         opts.EdgeKinds,
@@ -60,6 +55,28 @@ func (s *CallgraphService) Callgraph(spec, symbol string, opts CallgraphOptions)
 		return nil
 	})
 	return result, err
+}
+
+func normalizedCallgraphDepth(requested int, edgeKinds []EdgeKind, rootKind NodeKind) int {
+	if requested > 0 {
+		if requested > 5 {
+			return 5
+		}
+		return requested
+	}
+	if containsEdgeKind(edgeKinds, EdgeKindContains) && (rootKind == NodeKindFile || rootKind == NodeKindModule) {
+		return 5
+	}
+	return 1
+}
+
+func containsEdgeKind(edgeKinds []EdgeKind, kind EdgeKind) bool {
+	for _, edgeKind := range edgeKinds {
+		if edgeKind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func graphNodeDetails(nodes []GraphNode) []GraphNodeDetail {

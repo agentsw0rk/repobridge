@@ -948,6 +948,9 @@ func TestCalleesJSONPrintsEdges(t *testing.T) {
 	if app.callgraphOpts.SyncIndex || !app.callgraphOpts.IncludeUnresolved {
 		t.Fatalf("callgraph opts = %#v, want no sync and unresolved", app.callgraphOpts)
 	}
+	if app.callgraphOpts.Depth != 0 {
+		t.Fatalf("callgraph depth = %d, want service default", app.callgraphOpts.Depth)
+	}
 }
 
 func TestImpactPrintsNoEdgesMessage(t *testing.T) {

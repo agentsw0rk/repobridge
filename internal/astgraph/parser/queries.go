@@ -1204,10 +1204,11 @@ func appendKotlinClassNode(path string, source []byte, node *tree_sitter.Node, r
 	end := node.EndPosition()
 	startLine := int(start.Row) + 1
 	qualifiedName := packageQualifiedName(packageName, name)
-	id := stableNodeID(path, model.NodeKindClass, qualifiedName, startLine)
+	kind := kotlinTypeNodeKind(source, node)
+	id := stableNodeID(path, kind, qualifiedName, startLine)
 	result.Nodes = append(result.Nodes, model.GraphNode{
 		ID:             id,
-		Kind:           model.NodeKindClass,
+		Kind:           kind,
 		Name:           name,
 		QualifiedName:  qualifiedName,
 		ParameterCount: -1,
@@ -1220,6 +1221,22 @@ func appendKotlinClassNode(path string, source []byte, node *tree_sitter.Node, r
 		Signature:      strings.TrimSpace(nodeText(source, node)),
 	})
 	return id
+}
+
+func kotlinTypeNodeKind(source []byte, node *tree_sitter.Node) model.NodeKind {
+	if node.Kind() != "class_declaration" {
+		return model.NodeKindClass
+	}
+	fields := strings.Fields(declarationHeader(source, node))
+	for _, field := range fields {
+		switch field {
+		case "interface":
+			return model.NodeKindInterface
+		case "class":
+			return model.NodeKindClass
+		}
+	}
+	return model.NodeKindClass
 }
 
 func appendKotlinImportNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) string {

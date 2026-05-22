@@ -118,3 +118,44 @@ func TestCallgraphServiceIncludesUnresolvedCallees(t *testing.T) {
 		t.Fatalf("edges = %#v, want unresolved fmt.Println", result.Edges)
 	}
 }
+
+func TestCallgraphServiceDefaultsContainmentTraversalDeepEnoughForKotlinFile(t *testing.T) {
+	sourceDir := t.TempDir()
+	writeASTGraphFixture(t, sourceDir, "demo/Service.kt", `package demo
+import kotlin.collections.List
+
+class Service {
+  fun run() { helper() }
+  fun helper() {}
+}
+`)
+	resolver := &fakeSourceResolver{
+		outcome: source.Outcome{Path: sourceDir, Name: "demo", Version: "v1"},
+	}
+	service := astgraph.NewCallgraphService(astgraph.SearchServiceOptions{
+		Resolver:    resolver,
+		StoreOpener: openGraphStore,
+	})
+
+	result, err := service.Callgraph("demo@v1", "demo/Service.kt", astgraph.CallgraphOptions{
+		Direction: astgraph.CallgraphDirectionCallees,
+		SyncIndex: true,
+		Limit:     20,
+		EdgeKinds: []astgraph.EdgeKind{astgraph.EdgeKindContains},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !callgraphContainsTarget(result.Edges, "demo.Service.run") {
+		t.Fatalf("edges = %#v, want file containment traversal to include Service.run", result.Edges)
+	}
+}
+
+func callgraphContainsTarget(edges []astgraph.CallgraphEdge, qualifiedName string) bool {
+	for _, edge := range edges {
+		if edge.To.QualifiedName == qualifiedName {
+			return true
+		}
+	}
+	return false
+}

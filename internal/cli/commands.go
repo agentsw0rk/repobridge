@@ -436,7 +436,7 @@ func newCallgraphCommand(opts Options, direction astgraph.CallgraphDirection) *c
 	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale AST-Graph Engine index")
 	cmd.Flags().BoolVar(&includeUnresolved, "include-unresolved", false, "include unresolved call references")
 	cmd.Flags().IntVar(&limit, "limit", 0, "limit number of call graph edges")
-	cmd.Flags().IntVar(&depth, "depth", 1, "call graph traversal depth")
+	cmd.Flags().IntVar(&depth, "depth", 0, "call graph traversal depth")
 	cmd.Flags().StringArrayVar(&kinds, "kind", nil, "filter by node kind")
 	cmd.Flags().StringArrayVar(&edgeKinds, "edge", nil, "filter by edge kind")
 	cmd.Flags().StringArrayVar(&languages, "lang", nil, "filter by language")

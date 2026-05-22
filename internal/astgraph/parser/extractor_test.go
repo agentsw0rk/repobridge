@@ -696,6 +696,32 @@ enum class Status { Created, Canceled }
 	assertEdge(t, result.Edges, currentID, statusID, model.EdgeKindReturns)
 }
 
+func TestExtractFromSourceDoesNotDuplicateKotlinInterfacesAsClasses(t *testing.T) {
+	source := []byte(`package demo
+interface Binding {
+  fun bind()
+}
+`)
+
+	result, err := ExtractFromSource("Binding.kt", source, model.LanguageKotlin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	binding := findNode(t, result.Nodes, model.NodeKindInterface, "Binding")
+	if binding.QualifiedName != "demo.Binding" {
+		t.Fatalf("Binding qualifiedName = %q, want demo.Binding", binding.QualifiedName)
+	}
+	if binding.EndLine < 4 {
+		t.Fatalf("Binding endLine = %d, want full interface range", binding.EndLine)
+	}
+	for _, node := range result.Nodes {
+		if node.Kind == model.NodeKindClass && node.QualifiedName == "demo.Binding" {
+			t.Fatalf("unexpected class node for Kotlin interface: %#v", node)
+		}
+	}
+}
+
 func TestExtractFromSourceFindsExpandedTypeScriptKinds(t *testing.T) {
 	source := []byte(`interface Sink {}
 class Base {}
