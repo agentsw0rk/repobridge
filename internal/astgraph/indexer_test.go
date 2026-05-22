@@ -74,9 +74,9 @@ func (s Service) Run() { helper() }
 	}
 }
 
-func TestSchemaVersionBumpedForContainmentGraph(t *testing.T) {
-	if SchemaVersion != 27 {
-		t.Fatalf("SchemaVersion = %d, want 27 for containment graph reindex", SchemaVersion)
+func TestSchemaVersionBumpedForKotlinLambdaCallAttribution(t *testing.T) {
+	if SchemaVersion != 28 {
+		t.Fatalf("SchemaVersion = %d, want 28 for Kotlin lambda call attribution reindex", SchemaVersion)
 	}
 }
 

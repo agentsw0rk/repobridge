@@ -15,7 +15,7 @@ import (
 	"repobridge/internal/astgraph/parser"
 )
 
-const SchemaVersion = 27
+const SchemaVersion = 28
 
 type IndexOptions struct {
 	MaxFileSize int64
