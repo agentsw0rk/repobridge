@@ -91,6 +91,42 @@ var prefixes = []struct {
 	{"dotnet:", NuGet},
 }
 
+var schemeLike = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:`)
+
+var knownSchemes = buildKnownSchemes()
+
+func buildKnownSchemes() map[string]bool {
+	// Schemes the registry and repo routing understand. The "project" scheme is
+	// a source-layer concept and is intercepted before this guard runs.
+	known := map[string]bool{
+		"github":    true,
+		"gitlab":    true,
+		"bitbucket": true,
+		"http":      true,
+		"https":     true,
+	}
+	for _, item := range prefixes {
+		known[strings.TrimSuffix(item.Prefix, ":")] = true
+	}
+	return known
+}
+
+// UnknownScheme reports whether spec carries a "scheme:" prefix that is not a
+// recognized registry, repo, or URL scheme. Bare names without such a prefix
+// (e.g. "react", "owner/repo") are not flagged so they keep defaulting to npm.
+func UnknownScheme(spec string) (string, bool) {
+	trimmed := strings.TrimSpace(spec)
+	match := schemeLike.FindString(trimmed)
+	if match == "" {
+		return "", false
+	}
+	scheme := strings.ToLower(strings.TrimSuffix(match, ":"))
+	if knownSchemes[scheme] {
+		return "", false
+	}
+	return scheme, true
+}
+
 func DetectRegistry(spec string) DetectedRegistry {
 	trimmed := strings.TrimSpace(spec)
 	lower := strings.ToLower(trimmed)

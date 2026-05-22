@@ -60,6 +60,49 @@ func TestParsePackageSpec(t *testing.T) {
 	}
 }
 
+func TestUnknownScheme(t *testing.T) {
+	known := []string{
+		"react",
+		"lodash@1.2.3",
+		"@scope/pkg",
+		"@scope/pkg@1.0.0",
+		"owner/repo",
+		"github.com/owner/repo",
+		"npm:react",
+		"pypi:requests",
+		"maven:org.jetbrains.kotlin:kotlin-stdlib",
+		"github:owner/repo",
+		"GitHub:owner/repo",
+		"https://github.com/owner/repo",
+		"http://example.com/owner/repo",
+	}
+	for _, spec := range known {
+		t.Run(spec, func(t *testing.T) {
+			if scheme, ok := UnknownScheme(spec); ok {
+				t.Fatalf("UnknownScheme(%q) = %q, true; want false", spec, scheme)
+			}
+		})
+	}
+
+	unknown := map[string]string{
+		"foo:bar":           "foo",
+		"projct:.":          "projct",
+		"mvn:org.example:x": "mvn",
+		"npmx:react":        "npmx",
+	}
+	for spec, wantScheme := range unknown {
+		t.Run(spec, func(t *testing.T) {
+			scheme, ok := UnknownScheme(spec)
+			if !ok {
+				t.Fatalf("UnknownScheme(%q) ok = false, want true", spec)
+			}
+			if scheme != wantScheme {
+				t.Fatalf("UnknownScheme(%q) scheme = %q, want %q", spec, scheme, wantScheme)
+			}
+		})
+	}
+}
+
 func TestDetectInputType(t *testing.T) {
 	tests := map[string]InputType{
 		"zod":                                            PackageInput,

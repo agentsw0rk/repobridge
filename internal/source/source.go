@@ -131,6 +131,9 @@ func (a *Acquirer) Ensure(ctx context.Context, req Request) (Outcome, error) {
 	if isProjectSpec(req.Spec) {
 		return resolveProjectSource(req.Spec, req.CWD)
 	}
+	if scheme, ok := registry.UnknownScheme(req.Spec); ok {
+		return Outcome{}, repobridge.UnknownSchemeError{Spec: req.Spec, Scheme: scheme}
+	}
 	switch registry.DetectInputType(req.Spec) {
 	case registry.RepoInput:
 		return a.ensureRepoCached(ctx, req.Spec)
