@@ -207,6 +207,37 @@ func TestRootVersion(t *testing.T) {
 	if !strings.Contains(stdout, "test-version") {
 		t.Fatalf("stdout = %q, want version", stdout)
 	}
+	if strings.Contains(stdout, "\x1b[38;2;13;188;121m") {
+		t.Fatalf("stdout = %q, want no ANSI logo for version output", stdout)
+	}
+}
+
+func TestRootCommandPrintsLogoBeforeHelp(t *testing.T) {
+	stdout, _, err := executeForTest()
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	logoIndex := strings.Index(stdout, "\x1b[38;2;13;188;121m")
+	usageIndex := strings.Index(stdout, "Usage:")
+	if logoIndex == -1 {
+		t.Fatalf("stdout = %q, want ANSI logo", stdout)
+	}
+	if usageIndex == -1 {
+		t.Fatalf("stdout = %q, want help output", stdout)
+	}
+	if logoIndex > usageIndex {
+		t.Fatalf("stdout = %q, want ANSI logo before help output", stdout)
+	}
+}
+
+func TestRootHelpFlagDoesNotPrintLogo(t *testing.T) {
+	stdout, _, err := executeForTest("--help")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if strings.Contains(stdout, "\x1b[38;2;13;188;121m") {
+		t.Fatalf("stdout = %q, want no ANSI logo for help flag", stdout)
+	}
 }
 
 func TestIndexOutcomePathMarksGraphFailedWhenIndexingFails(t *testing.T) {

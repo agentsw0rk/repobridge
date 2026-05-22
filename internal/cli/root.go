@@ -37,6 +37,33 @@ type IndexScheduler interface {
 	Schedule(source.Outcome)
 }
 
+const logoGreen = "\x1b[38;2;13;188;121m"
+const logoReset = "\x1b[0m"
+
+var rootLogoLines = []string{
+	"                                █               █        █                ",
+	"▄▄ ▄▄    ▄▄▄    ▄ ▄▄     ▄▄▄    █ ▄▄   ▄▄ ▄▄   ▄▄     ▄▄▄█    ▄▄▄ ▄   ▄▄▄ ",
+	" █▀     █   █   █▀  █   █   █   █▀  █   █▀      █    █   █   █   █   █   █",
+	" █      █▀▀▀▀   █   █   █   █   █   █   █       █    █   █   ▀▄▄▄▀   █▀▀▀▀",
+	" █      ▀▄▄▄▀   █▀▄▄▀   ▀▄▄▄▀   █▀▄▄▀   █      ▄█▄   ▀▄▄▀█    █▄▄    ▀▄▄▄▀",
+	"                █                                            █   █        ",
+	"                ▀                                             ▀▀▀         ",
+}
+
+func printRootLogo(out io.Writer) {
+	for _, line := range rootLogoLines {
+		for _, r := range line {
+			if r == ' ' {
+				fmt.Fprint(out, " ")
+				continue
+			}
+			fmt.Fprintf(out, "%s%c%s", logoGreen, r, logoReset)
+		}
+		fmt.Fprintln(out)
+	}
+	fmt.Fprintln(out)
+}
+
 type defaultApp struct{}
 
 func (defaultApp) EnsureCached(spec string, opts source.Options) (source.Outcome, error) {
@@ -199,6 +226,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			printRootLogo(cmd.OutOrStdout())
 			return cmd.Help()
 		},
 	}
