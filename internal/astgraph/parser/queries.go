@@ -269,7 +269,9 @@ func walkKotlinNode(path string, source []byte, node *tree_sitter.Node, result *
 			currentNodeID = id
 		}
 	case "anonymous_function", "lambda_literal":
-		currentNodeID = ""
+		if !kotlinLambdaInheritsOwner(node) {
+			currentNodeID = ""
+		}
 	case "call_expression":
 		if currentNodeID != "" {
 			appendLanguageCall(path, source, node, model.LanguageKotlin, result, currentNodeID)
@@ -278,6 +280,24 @@ func walkKotlinNode(path string, source []byte, node *tree_sitter.Node, result *
 
 	for i := uint(0); i < node.NamedChildCount(); i++ {
 		walkKotlinNode(path, source, node.NamedChild(i), result, currentNodeID, routePrefix, className, packageName)
+	}
+}
+
+// kotlinLambdaInheritsOwner reports whether calls inside a lambda should be
+// attributed to the enclosing function. A lambda passed as a call argument
+// (trailing `foo { ... }` or explicit `foo({ ... })`) executes within the
+// caller, so its calls belong to the enclosing owner. A lambda that is stored
+// or returned escapes that scope, so its calls keep being dropped.
+func kotlinLambdaInheritsOwner(node *tree_sitter.Node) bool {
+	parent := node.Parent()
+	if parent == nil {
+		return false
+	}
+	switch parent.Kind() {
+	case "annotated_lambda", "value_argument":
+		return true
+	default:
+		return false
 	}
 }
 
