@@ -74,6 +74,23 @@ go build -o ./bin/repobridge ./cmd/repobridge
 ./bin/repobridge --version
 ```
 
+### Updates
+
+RepoBridge checks for newer GitHub releases before normal commands, at most once every 24 hours. Interactive terminal users are asked before an update is installed. Non-interactive callers such as scripts, CI jobs, LLM tools, and coding agents are never prompted; they may see a short stderr hint instead.
+
+Disable automatic checks:
+
+```bash
+REPOBRIDGE_NO_UPDATE_CHECK=1 repobridge search project:. "kind:function"
+```
+
+Check or install explicitly:
+
+```bash
+repobridge self-update --check-only
+repobridge self-update --yes
+```
+
 ## Quick Start
 
 RepoBridge is designed to sit behind a coding agent. The agent uses it to index the current project, fetch dependency sources, build AST-Graph Engine indexes, and ask targeted questions without reading entire repositories.
@@ -210,6 +227,7 @@ Indexes are built in the background after `path`, `fetch`, and `scan --fetch`. C
 | `repobridge context <spec> <query>` | Returns focused task context with entry points, relationships, snippets, related files, warnings, and stats. |
 | `repobridge explore <spec> <query>` | Returns broader graph exploration context with the same bounded output shape. |
 | `repobridge install-agent` | Installs the bundled RepoBridge skill for Codex, Claude, Cursor, opencode, or all targets. |
+| `repobridge self-update` | Checks for and installs the latest RepoBridge release. |
 | `repobridge list [--json]` | Lists cached packages and repositories. |
 | `repobridge remove <spec...>` | Removes selected cached sources. |
 | `repobridge clean` | Removes cached sources, optionally scoped by flags. |
@@ -229,6 +247,7 @@ Common command flags:
 | `callers`, `callees`, `impact` | `--depth`, `--edge`, `--kind`, `--lang`, `--path`, `--limit`, `--include-unresolved`. |
 | `context`, `explore` | `--budget`, `--limit`, `--depth`. |
 | `install-agent` | `--target`, `--version`, `--dry-run`, `--print-config`. |
+| `self-update` | `--check-only`, `--yes`, `--force`. |
 | `clean` | `--packages`, `--repos`, `--npm`, `--pypi`, `--crates`, `--maven`, `--nuget`. |
 
 Useful search query tokens include `kind:file`, `kind:module`, `kind:route`, `kind:handler`, `kind:component_route`, `path:/some/route`, `lang:python`, `calls:<symbol>`, and free text such as `POST /login`. Graph traversal edge filters include `calls`, `imports`, `handles`, `routes_to`, `middleware`, and `contains`.
