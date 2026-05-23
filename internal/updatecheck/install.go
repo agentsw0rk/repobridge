@@ -56,28 +56,158 @@ func InstallExtractedRelease(extractedDir, currentExecutable, goos string) error
 	}
 
 	destDir := filepath.Dir(currentExecutable)
-	if err := replaceExtractedBinary(sourceBinary, currentExecutable, goos); err != nil {
-		return err
-	}
-
+	files := []releaseInstallFile{{
+		source: sourceBinary,
+		target: currentExecutable,
+		mode:   0o755,
+		binary: true,
+	}}
 	for _, pattern := range []string{"libobjectbox.*", "objectbox.dll"} {
 		matches, err := filepath.Glob(filepath.Join(extractedDir, pattern))
 		if err != nil {
 			return err
 		}
 		for _, match := range matches {
-			if err := copyFile(match, filepath.Join(destDir, filepath.Base(match)), 0o644); err != nil {
-				return err
-			}
+			files = append(files, releaseInstallFile{
+				source: match,
+				target: filepath.Join(destDir, filepath.Base(match)),
+				mode:   0o644,
+			})
 		}
 	}
+	return installReleaseFiles(files, goos)
+}
+
+var replaceStagedBinary = replaceStagedFile
+
+type releaseInstallFile struct {
+	source string
+	target string
+	mode   os.FileMode
+	binary bool
+}
+
+type stagedInstallFile struct {
+	releaseInstallFile
+	staged string
+	backup string
+}
+
+func installReleaseFiles(files []releaseInstallFile, goos string) error {
+	var staged []stagedInstallFile
+	for _, file := range files {
+		stagedFile, err := stageInstallFile(file)
+		if err != nil {
+			removeStagedFiles(staged)
+			return err
+		}
+		staged = append(staged, stagedFile)
+	}
+	defer removeStagedFiles(staged)
+
+	var binary *stagedInstallFile
+	var installedLibraries []*stagedInstallFile
+	for i := range staged {
+		if staged[i].binary {
+			binary = &staged[i]
+			continue
+		}
+		if err := replaceLibraryWithRollback(&staged[i]); err != nil {
+			rollbackLibraries(installedLibraries)
+			return err
+		}
+		installedLibraries = append(installedLibraries, &staged[i])
+	}
+	if binary == nil {
+		rollbackLibraries(installedLibraries)
+		return fmt.Errorf("release binary not staged")
+	}
+	if err := replaceStagedBinary(binary.staged, binary.target, goos); err != nil {
+		rollbackLibraries(installedLibraries)
+		return err
+	}
+	binary.staged = ""
+	removeLibraryBackups(installedLibraries)
 	return nil
 }
 
-var replaceExtractedBinary = replaceFile
+func stageInstallFile(file releaseInstallFile) (stagedInstallFile, error) {
+	staged, err := os.CreateTemp(filepath.Dir(file.target), filepath.Base(file.target)+".new-*")
+	if err != nil {
+		return stagedInstallFile{}, fmt.Errorf("stage replacement for %s: %w", file.target, err)
+	}
+	stagedPath := staged.Name()
+	if err := staged.Close(); err != nil {
+		_ = os.Remove(stagedPath)
+		return stagedInstallFile{}, fmt.Errorf("stage replacement for %s: %w", file.target, err)
+	}
+	if err := copyFile(file.source, stagedPath, file.mode); err != nil {
+		_ = os.Remove(stagedPath)
+		return stagedInstallFile{}, fmt.Errorf("stage replacement for %s: %w", file.target, err)
+	}
+	return stagedInstallFile{releaseInstallFile: file, staged: stagedPath}, nil
+}
+
+func replaceLibraryWithRollback(file *stagedInstallFile) error {
+	if _, err := os.Stat(file.target); err == nil {
+		backup, err := os.CreateTemp(filepath.Dir(file.target), filepath.Base(file.target)+".old-*")
+		if err != nil {
+			return fmt.Errorf("backup existing library %s: %w", file.target, err)
+		}
+		file.backup = backup.Name()
+		if err := backup.Close(); err != nil {
+			_ = os.Remove(file.backup)
+			return fmt.Errorf("backup existing library %s: %w", file.target, err)
+		}
+		if err := os.Remove(file.backup); err != nil {
+			return fmt.Errorf("backup existing library %s: %w", file.target, err)
+		}
+		if err := os.Rename(file.target, file.backup); err != nil {
+			return fmt.Errorf("backup existing library %s: %w", file.target, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat existing library %s: %w", file.target, err)
+	}
+
+	if err := os.Rename(file.staged, file.target); err != nil {
+		if file.backup != "" {
+			_ = os.Rename(file.backup, file.target)
+		}
+		return fmt.Errorf("replace library %s: %w", file.target, err)
+	}
+	file.staged = ""
+	return nil
+}
+
+func rollbackLibraries(files []*stagedInstallFile) {
+	for i := len(files) - 1; i >= 0; i-- {
+		file := files[i]
+		_ = os.Remove(file.target)
+		if file.backup != "" {
+			_ = os.Rename(file.backup, file.target)
+			file.backup = ""
+		}
+	}
+}
+
+func removeLibraryBackups(files []*stagedInstallFile) {
+	for _, file := range files {
+		if file.backup != "" {
+			_ = os.Remove(file.backup)
+			file.backup = ""
+		}
+	}
+}
+
+func removeStagedFiles(files []stagedInstallFile) {
+	for _, file := range files {
+		if file.staged != "" {
+			_ = os.Remove(file.staged)
+		}
+	}
+}
 
 func replaceFile(src, dst, goos string) error {
-	destDir := filepath.Dir(dst)
 	mode := os.FileMode(0o755)
 	if info, err := os.Stat(src); err != nil {
 		return fmt.Errorf("stat replacement source %s: %w", src, err)
@@ -85,75 +215,69 @@ func replaceFile(src, dst, goos string) error {
 		mode = info.Mode().Perm()
 	}
 
-	staged, err := os.CreateTemp(destDir, filepath.Base(dst)+".new-*")
+	staged, err := stageInstallFile(releaseInstallFile{source: src, target: dst, mode: mode})
 	if err != nil {
-		return fmt.Errorf("stage replacement for %s: %w", dst, err)
+		return err
 	}
-	stagedPath := staged.Name()
-	if err := staged.Close(); err != nil {
-		_ = os.Remove(stagedPath)
-		return fmt.Errorf("stage replacement for %s: %w", dst, err)
-	}
-	if err := copyFile(src, stagedPath, mode); err != nil {
-		_ = os.Remove(stagedPath)
-		return fmt.Errorf("stage replacement for %s: %w", dst, err)
-	}
+	defer removeStagedFiles([]stagedInstallFile{staged})
 
-	if goos != "windows" {
-		if err := os.Rename(stagedPath, dst); err != nil {
-			_ = os.Remove(stagedPath)
-			return fmt.Errorf("replace %s: %w", dst, err)
-		}
-		if err := os.Remove(src); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove replaced source %s: %w", src, err)
-		}
-		return nil
-	}
-
-	backupPath := ""
-	if _, err := os.Stat(dst); err == nil {
-		backup, err := os.CreateTemp(destDir, filepath.Base(dst)+".old-*")
-		if err != nil {
-			_ = os.Remove(stagedPath)
-			return fmt.Errorf("backup existing executable %s: %w", dst, err)
-		}
-		backupPath = backup.Name()
-		if err := backup.Close(); err != nil {
-			_ = os.Remove(stagedPath)
-			_ = os.Remove(backupPath)
-			return fmt.Errorf("backup existing executable %s: %w", dst, err)
-		}
-		if err := os.Remove(backupPath); err != nil {
-			_ = os.Remove(stagedPath)
-			return fmt.Errorf("backup existing executable %s: %w", dst, err)
-		}
-		if err := os.Rename(dst, backupPath); err != nil {
-			_ = os.Remove(stagedPath)
-			return fmt.Errorf("backup existing executable %s: %w", dst, err)
-		}
-	} else if !os.IsNotExist(err) {
-		_ = os.Remove(stagedPath)
-		return fmt.Errorf("stat existing executable %s: %w", dst, err)
-	}
-
-	if err := os.Rename(stagedPath, dst); err != nil {
-		if backupPath != "" {
-			if rollbackErr := os.Rename(backupPath, dst); rollbackErr != nil {
-				return fmt.Errorf("replace %s: %w; rollback failed: %v", dst, err, rollbackErr)
-			}
-		}
-		_ = os.Remove(stagedPath)
-		return fmt.Errorf("replace %s: %w", dst, err)
-	}
-	if backupPath != "" {
-		if err := os.Remove(backupPath); err != nil {
-			return fmt.Errorf("remove backup for %s: %w", dst, err)
-		}
+	if err := replaceStagedFile(staged.staged, dst, goos); err != nil {
+		return err
 	}
 	if err := os.Remove(src); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove replaced source %s: %w", src, err)
 	}
 	return nil
+}
+
+func replaceStagedFile(stagedPath, dst, goos string) error {
+	if goos != "windows" {
+		if err := os.Rename(stagedPath, dst); err != nil {
+			return fmt.Errorf("replace %s: %w", dst, err)
+		}
+		return nil
+	}
+
+	destDir := filepath.Dir(dst)
+	backupPath := ""
+	if _, err := os.Stat(dst); err == nil {
+		backup, err := os.CreateTemp(destDir, filepath.Base(dst)+".old-*")
+		if err != nil {
+			return windowsManualReplaceError(dst, fmt.Errorf("backup existing executable %s: %w", dst, err))
+		}
+		backupPath = backup.Name()
+		if err := backup.Close(); err != nil {
+			_ = os.Remove(backupPath)
+			return windowsManualReplaceError(dst, fmt.Errorf("backup existing executable %s: %w", dst, err))
+		}
+		if err := os.Remove(backupPath); err != nil {
+			return windowsManualReplaceError(dst, fmt.Errorf("backup existing executable %s: %w", dst, err))
+		}
+		if err := os.Rename(dst, backupPath); err != nil {
+			return windowsManualReplaceError(dst, fmt.Errorf("backup existing executable %s: %w", dst, err))
+		}
+	} else if !os.IsNotExist(err) {
+		return windowsManualReplaceError(dst, fmt.Errorf("stat existing executable %s: %w", dst, err))
+	}
+
+	if err := os.Rename(stagedPath, dst); err != nil {
+		if backupPath != "" {
+			if rollbackErr := os.Rename(backupPath, dst); rollbackErr != nil {
+				return windowsManualReplaceError(dst, fmt.Errorf("replace %s: %w; rollback failed: %v", dst, err, rollbackErr))
+			}
+		}
+		return windowsManualReplaceError(dst, fmt.Errorf("replace %s: %w", dst, err))
+	}
+	if backupPath != "" {
+		if err := os.Remove(backupPath); err != nil {
+			return windowsManualReplaceError(dst, fmt.Errorf("remove backup for %s: %w", dst, err))
+		}
+	}
+	return nil
+}
+
+func windowsManualReplaceError(dst string, err error) error {
+	return fmt.Errorf("%w; close running RepoBridge processes and replace %s manually from the downloaded release archive, or rerun self-update", err, dst)
 }
 
 func extractTarGz(content []byte, targetDir string) (string, error) {

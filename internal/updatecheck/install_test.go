@@ -258,12 +258,12 @@ func TestInstallExtractedReleaseDoesNotOverwriteNativeLibsWhenBinaryReplaceFails
 		t.Fatal(err)
 	}
 
-	originalReplace := replaceExtractedBinary
-	replaceExtractedBinary = func(src, dst, goos string) error {
+	originalReplace := replaceStagedBinary
+	replaceStagedBinary = func(src, dst, goos string) error {
 		return errors.New("replace failed")
 	}
 	t.Cleanup(func() {
-		replaceExtractedBinary = originalReplace
+		replaceStagedBinary = originalReplace
 	})
 
 	if err := InstallExtractedRelease(extracted, current, "linux"); err == nil {
@@ -271,6 +271,26 @@ func TestInstallExtractedReleaseDoesNotOverwriteNativeLibsWhenBinaryReplaceFails
 	}
 	if got, _ := os.ReadFile(existingNative); string(got) != "old native" {
 		t.Fatalf("native lib = %q, want old native preserved", got)
+	}
+}
+
+func TestReplaceStagedFileWindowsReportsManualInstructions(t *testing.T) {
+	dir := t.TempDir()
+	staged := filepath.Join(dir, "staged.exe")
+	if err := os.WriteFile(staged, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	notDir := filepath.Join(dir, "not-dir")
+	if err := os.WriteFile(notDir, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := replaceStagedFile(staged, filepath.Join(notDir, "repobridge.exe"), "windows")
+	if err == nil {
+		t.Fatal("replaceStagedFile() error = nil, want replace error")
+	}
+	if !strings.Contains(err.Error(), "replace") || !strings.Contains(err.Error(), "manually") {
+		t.Fatalf("error = %v, want manual replacement instructions", err)
 	}
 }
 
