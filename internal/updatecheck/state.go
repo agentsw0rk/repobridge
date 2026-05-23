@@ -32,6 +32,9 @@ func (s State) IsFresh(now time.Time, interval time.Duration) bool {
 	if s.CheckedAt.IsZero() {
 		return false
 	}
+	if s.CheckedAt.After(now) {
+		return false
+	}
 	return now.Sub(s.CheckedAt) < interval
 }
 

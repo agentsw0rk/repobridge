@@ -33,10 +33,14 @@ func TestStateStoreFreshness(t *testing.T) {
 	now := time.Date(2026, 5, 23, 8, 0, 0, 0, time.UTC)
 	fresh := State{CheckedAt: now.Add(-time.Hour)}
 	stale := State{CheckedAt: now.Add(-25 * time.Hour)}
+	future := State{CheckedAt: now.Add(time.Hour)}
 	if !fresh.IsFresh(now, 24*time.Hour) {
 		t.Fatal("fresh state reported stale")
 	}
 	if stale.IsFresh(now, 24*time.Hour) {
 		t.Fatal("stale state reported fresh")
+	}
+	if future.IsFresh(now, 24*time.Hour) {
+		t.Fatal("future state reported fresh")
 	}
 }
