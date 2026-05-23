@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"repobridge/internal/astgraph/store"
 	"repobridge/internal/cache"
 	"repobridge/internal/source"
+	"repobridge/internal/updatecheck"
 )
 
 func executeForTest(args ...string) (string, string, error) {
@@ -24,7 +26,9 @@ func executeForTest(args ...string) (string, string, error) {
 func executeForTestWithOptions(opts Options, args ...string) (string, string, error) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	opts.Version = "test-version"
+	if opts.Version == "" {
+		opts.Version = "test-version"
+	}
 	opts.Stdout = &stdout
 	opts.Stderr = &stderr
 	if opts.Indexer == nil {
@@ -143,6 +147,30 @@ func (i *fakeIndexer) waitedForIndexing() bool {
 	return i.waited
 }
 
+type fakeUpdateChecker struct {
+	result        updatecheck.CheckResult
+	checkErr      error
+	installErr    error
+	checkCalls    int
+	installCalls  int
+	opportunistic int
+}
+
+func (c *fakeUpdateChecker) Check(context.Context) (updatecheck.CheckResult, error) {
+	c.checkCalls++
+	return c.result, c.checkErr
+}
+
+func (c *fakeUpdateChecker) OpportunisticCheck(context.Context) (updatecheck.CheckResult, error) {
+	c.opportunistic++
+	return c.result, nil
+}
+
+func (c *fakeUpdateChecker) Install(context.Context, updatecheck.Release) error {
+	c.installCalls++
+	return c.installErr
+}
+
 type blockingWaitIndexer struct {
 	fakeIndexer
 	waitStarted chan struct{}
@@ -237,6 +265,72 @@ func TestRootHelpFlagDoesNotPrintLogo(t *testing.T) {
 	}
 	if strings.Contains(stdout, "\x1b[38;2;13;188;121m") {
 		t.Fatalf("stdout = %q, want no ANSI logo for help flag", stdout)
+	}
+}
+
+func TestSelfUpdateCheckOnlyReportsAvailableUpdate(t *testing.T) {
+	checker := &fakeUpdateChecker{
+		result: updatecheck.CheckResult{
+			Available:      true,
+			CurrentVersion: "v0.10.4",
+			LatestVersion:  "v0.10.5",
+			ReleaseURL:     "https://example.test/v0.10.5",
+		},
+	}
+
+	stdout, stderr, err := executeForTestWithOptions(
+		Options{Version: "v0.10.4", UpdateChecker: checker},
+		"self-update",
+		"--check-only",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout, "RepoBridge v0.10.5 is available") {
+		t.Fatalf("stdout = %q, want available update", stdout)
+	}
+	if !strings.Contains(stdout, "https://example.test/v0.10.5") {
+		t.Fatalf("stdout = %q, want release URL", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if checker.checkCalls != 1 {
+		t.Fatalf("check calls = %d, want 1", checker.checkCalls)
+	}
+	if checker.installCalls != 0 {
+		t.Fatalf("install calls = %d, want 0", checker.installCalls)
+	}
+}
+
+func TestSelfUpdateCheckOnlyReportsCurrentVersion(t *testing.T) {
+	checker := &fakeUpdateChecker{
+		result: updatecheck.CheckResult{
+			Available:      false,
+			CurrentVersion: "v0.10.4",
+			LatestVersion:  "v0.10.4",
+		},
+	}
+
+	stdout, stderr, err := executeForTestWithOptions(
+		Options{Version: "v0.10.4", UpdateChecker: checker},
+		"self-update",
+		"--check-only",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout, "RepoBridge v0.10.4 is current") {
+		t.Fatalf("stdout = %q, want current version", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	if checker.checkCalls != 1 {
+		t.Fatalf("check calls = %d, want 1", checker.checkCalls)
+	}
+	if checker.installCalls != 0 {
+		t.Fatalf("install calls = %d, want 0", checker.installCalls)
 	}
 }
 

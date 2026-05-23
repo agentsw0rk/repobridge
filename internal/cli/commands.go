@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"repobridge/internal/registry"
 	"repobridge/internal/registry/repo"
 	"repobridge/internal/source"
+	"repobridge/internal/updatecheck"
 )
 
 func newFetchCommand(opts Options) *cobra.Command {
@@ -218,6 +220,71 @@ func newSearchCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringArrayVar(&calls, "calls", nil, "filter by called symbol")
 	cmd.Flags().BoolVar(&noSyncIndex, "no-sync-index", false, "do not build a missing or stale AST-Graph Engine index")
 	return cmd
+}
+
+func newSelfUpdateCommand(opts Options) *cobra.Command {
+	var checkOnly bool
+	var yes bool
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "self-update",
+		Short: "Update the repobridge executable",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
+			checker := updateCheckerForOptions(opts)
+			result, err := checker.Check(cmd.Context())
+			if err != nil {
+				return err
+			}
+
+			current := selfUpdateCurrentVersion(result, opts.Version)
+			latest := selfUpdateLatestVersion(result)
+			if checkOnly {
+				if result.Available {
+					fmt.Fprintf(out, "RepoBridge %s is available (current %s)\n", latest, current)
+					if result.ReleaseURL != "" {
+						fmt.Fprintln(out, result.ReleaseURL)
+					}
+					return nil
+				}
+				fmt.Fprintf(out, "RepoBridge %s is current\n", current)
+				return nil
+			}
+
+			if !result.Available && !force {
+				fmt.Fprintf(out, "RepoBridge %s is current\n", current)
+				return nil
+			}
+			if !yes {
+				return errors.New("self-update requires --yes for non-interactive installation")
+			}
+			if err := checker.Install(cmd.Context(), result.Release); err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "Updated RepoBridge to %s\n", latest)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&checkOnly, "check-only", false, "check for an update without installing")
+	cmd.Flags().BoolVar(&yes, "yes", false, "install without prompting")
+	cmd.Flags().BoolVar(&force, "force", false, "reinstall the latest release even if current")
+	return cmd
+}
+
+func selfUpdateCurrentVersion(result updatecheck.CheckResult, fallback string) string {
+	if result.CurrentVersion != "" {
+		return result.CurrentVersion
+	}
+	return fallback
+}
+
+func selfUpdateLatestVersion(result updatecheck.CheckResult) string {
+	if result.LatestVersion != "" {
+		return result.LatestVersion
+	}
+	return result.Release.TagName
 }
 
 func newGraphStatusCommand(opts Options) *cobra.Command {

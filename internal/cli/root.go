@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -13,14 +14,16 @@ import (
 	"repobridge/internal/astgraph/store"
 	"repobridge/internal/cache"
 	"repobridge/internal/source"
+	"repobridge/internal/updatecheck"
 )
 
 type Options struct {
-	Version string
-	Stdout  io.Writer
-	Stderr  io.Writer
-	App     App
-	Indexer IndexScheduler
+	Version       string
+	Stdout        io.Writer
+	Stderr        io.Writer
+	App           App
+	Indexer       IndexScheduler
+	UpdateChecker UpdateChecker
 }
 
 type App interface {
@@ -35,6 +38,12 @@ type App interface {
 
 type IndexScheduler interface {
 	Schedule(source.Outcome)
+}
+
+type UpdateChecker interface {
+	Check(context.Context) (updatecheck.CheckResult, error)
+	OpportunisticCheck(context.Context) (updatecheck.CheckResult, error)
+	Install(context.Context, updatecheck.Release) error
 }
 
 const logoGreen = "\x1b[38;2;13;188;121m"
@@ -147,6 +156,13 @@ func (o Options) indexer() IndexScheduler {
 	return newProcessIndexScheduler()
 }
 
+func updateCheckerForOptions(opts Options) UpdateChecker {
+	if opts.UpdateChecker != nil {
+		return opts.UpdateChecker
+	}
+	return updatecheck.Service{CurrentVersion: opts.Version}
+}
+
 func indexOutcome(outcome source.Outcome) error {
 	return indexOutcomePathWithGraphDir(outcome.Path, outcome.GraphPath)
 }
@@ -218,6 +234,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 	if version == "" {
 		version = "dev"
 	}
+	opts.Version = version
 
 	cmd := &cobra.Command{
 		Use:           "repobridge",
@@ -247,6 +264,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newContextCommand(opts))
 	cmd.AddCommand(newExploreCommand(opts))
 	cmd.AddCommand(newInstallAgentCommand(opts))
+	cmd.AddCommand(newSelfUpdateCommand(opts))
 	cmd.AddCommand(newListCommand(opts))
 	cmd.AddCommand(newRemoveCommand(opts))
 	cmd.AddCommand(newCleanCommand(opts))
