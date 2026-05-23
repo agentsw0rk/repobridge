@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -24,6 +25,8 @@ type Options struct {
 	App           App
 	Indexer       IndexScheduler
 	UpdateChecker UpdateChecker
+	Interactive   func() bool
+	Prompt        func(message string) bool
 }
 
 type App interface {
@@ -163,6 +166,36 @@ func updateCheckerForOptions(opts Options) UpdateChecker {
 	return updatecheck.Service{CurrentVersion: opts.Version}
 }
 
+func isInteractive(opts Options) bool {
+	if opts.Interactive != nil {
+		return opts.Interactive()
+	}
+	stdinInfo, err := os.Stdin.Stat()
+	if err != nil || stdinInfo.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	stderrInfo, err := os.Stderr.Stat()
+	if err != nil || stderrInfo.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	return true
+}
+
+func promptYesNo(opts Options, message string) bool {
+	if opts.Prompt != nil {
+		return opts.Prompt(message)
+	}
+	fmt.Fprint(os.Stderr, message+" ")
+	var answer string
+	_, _ = fmt.Fscan(bufio.NewReader(os.Stdin), &answer)
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes", "j", "ja":
+		return true
+	default:
+		return false
+	}
+}
+
 func maybeRunUpdateCheck(cmd *cobra.Command, opts Options) {
 	if os.Getenv("REPOBRIDGE_NO_UPDATE_CHECK") == "1" {
 		return
@@ -174,12 +207,29 @@ func maybeRunUpdateCheck(cmd *cobra.Command, opts Options) {
 		return
 	}
 
-	result, err := updateCheckerForOptions(opts).OpportunisticCheck(cmd.Context())
+	checker := updateCheckerForOptions(opts)
+	result, err := checker.OpportunisticCheck(cmd.Context())
 	if err != nil || !result.Available {
 		return
 	}
 	latest := selfUpdateLatestVersion(result)
 	if latest == "" {
+		return
+	}
+	if isInteractive(opts) {
+		current := result.CurrentVersion
+		if strings.TrimSpace(current) == "" {
+			current = opts.Version
+		}
+		message := fmt.Sprintf("RepoBridge %s is available. Update from %s now? [y/N]", latest, current)
+		if !promptYesNo(opts, message) {
+			return
+		}
+		if err := checker.Install(cmd.Context(), result.Release); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "RepoBridge update failed: %v\n", err)
+			return
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "Updated RepoBridge to %s\n", latest)
 		return
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "RepoBridge %s is available; run `repobridge self-update`\n", latest)

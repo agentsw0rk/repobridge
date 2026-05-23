@@ -369,6 +369,70 @@ func TestUpdateCheckHintGoesToStderrForNonInteractiveCalls(t *testing.T) {
 	}
 }
 
+func TestInteractiveUpdatePromptInstallsWhenAccepted(t *testing.T) {
+	withHome(t)
+	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
+	checker := &fakeUpdateChecker{
+		result: updatecheck.CheckResult{
+			Available:     true,
+			LatestVersion: "v0.10.5",
+			Release:       updatecheck.Release{TagName: "v0.10.5"},
+		},
+	}
+
+	_, _, err := executeForTestWithOptions(
+		Options{
+			Version:       "v0.10.4",
+			UpdateChecker: checker,
+			Interactive: func() bool {
+				return true
+			},
+			Prompt: func(string) bool {
+				return true
+			},
+		},
+		"list",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if checker.installCalls != 1 {
+		t.Fatalf("install calls = %d, want 1", checker.installCalls)
+	}
+}
+
+func TestInteractiveUpdatePromptDeclineContinuesCommand(t *testing.T) {
+	withHome(t)
+	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
+	checker := &fakeUpdateChecker{
+		result: updatecheck.CheckResult{
+			Available:     true,
+			LatestVersion: "v0.10.5",
+			Release:       updatecheck.Release{TagName: "v0.10.5"},
+		},
+	}
+
+	_, _, err := executeForTestWithOptions(
+		Options{
+			Version:       "v0.10.4",
+			UpdateChecker: checker,
+			Interactive: func() bool {
+				return true
+			},
+			Prompt: func(string) bool {
+				return false
+			},
+		},
+		"list",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if checker.installCalls != 0 {
+		t.Fatalf("install calls = %d, want 0", checker.installCalls)
+	}
+}
+
 func TestSelfUpdateCheckOnlyReportsAvailableUpdate(t *testing.T) {
 	checker := &fakeUpdateChecker{
 		result: updatecheck.CheckResult{
