@@ -269,9 +269,7 @@ func replaceStagedFile(stagedPath, dst, goos string) error {
 		return windowsManualReplaceError(dst, fmt.Errorf("replace %s: %w", dst, err))
 	}
 	if backupPath != "" {
-		if err := os.Remove(backupPath); err != nil {
-			return windowsManualReplaceError(dst, fmt.Errorf("remove backup for %s: %w", dst, err))
-		}
+		_ = os.Remove(backupPath)
 	}
 	return nil
 }
