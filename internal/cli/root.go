@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +52,7 @@ type UpdateChecker interface {
 
 const logoGreen = "\x1b[38;2;13;188;121m"
 const logoReset = "\x1b[0m"
+const defaultOpportunisticUpdateTimeout = 2 * time.Second
 
 var rootLogoLines = []string{
 	"                                █               █        █                ",
@@ -208,12 +210,17 @@ func maybeRunUpdateCheck(cmd *cobra.Command, opts Options) {
 	}
 
 	checker := updateCheckerForOptions(opts)
-	result, err := checker.OpportunisticCheck(cmd.Context())
+	checkCtx, cancel := context.WithTimeout(cmd.Context(), defaultOpportunisticUpdateTimeout)
+	defer cancel()
+	result, err := checker.OpportunisticCheck(checkCtx)
 	if err != nil || !result.Available {
 		return
 	}
 	latest := selfUpdateLatestVersion(result)
 	if latest == "" {
+		return
+	}
+	if shouldSuppressUpdateNotice(cmd) {
 		return
 	}
 	if isInteractive(opts) {
@@ -233,6 +240,20 @@ func maybeRunUpdateCheck(cmd *cobra.Command, opts Options) {
 		return
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "RepoBridge %s is available; run `repobridge self-update`\n", latest)
+}
+
+func shouldSuppressUpdateNotice(cmd *cobra.Command) bool {
+	for _, name := range []string{"json", "quiet"} {
+		flag := cmd.Flags().Lookup(name)
+		if flag == nil || !flag.Changed || flag.Value.Type() != "bool" {
+			continue
+		}
+		value, err := strconv.ParseBool(flag.Value.String())
+		if err == nil && value {
+			return true
+		}
+	}
+	return false
 }
 
 func indexOutcome(outcome source.Outcome) error {

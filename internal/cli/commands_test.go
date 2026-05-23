@@ -148,12 +148,14 @@ func (i *fakeIndexer) waitedForIndexing() bool {
 }
 
 type fakeUpdateChecker struct {
-	result        updatecheck.CheckResult
-	checkErr      error
-	installErr    error
-	checkCalls    int
-	installCalls  int
-	opportunistic int
+	result                   updatecheck.CheckResult
+	checkErr                 error
+	installErr               error
+	checkCalls               int
+	installCalls             int
+	opportunistic            int
+	opportunisticHasDeadline bool
+	opportunisticDeadline    time.Time
 }
 
 func (c *fakeUpdateChecker) Check(context.Context) (updatecheck.CheckResult, error) {
@@ -161,8 +163,9 @@ func (c *fakeUpdateChecker) Check(context.Context) (updatecheck.CheckResult, err
 	return c.result, c.checkErr
 }
 
-func (c *fakeUpdateChecker) OpportunisticCheck(context.Context) (updatecheck.CheckResult, error) {
+func (c *fakeUpdateChecker) OpportunisticCheck(ctx context.Context) (updatecheck.CheckResult, error) {
 	c.opportunistic++
+	c.opportunisticDeadline, c.opportunisticHasDeadline = ctx.Deadline()
 	return c.result, nil
 }
 
@@ -285,6 +288,26 @@ func TestUpdateCheckRunsForNormalCommand(t *testing.T) {
 	}
 }
 
+func TestUpdateCheckUsesBoundedContextForNormalCommand(t *testing.T) {
+	withHome(t)
+	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
+	checker := &fakeUpdateChecker{}
+
+	_, _, err := executeForTestWithOptions(
+		Options{Version: "v0.10.4", UpdateChecker: checker},
+		"list",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !checker.opportunisticHasDeadline {
+		t.Fatal("opportunistic update check context has no deadline")
+	}
+	if time.Until(checker.opportunisticDeadline) > 3*time.Second {
+		t.Fatalf("opportunistic deadline = %v, want short startup timeout", checker.opportunisticDeadline)
+	}
+}
+
 func TestUpdateCheckSkipsVersionCommand(t *testing.T) {
 	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
 	checker := &fakeUpdateChecker{}
@@ -366,6 +389,69 @@ func TestUpdateCheckHintGoesToStderrForNonInteractiveCalls(t *testing.T) {
 	}
 	if strings.Contains(stdout, "RepoBridge v0.10.5 is available") {
 		t.Fatalf("stdout = %q, want update hint only on stderr", stdout)
+	}
+}
+
+func TestUpdateCheckHintSkipsJSONOutput(t *testing.T) {
+	withHome(t)
+	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
+	checker := &fakeUpdateChecker{
+		result: updatecheck.CheckResult{
+			Available:     true,
+			LatestVersion: "v0.10.5",
+		},
+	}
+	app := &fakeApp{statusResult: astgraph.GraphInspectStatus{
+		Source: "demo@v1",
+		Status: "missing",
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(
+		Options{Version: "v0.10.4", UpdateChecker: checker, App: app},
+		"status",
+		"--json",
+		"--no-sync-index",
+		"demo@v1",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if strings.Contains(stderr, "RepoBridge v0.10.5 is available") {
+		t.Fatalf("stderr = %q, want no update hint for JSON output", stderr)
+	}
+	var got astgraph.GraphInspectStatus
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
+	}
+}
+
+func TestUpdateCheckHintSkipsQuietOutput(t *testing.T) {
+	withHome(t)
+	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
+	checker := &fakeUpdateChecker{
+		result: updatecheck.CheckResult{
+			Available:     true,
+			LatestVersion: "v0.10.5",
+		},
+	}
+	app := &fakeApp{outcomes: map[string]source.Outcome{
+		"zod@3.22.4": {Name: "zod", Version: "3.22.4", SourceLabel: "npm", Path: "/cache/zod"},
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(
+		Options{Version: "v0.10.4", UpdateChecker: checker, App: app},
+		"fetch",
+		"--quiet",
+		"zod@3.22.4",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	if strings.Contains(stderr, "RepoBridge v0.10.5 is available") {
+		t.Fatalf("stderr = %q, want no update hint for quiet output", stderr)
 	}
 }
 
