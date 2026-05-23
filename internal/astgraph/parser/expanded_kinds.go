@@ -36,15 +36,25 @@ func appendExpandedGraphKinds(path string, source []byte, language model.Languag
 
 func appendGoExpandedKinds(path string, source []byte, result *ExtractionResult) {
 	lines := strings.Split(string(source), "\n")
-	typeAliasRE := regexp.MustCompile(`^type\s+([A-Za-z_]\w*)\s+(.+)$`)
+	typeAliasRE := regexp.MustCompile(`^type\s+([A-Za-z_]\w*)(?:\[[^\]]+\])?\s+(.+)$`)
 	structStartRE := regexp.MustCompile(`^type\s+([A-Za-z_]\w*)\s+struct\s*\{`)
 	constRE := regexp.MustCompile(`^const\s+([A-Za-z_]\w*)\b`)
-	fieldRE := regexp.MustCompile(`^([A-Za-z_]\w*)\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?)\b`)
 	var currentStruct string
+	inConstBlock := false
 	for index, raw := range lines {
 		line := index + 1
 		trimmed := strings.TrimSpace(stripLineComment(raw))
 		if trimmed == "" {
+			continue
+		}
+		if inConstBlock {
+			if strings.HasPrefix(trimmed, ")") {
+				inConstBlock = false
+				continue
+			}
+			if name := goConstName(trimmed); name != "" {
+				appendExpandedNode(path, result, model.NodeKindConstant, name, name, "", "", model.LanguageGo, line, strings.TrimSpace(raw))
+			}
 			continue
 		}
 		if currentStruct != "" {
@@ -52,9 +62,9 @@ func appendGoExpandedKinds(path string, source []byte, result *ExtractionResult)
 				currentStruct = ""
 				continue
 			}
-			if match := fieldRE.FindStringSubmatch(trimmed); match != nil {
-				fieldID := appendExpandedNode(path, result, model.NodeKindField, match[1], currentStruct+"."+match[1], currentStruct, match[2], model.LanguageGo, line, strings.TrimSpace(raw))
-				appendTypeOfEdge(path, result, fieldID, match[2], line)
+			if fieldName, typeName, ok := goStructField(trimmed); ok {
+				fieldID := appendExpandedNode(path, result, model.NodeKindField, fieldName, currentStruct+"."+fieldName, currentStruct, typeName, model.LanguageGo, line, strings.TrimSpace(raw))
+				appendTypeOfEdge(path, result, fieldID, typeName, line)
 			}
 			continue
 		}
@@ -66,6 +76,10 @@ func appendGoExpandedKinds(path string, source []byte, result *ExtractionResult)
 			}
 			continue
 		}
+		if strings.HasPrefix(trimmed, "const (") {
+			inConstBlock = true
+			continue
+		}
 		if match := constRE.FindStringSubmatch(trimmed); match != nil {
 			appendExpandedNode(path, result, model.NodeKindConstant, match[1], match[1], "", "", model.LanguageGo, line, strings.TrimSpace(raw))
 			continue
@@ -74,6 +88,50 @@ func appendGoExpandedKinds(path string, source []byte, result *ExtractionResult)
 			appendExpandedNode(path, result, model.NodeKindTypeAlias, match[1], match[1], "", strings.TrimSpace(match[2]), model.LanguageGo, line, strings.TrimSpace(raw))
 		}
 	}
+}
+
+func goStructField(line string) (string, string, bool) {
+	line = strings.TrimSpace(strings.TrimSuffix(line, ","))
+	if line == "" || strings.Contains(line, "(") {
+		return "", "", false
+	}
+	if before, _, ok := strings.Cut(line, "`"); ok {
+		line = strings.TrimSpace(before)
+	}
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return "", "", false
+	}
+	if len(fields) == 1 {
+		typeName := normalizeGoTypeName(fields[0])
+		return typeName, typeName, typeName != ""
+	}
+	if strings.HasSuffix(fields[0], ",") {
+		return "", "", false
+	}
+	name := strings.TrimSuffix(fields[0], ",")
+	if name == "" || name == "_" {
+		return "", "", false
+	}
+	typeExpr := strings.TrimSpace(line[len(fields[0]):])
+	typeName := normalizeGoTypeName(typeExpr)
+	return name, typeName, typeName != ""
+}
+
+func goConstName(line string) string {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, ")") {
+		return ""
+	}
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return ""
+	}
+	name := strings.TrimSuffix(fields[0], ",")
+	if name == "_" {
+		return ""
+	}
+	return name
 }
 
 func appendJavaExpandedKinds(path string, source []byte, result *ExtractionResult) {

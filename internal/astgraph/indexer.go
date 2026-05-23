@@ -15,7 +15,7 @@ import (
 	"repobridge/internal/astgraph/parser"
 )
 
-const SchemaVersion = 28
+const SchemaVersion = 40
 
 type IndexOptions struct {
 	MaxFileSize int64
@@ -43,11 +43,16 @@ func (i *Indexer) Index(sourcePath string) (IndexResult, error) {
 		return result, err
 	}
 
+	sourceByPath := make(map[string]indexedSource, len(files))
 	for _, file := range files {
 		content, err := os.ReadFile(file.AbsolutePath)
 		if err != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("%s: read failed: %v", file.RelativePath, err))
 			continue
+		}
+		sourceByPath[file.RelativePath] = indexedSource{
+			language: file.Language,
+			content:  string(content),
 		}
 
 		extracted, err := parser.ExtractFromSource(file.RelativePath, content, file.Language)
@@ -73,9 +78,546 @@ func (i *Indexer) Index(sourcePath string) (IndexResult, error) {
 		result.Warnings = append(result.Warnings, extracted.Warnings...)
 	}
 
+	composeJavaScriptExpressRouterMounts(&result, sourceByPath)
+	composePythonFastAPIIncludeRouterPrefixes(&result, sourceByPath)
 	resolveCallEdges(&result)
 	result.CompletedAt = time.Now().UTC()
 	return result, nil
+}
+
+type indexedSource struct {
+	language Language
+	content  string
+}
+
+type javascriptRouterMount struct {
+	filePath string
+	prefix   string
+	alias    string
+	line     int
+	column   int
+}
+
+type pythonIncludeRouterMount struct {
+	filePath string
+	prefix   string
+	alias    string
+	line     int
+	column   int
+}
+
+type pythonRouterImport struct {
+	filePath string
+	name     string
+}
+
+var (
+	javascriptDefaultImportPattern = regexp.MustCompile(`(?m)^\s*import\s+([A-Za-z_$][\w$]*)\s+from\s+['"]([^'"]+)['"]`)
+	javascriptNamedImportPattern   = regexp.MustCompile(`(?m)^\s*import\s*\{([^}]+)\}\s*from\s+['"]([^'"]+)['"]`)
+	javascriptReExportPattern      = regexp.MustCompile(`(?m)^\s*export\s*\{([^}]+)\}\s*from\s+['"]([^'"]+)['"]`)
+	javascriptRequirePattern       = regexp.MustCompile(`(?m)^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)`)
+	javascriptExpressMountPattern  = regexp.MustCompile("(?m)\\.use\\s*\\(\\s*(?:\"([^\"]+)\"|'([^']+)'|`([^`]+)`)\\s*,\\s*([A-Za-z_$][\\w$]*)")
+	pythonFromImportPattern        = regexp.MustCompile(`(?m)^\s*from\s+([A-Za-z_][\w.]*|\.+[A-Za-z_][\w.]*)\s+import\s+([^\n#]+)`)
+	pythonIncludeRouterPattern     = regexp.MustCompile(`(?m)\.include_router\s*\(\s*([A-Za-z_][\w]*)[^)]*prefix\s*=\s*(?:"([^"]+)"|'([^']+)')`)
+	pythonAPIRouterAssignPattern   = regexp.MustCompile(`(?m)^\s*([A-Za-z_][\w]*)\s*=\s*APIRouter\s*\(`)
+	pythonFastAPIDecoratorPattern  = regexp.MustCompile(`(?m)^\s*@([A-Za-z_][\w]*)\.(?:get|post|put|patch|delete|options|head|route|api_route)\s*\(`)
+)
+
+func composeJavaScriptExpressRouterMounts(result *IndexResult, sources map[string]indexedSource) {
+	if len(result.Nodes) == 0 || len(sources) == 0 {
+		return
+	}
+	routesByFile := make(map[string][]GraphNode)
+	for _, node := range result.Nodes {
+		if node.Kind != NodeKindRoute || node.Language != LanguageJavaScript {
+			continue
+		}
+		if strings.HasPrefix(node.Name, "USE ") {
+			continue
+		}
+		if !strings.HasPrefix(node.Signature, "express route ") {
+			continue
+		}
+		routesByFile[node.FilePath] = append(routesByFile[node.FilePath], node)
+	}
+	if len(routesByFile) == 0 {
+		return
+	}
+
+	nodeIDsByKey := make(map[string]string, len(result.Nodes))
+	for _, node := range result.Nodes {
+		nodeIDsByKey[indexedNodeKey(node)] = node.ID
+	}
+	edgeKeys := existingEdgeKeys(result.Edges)
+	handlesByRoute := make(map[string][]GraphEdge)
+	for _, edge := range result.Edges {
+		if edge.Kind == EdgeKindHandles || edge.Kind == EdgeKindRoutesTo {
+			handlesByRoute[edge.SourceNodeID] = append(handlesByRoute[edge.SourceNodeID], edge)
+		}
+	}
+
+	for filePath, source := range sources {
+		if source.language != LanguageJavaScript {
+			continue
+		}
+		imports := javascriptRouterImports(filePath, source.content, sources)
+		if len(imports) == 0 {
+			continue
+		}
+		for _, mount := range javascriptExpressRouterMounts(filePath, source.content) {
+			targetPath := imports[mount.alias]
+			if targetPath == "" {
+				continue
+			}
+			for _, route := range routesByFile[targetPath] {
+				method, pattern, ok := splitRouteName(route.Name)
+				if !ok {
+					continue
+				}
+				mountedName := method + " " + combineIndexedRoutePatterns(mount.prefix, pattern)
+				mountedRoute := route
+				mountedRoute.ID = indexedStableNodeID(mount.filePath+"->"+route.FilePath, NodeKindRoute, "express "+mountedName, route.StartLine)
+				mountedRoute.Name = mountedName
+				mountedRoute.QualifiedName = "express " + mountedName
+				mountedRoute.Signature = fmt.Sprintf("express mounted route %s via %s:%d", mountedName, mount.filePath, mount.line)
+				key := indexedNodeKey(mountedRoute)
+				if existingID, exists := nodeIDsByKey[key]; exists {
+					mountedRoute.ID = existingID
+				} else {
+					nodeIDsByKey[key] = mountedRoute.ID
+					result.Nodes = append(result.Nodes, mountedRoute)
+				}
+				for _, edge := range handlesByRoute[route.ID] {
+					mountedEdge := edge
+					mountedEdge.SourceNodeID = mountedRoute.ID
+					mountedEdge.FilePath = mount.filePath
+					mountedEdge.Line = mount.line
+					mountedEdge.Column = mount.column
+					mountedEdge.Provenance = "javascript-router-mount"
+					edgeKey := edgeKey(mountedEdge)
+					if _, exists := edgeKeys[edgeKey]; exists {
+						continue
+					}
+					edgeKeys[edgeKey] = struct{}{}
+					result.Edges = append(result.Edges, mountedEdge)
+				}
+			}
+		}
+	}
+}
+
+func javascriptRouterImports(filePath, source string, sources map[string]indexedSource) map[string]string {
+	imports := make(map[string]string)
+	for _, match := range javascriptDefaultImportPattern.FindAllStringSubmatch(source, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		if targetPath, ok := resolveJavaScriptImportPath(filePath, match[2], sources); ok {
+			imports[match[1]] = targetPath
+		}
+	}
+	for _, match := range javascriptNamedImportPattern.FindAllStringSubmatch(source, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		targetPath, ok := resolveJavaScriptImportPath(filePath, match[2], sources)
+		if !ok {
+			continue
+		}
+		for localName, exportedName := range javascriptNamedSpecifiers(match[1]) {
+			if exportedPath, ok := resolveJavaScriptReExportPath(targetPath, exportedName, sources, nil); ok {
+				imports[localName] = exportedPath
+				continue
+			}
+			imports[localName] = targetPath
+		}
+	}
+	for _, match := range javascriptRequirePattern.FindAllStringSubmatch(source, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		if targetPath, ok := resolveJavaScriptImportPath(filePath, match[2], sources); ok {
+			imports[match[1]] = targetPath
+		}
+	}
+	return imports
+}
+
+func javascriptNamedSpecifiers(specifiers string) map[string]string {
+	names := make(map[string]string)
+	for _, specifier := range strings.Split(specifiers, ",") {
+		specifier = strings.TrimSpace(specifier)
+		if specifier == "" {
+			continue
+		}
+		parts := strings.Fields(specifier)
+		switch len(parts) {
+		case 1:
+			names[parts[0]] = parts[0]
+		case 3:
+			if parts[1] == "as" {
+				names[parts[2]] = parts[0]
+			}
+		}
+	}
+	return names
+}
+
+func javascriptExpressRouterMounts(filePath, source string) []javascriptRouterMount {
+	var mounts []javascriptRouterMount
+	matches := javascriptExpressMountPattern.FindAllStringSubmatchIndex(source, -1)
+	for _, match := range matches {
+		if len(match) < 10 {
+			continue
+		}
+		prefix := firstMatchedGroup(source, match, 1, 2, 3)
+		alias := source[match[8]:match[9]]
+		if prefix == "" || alias == "" {
+			continue
+		}
+		line, column := lineColumnForOffset(source, match[0])
+		mounts = append(mounts, javascriptRouterMount{
+			filePath: filePath,
+			prefix:   prefix,
+			alias:    alias,
+			line:     line,
+			column:   column,
+		})
+	}
+	return mounts
+}
+
+func firstMatchedGroup(source string, match []int, groups ...int) string {
+	for _, group := range groups {
+		start := group * 2
+		end := start + 1
+		if end >= len(match) || match[start] < 0 || match[end] < 0 {
+			continue
+		}
+		return source[match[start]:match[end]]
+	}
+	return ""
+}
+
+func resolveJavaScriptImportPath(filePath, importPath string, sources map[string]indexedSource) (string, bool) {
+	importPath = strings.TrimSpace(importPath)
+	if !strings.HasPrefix(importPath, ".") {
+		return "", false
+	}
+	base := path.Clean(path.Join(path.Dir(filePath), importPath))
+	candidates := []string{
+		base,
+		base + ".js",
+		base + ".jsx",
+		base + ".mjs",
+		base + ".cjs",
+		path.Join(base, "index.js"),
+		path.Join(base, "index.jsx"),
+		path.Join(base, "index.mjs"),
+		path.Join(base, "index.cjs"),
+	}
+	for _, candidate := range candidates {
+		if source, ok := sources[candidate]; ok && source.language == LanguageJavaScript {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func resolveJavaScriptReExportPath(filePath, exportName string, sources map[string]indexedSource, seen map[string]struct{}) (string, bool) {
+	source, ok := sources[filePath]
+	if !ok || source.language != LanguageJavaScript {
+		return "", false
+	}
+	if seen == nil {
+		seen = make(map[string]struct{})
+	}
+	seenKey := filePath + "\x00" + exportName
+	if _, exists := seen[seenKey]; exists {
+		return "", false
+	}
+	seen[seenKey] = struct{}{}
+
+	for _, match := range javascriptReExportPattern.FindAllStringSubmatch(source.content, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		targetPath, ok := resolveJavaScriptImportPath(filePath, match[2], sources)
+		if !ok {
+			continue
+		}
+		for exportedAlias, localName := range javascriptNamedSpecifiers(match[1]) {
+			if exportedAlias != exportName {
+				continue
+			}
+			if nestedPath, ok := resolveJavaScriptReExportPath(targetPath, localName, sources, seen); ok {
+				return nestedPath, true
+			}
+			return targetPath, true
+		}
+	}
+	return "", false
+}
+
+func composePythonFastAPIIncludeRouterPrefixes(result *IndexResult, sources map[string]indexedSource) {
+	if len(result.Nodes) == 0 || len(sources) == 0 {
+		return
+	}
+	routesByFileAndRouter := make(map[string]map[string][]GraphNode)
+	for _, node := range result.Nodes {
+		if node.Kind != NodeKindRoute || node.Language != LanguagePython {
+			continue
+		}
+		if !strings.HasPrefix(node.Signature, "fastapi route ") {
+			continue
+		}
+		routerByLine := pythonFastAPIRouteRouters(sources[node.FilePath].content)
+		routerName := routerByLine[node.StartLine]
+		if routerName == "" {
+			continue
+		}
+		if routesByFileAndRouter[node.FilePath] == nil {
+			routesByFileAndRouter[node.FilePath] = make(map[string][]GraphNode)
+		}
+		routesByFileAndRouter[node.FilePath][routerName] = append(routesByFileAndRouter[node.FilePath][routerName], node)
+	}
+	if len(routesByFileAndRouter) == 0 {
+		return
+	}
+
+	nodeIDsByKey := make(map[string]string, len(result.Nodes))
+	for _, node := range result.Nodes {
+		nodeIDsByKey[indexedNodeKey(node)] = node.ID
+	}
+	edgeKeys := existingEdgeKeys(result.Edges)
+	handlesByRoute := make(map[string][]GraphEdge)
+	for _, edge := range result.Edges {
+		if edge.Kind == EdgeKindHandles || edge.Kind == EdgeKindRoutesTo {
+			handlesByRoute[edge.SourceNodeID] = append(handlesByRoute[edge.SourceNodeID], edge)
+		}
+	}
+
+	for filePath, source := range sources {
+		if source.language != LanguagePython {
+			continue
+		}
+		imports := pythonRouterImports(filePath, source.content, sources)
+		if len(imports) == 0 {
+			continue
+		}
+		for _, mount := range pythonIncludeRouterMounts(filePath, source.content) {
+			target := imports[mount.alias]
+			if target.filePath == "" || target.name == "" {
+				continue
+			}
+			for _, route := range routesByFileAndRouter[target.filePath][target.name] {
+				method, pattern, ok := splitRouteName(route.Name)
+				if !ok {
+					continue
+				}
+				includedName := method + " " + combineIndexedRoutePatterns(mount.prefix, pattern)
+				includedRoute := route
+				includedRoute.ID = indexedStableNodeID(mount.filePath+"->"+route.FilePath, NodeKindRoute, "fastapi "+includedName, route.StartLine)
+				includedRoute.Name = includedName
+				includedRoute.QualifiedName = "fastapi " + includedName
+				includedRoute.Signature = fmt.Sprintf("fastapi included route %s via %s:%d", includedName, mount.filePath, mount.line)
+				key := indexedNodeKey(includedRoute)
+				if existingID, exists := nodeIDsByKey[key]; exists {
+					includedRoute.ID = existingID
+				} else {
+					nodeIDsByKey[key] = includedRoute.ID
+					result.Nodes = append(result.Nodes, includedRoute)
+				}
+				for _, edge := range handlesByRoute[route.ID] {
+					includedEdge := edge
+					includedEdge.SourceNodeID = includedRoute.ID
+					includedEdge.FilePath = mount.filePath
+					includedEdge.Line = mount.line
+					includedEdge.Column = mount.column
+					includedEdge.Provenance = "fastapi-include-router"
+					edgeKey := edgeKey(includedEdge)
+					if _, exists := edgeKeys[edgeKey]; exists {
+						continue
+					}
+					edgeKeys[edgeKey] = struct{}{}
+					result.Edges = append(result.Edges, includedEdge)
+				}
+			}
+		}
+	}
+}
+
+func pythonRouterImports(filePath, source string, sources map[string]indexedSource) map[string]pythonRouterImport {
+	imports := make(map[string]pythonRouterImport)
+	for _, match := range pythonFromImportPattern.FindAllStringSubmatch(source, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		targetPath, ok := resolvePythonImportPath(filePath, match[1], sources)
+		if !ok {
+			continue
+		}
+		routerNames := pythonAPIRouterNames(sources[targetPath].content)
+		for _, imported := range strings.Split(match[2], ",") {
+			imported = strings.TrimSpace(imported)
+			if imported == "" || imported == "*" {
+				continue
+			}
+			parts := strings.Fields(imported)
+			if len(parts) == 0 {
+				continue
+			}
+			name := parts[0]
+			alias := name
+			if len(parts) == 3 && parts[1] == "as" {
+				alias = parts[2]
+			}
+			if _, ok := routerNames[name]; ok {
+				imports[alias] = pythonRouterImport{filePath: targetPath, name: name}
+			}
+		}
+	}
+	return imports
+}
+
+func pythonAPIRouterNames(source string) map[string]struct{} {
+	names := make(map[string]struct{})
+	for _, match := range pythonAPIRouterAssignPattern.FindAllStringSubmatch(source, -1) {
+		if len(match) >= 2 && match[1] != "" {
+			names[match[1]] = struct{}{}
+		}
+	}
+	return names
+}
+
+func pythonFastAPIRouteRouters(source string) map[int]string {
+	routers := make(map[int]string)
+	matches := pythonFastAPIDecoratorPattern.FindAllStringSubmatchIndex(source, -1)
+	for _, match := range matches {
+		if len(match) < 4 || match[2] < 0 || match[3] < 0 {
+			continue
+		}
+		line, _ := lineColumnForOffset(source, match[2])
+		routers[line] = source[match[2]:match[3]]
+	}
+	return routers
+}
+
+func pythonIncludeRouterMounts(filePath, source string) []pythonIncludeRouterMount {
+	var mounts []pythonIncludeRouterMount
+	matches := pythonIncludeRouterPattern.FindAllStringSubmatchIndex(source, -1)
+	for _, match := range matches {
+		if len(match) < 8 || match[2] < 0 || match[3] < 0 {
+			continue
+		}
+		prefix := firstMatchedGroup(source, match, 2, 3)
+		alias := source[match[2]:match[3]]
+		if prefix == "" || alias == "" {
+			continue
+		}
+		line, column := lineColumnForOffset(source, match[0])
+		mounts = append(mounts, pythonIncludeRouterMount{
+			filePath: filePath,
+			prefix:   prefix,
+			alias:    alias,
+			line:     line,
+			column:   column,
+		})
+	}
+	return mounts
+}
+
+func resolvePythonImportPath(filePath, modulePath string, sources map[string]indexedSource) (string, bool) {
+	modulePath = strings.TrimSpace(modulePath)
+	if modulePath == "" {
+		return "", false
+	}
+	var base string
+	if strings.HasPrefix(modulePath, ".") {
+		dotCount := 0
+		for dotCount < len(modulePath) && modulePath[dotCount] == '.' {
+			dotCount++
+		}
+		baseDir := path.Dir(filePath)
+		for i := 1; i < dotCount; i++ {
+			baseDir = path.Dir(baseDir)
+		}
+		remainder := strings.TrimPrefix(modulePath[dotCount:], ".")
+		base = baseDir
+		if remainder != "" {
+			base = path.Join(base, strings.ReplaceAll(remainder, ".", "/"))
+		}
+	} else {
+		base = strings.ReplaceAll(modulePath, ".", "/")
+	}
+	candidates := []string{
+		base + ".py",
+		path.Join(base, "__init__.py"),
+	}
+	for _, candidate := range candidates {
+		if source, ok := sources[candidate]; ok && source.language == LanguagePython {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func splitRouteName(name string) (string, string, bool) {
+	method, pattern, ok := strings.Cut(strings.TrimSpace(name), " ")
+	if !ok || method == "" || pattern == "" {
+		return "", "", false
+	}
+	return method, pattern, true
+}
+
+func combineIndexedRoutePatterns(prefix, pattern string) string {
+	prefix = normalizeIndexedRoutePattern(prefix)
+	pattern = normalizeIndexedRoutePattern(pattern)
+	if prefix == "/" {
+		return pattern
+	}
+	if pattern == "/" {
+		return prefix
+	}
+	return strings.TrimRight(prefix, "/") + "/" + strings.TrimLeft(pattern, "/")
+}
+
+func normalizeIndexedRoutePattern(pattern string) string {
+	pattern = strings.TrimSpace(pattern)
+	pattern = strings.Trim(pattern, "\"'`")
+	if pattern == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(pattern, "/") {
+		return "/" + pattern
+	}
+	return pattern
+}
+
+func indexedStableNodeID(path string, kind NodeKind, name string, line int) string {
+	hash := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s:%d", path, kind, name, line)))
+	return hex.EncodeToString(hash[:])
+}
+
+func indexedNodeKey(node GraphNode) string {
+	return strings.Join([]string{node.FilePath, string(node.Kind), node.Name, node.QualifiedName}, "\x00")
+}
+
+func lineColumnForOffset(source string, offset int) (int, int) {
+	line := 1
+	column := 0
+	for i, r := range source {
+		if i >= offset {
+			break
+		}
+		if r == '\n' {
+			line++
+			column = 0
+			continue
+		}
+		column++
+	}
+	return line, column
 }
 
 func resolveCallEdges(result *IndexResult) {

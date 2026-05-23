@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
@@ -160,6 +161,35 @@ func firstStringArgument(source []byte, args []*tree_sitter.Node) (string, bool)
 	return firstStringValue(source, args[0])
 }
 
+func firstQuotedText(text string) string {
+	values := quotedTexts(text)
+	if len(values) > 0 {
+		return values[0]
+	}
+	return ""
+}
+
+func quotedTexts(text string) []string {
+	var values []string
+	for _, quote := range []string{"\"", "'", "`"} {
+		rest := text
+		for {
+			start := strings.Index(rest, quote)
+			if start < 0 {
+				break
+			}
+			after := rest[start+len(quote):]
+			end := strings.Index(after, quote)
+			if end < 0 {
+				break
+			}
+			values = append(values, after[:end])
+			rest = after[end+len(quote):]
+		}
+	}
+	return values
+}
+
 func referenceArgumentName(source []byte, args []*tree_sitter.Node, index int) string {
 	if index < 0 || index >= len(args) {
 		return ""
@@ -301,6 +331,148 @@ func appendJavaScriptRoute(path string, source []byte, node *tree_sitter.Node, r
 	return true
 }
 
+func appendTypeScriptDecoratorRoutes(path string, source []byte, result *ExtractionResult) {
+	lines := strings.Split(string(source), "\n")
+	constants := typeScriptStringConstants(lines)
+	classPrefix := ""
+	var pendingRoutes []springRoute
+	for index := 0; index < len(lines); index++ {
+		raw := lines[index]
+		lineNumber := index + 1
+		trimmed := strings.TrimSpace(raw)
+		if strings.HasPrefix(trimmed, "@Controller") {
+			decoratorText, endIndex := typeScriptDecoratorText(lines, index)
+			classPrefix = typescriptDecoratorPatterns(decoratorText, constants)[0]
+			index = endIndex
+			continue
+		}
+		if strings.HasPrefix(trimmed, "@") {
+			decoratorText, endIndex := typeScriptDecoratorText(lines, index)
+			if method, patterns, ok := typescriptHTTPDecorator(decoratorText, constants); ok {
+				pendingRoutes = pendingRoutes[:0]
+				for _, pattern := range patterns {
+					pendingRoutes = append(pendingRoutes, springRoute{
+						Method:  method,
+						Pattern: combineRoutePatterns(normalizeRoutePattern(classPrefix), normalizeRoutePattern(pattern)),
+						Line:    lineNumber,
+						Column:  strings.Index(raw, "@"),
+					})
+				}
+			}
+			index = endIndex
+			continue
+		}
+		if len(pendingRoutes) == 0 || !strings.Contains(trimmed, "(") {
+			continue
+		}
+		name := strings.TrimSpace(strings.SplitN(trimmed, "(", 2)[0])
+		fields := strings.Fields(name)
+		if len(fields) > 0 {
+			name = fields[len(fields)-1]
+		}
+		if name == "" || strings.ContainsAny(name, "=@") {
+			continue
+		}
+		appendSpringHandlerLineRoutes(path, result, model.LanguageTypeScript, name, pendingRoutes)
+		pendingRoutes = nil
+	}
+}
+
+func typeScriptDecoratorText(lines []string, start int) (string, int) {
+	text := strings.TrimSpace(lines[start])
+	balance := strings.Count(text, "(") - strings.Count(text, ")")
+	if balance <= 0 {
+		return text, start
+	}
+	parts := []string{text}
+	for index := start + 1; index < len(lines); index++ {
+		trimmed := strings.TrimSpace(lines[index])
+		parts = append(parts, trimmed)
+		balance += strings.Count(trimmed, "(") - strings.Count(trimmed, ")")
+		if balance <= 0 {
+			return strings.Join(parts, " "), index
+		}
+	}
+	return text, start
+}
+
+func typeScriptStringConstants(lines []string) map[string]string {
+	constants := map[string]string{}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "const ") || !strings.Contains(trimmed, "=") {
+			continue
+		}
+		left, right, _ := strings.Cut(strings.TrimPrefix(trimmed, "const "), "=")
+		name := strings.TrimSpace(left)
+		if i := strings.IndexAny(name, ": "); i >= 0 {
+			name = strings.TrimSpace(name[:i])
+		}
+		value := firstQuotedText(right)
+		if name != "" && value != "" {
+			constants[name] = value
+		}
+	}
+	return constants
+}
+
+func typescriptHTTPDecorator(text string, constants map[string]string) (string, []string, bool) {
+	open := strings.Index(text, "(")
+	name := strings.TrimPrefix(strings.TrimSpace(text), "@")
+	if open >= 0 {
+		name = strings.TrimSpace(strings.TrimPrefix(text[:open], "@"))
+	}
+	method, ok := httpMethodFromName(name)
+	if !ok {
+		return "", nil, false
+	}
+	return method, typescriptDecoratorPatterns(text, constants), true
+}
+
+func typescriptDecoratorPatterns(text string, constants map[string]string) []string {
+	if values := quotedTexts(text); len(values) > 0 {
+		return values
+	}
+	open := strings.Index(text, "(")
+	close := strings.LastIndex(text, ")")
+	if open < 0 || close <= open {
+		return []string{""}
+	}
+	name := strings.TrimSpace(text[open+1 : close])
+	if value := constants[name]; value != "" {
+		return []string{value}
+	}
+	return []string{""}
+}
+
+func appendSpringHandlerLine(path string, result *ExtractionResult, language model.Language, handlerName string, route springRoute) {
+	appendSpringHandlerLineRoutes(path, result, language, handlerName, []springRoute{route})
+}
+
+func appendSpringHandlerLineRoutes(path string, result *ExtractionResult, language model.Language, handlerName string, routes []springRoute) {
+	if len(routes) == 0 {
+		return
+	}
+	route := routes[0]
+	handlerID := stableNodeID(path, model.NodeKindHandler, handlerName, route.Line)
+	result.Nodes = append(result.Nodes, model.GraphNode{
+		ID:            handlerID,
+		Kind:          model.NodeKindHandler,
+		Name:          handlerName,
+		QualifiedName: handlerName,
+		FilePath:      path,
+		Language:      language,
+		StartLine:     route.Line,
+		EndLine:       route.Line,
+		StartColumn:   route.Column,
+		EndColumn:     route.Column,
+		Signature:     fmt.Sprintf("decorated handler %s", handlerName),
+	})
+	for _, route := range routes {
+		appendSpringRoute(path, result, language, route, handlerID, handlerName)
+	}
+}
+
 func appendReactRouterJSXRoute(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, language model.Language) bool {
 	if jsxElementName(source, node) != "Route" {
 		return false
@@ -384,12 +556,13 @@ func appendPythonDecoratedRoute(path string, source []byte, node *tree_sitter.No
 		return "", false
 	}
 	var routes []frameworkRoute
+	prefixes := pythonAPIRouterPrefixes(source)
 	for i := uint(0); i < node.NamedChildCount(); i++ {
 		decorator := node.NamedChild(i)
 		if decorator.Kind() != "decorator" {
 			continue
 		}
-		if route, ok := pythonDecoratorRoute(source, decorator, handlerName); ok {
+		if route, ok := pythonDecoratorRoute(source, decorator, handlerName, prefixes); ok {
 			routes = append(routes, route)
 		}
 	}
@@ -427,12 +600,12 @@ func appendPythonDecoratedRoute(path string, source []byte, node *tree_sitter.No
 	return handlerID, true
 }
 
-func pythonDecoratorRoute(source []byte, node *tree_sitter.Node, handlerName string) (frameworkRoute, bool) {
+func pythonDecoratorRoute(source []byte, node *tree_sitter.Node, handlerName string, prefixes map[string]string) (frameworkRoute, bool) {
 	call := namedChildByKind(node, "call")
 	if call == nil {
 		return frameworkRoute{}, false
 	}
-	_, methodName, ok := routeMemberCall(source, call)
+	receiver, methodName, ok := routeMemberCall(source, call)
 	if !ok {
 		return frameworkRoute{}, false
 	}
@@ -440,6 +613,9 @@ func pythonDecoratorRoute(source []byte, node *tree_sitter.Node, handlerName str
 	pattern, ok := firstStringArgument(source, args)
 	if !ok {
 		return frameworkRoute{}, false
+	}
+	if prefix := prefixes[receiver]; prefix != "" {
+		pattern = combineRoutePatterns(prefix, pattern)
 	}
 	line, column := routeLineColumn(node)
 	if method, ok := httpMethodFromName(methodName); ok {
@@ -455,9 +631,34 @@ func pythonDecoratorRoute(source []byte, node *tree_sitter.Node, handlerName str
 	return frameworkRoute{}, false
 }
 
+var pythonAPIRouterPrefixPattern = regexp.MustCompile(`(?m)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*APIRouter\s*\([^)]*prefix\s*=\s*(?:"([^"]+)"|'([^']+)')`)
+
+func pythonAPIRouterPrefixes(source []byte) map[string]string {
+	prefixes := make(map[string]string)
+	for _, match := range pythonAPIRouterPrefixPattern.FindAllStringSubmatch(string(source), -1) {
+		if len(match) < 4 {
+			continue
+		}
+		prefix := match[2]
+		if prefix == "" {
+			prefix = match[3]
+		}
+		if prefix != "" {
+			prefixes[match[1]] = prefix
+		}
+	}
+	return prefixes
+}
+
 func appendDjangoRoute(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) bool {
 	call, ok := callReference(source, node)
-	if !ok || (call.name != "path" && call.name != "re_path") {
+	if !ok {
+		return false
+	}
+	if call.name == "add_url_rule" {
+		return appendPythonAddURLRule(path, source, node, result)
+	}
+	if call.name != "path" && call.name != "re_path" {
 		return false
 	}
 	args := routeArgumentNodes(node)
@@ -481,6 +682,167 @@ func appendDjangoRoute(path string, source []byte, node *tree_sitter.Node, resul
 		Column:      column,
 	})
 	return true
+}
+
+func appendPythonAddURLRule(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) bool {
+	args := routeArgumentNodes(node)
+	pattern, ok := firstStringArgument(source, args)
+	if !ok {
+		return false
+	}
+	handler := pythonAddURLRuleHandler(source, node)
+	if handler == "" {
+		return false
+	}
+	line, column := routeLineColumn(node)
+	appendFrameworkRoute(path, result, model.LanguagePython, frameworkRoute{
+		Framework:   "flask",
+		Method:      "ANY",
+		Pattern:     pattern,
+		HandlerName: handler,
+		Line:        line,
+		Column:      column,
+	})
+	return true
+}
+
+func pythonAddURLRuleHandler(source []byte, node *tree_sitter.Node) string {
+	text := nodeText(source, node)
+	if idx := strings.Index(text, "view_func="); idx >= 0 {
+		value := strings.TrimSpace(text[idx+len("view_func="):])
+		if end := strings.IndexAny(value, ",)"); end >= 0 {
+			value = strings.TrimSpace(value[:end])
+		}
+		if dot := strings.Index(value, ".as_view"); dot > 0 {
+			return strings.TrimSpace(value[:dot])
+		}
+		if i := strings.LastIndexAny(value, "."); i >= 0 {
+			value = value[i+1:]
+		}
+		return strings.Trim(value, " \t\r\n")
+	}
+	return ""
+}
+
+var (
+	kotlinKtorRoutePattern   = regexp.MustCompile(`\broute\s*\(`)
+	kotlinKtorHandlerPattern = regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+)
+
+type kotlinKtorPrefixScope struct {
+	prefix     string
+	closeDepth int
+}
+
+type kotlinKtorRouteScope struct {
+	route      frameworkRoute
+	closeDepth int
+	added      bool
+}
+
+func appendKotlinKtorRoutes(path string, source []byte, result *ExtractionResult) {
+	lines := strings.Split(string(source), "\n")
+	var prefixes []kotlinKtorPrefixScope
+	var routes []kotlinKtorRouteScope
+	depth := 0
+	for index, raw := range lines {
+		lineNumber := index + 1
+		trimmed := strings.TrimSpace(raw)
+		popKotlinKtorScopes(&prefixes, &routes, depth)
+
+		if pattern, ok := kotlinKtorRoutePatternFromLine(trimmed); ok {
+			afterDepth := depth + strings.Count(raw, "{") - strings.Count(raw, "}")
+			prefixes = append(prefixes, kotlinKtorPrefixScope{
+				prefix:     combineRoutePatterns(kotlinKtorPrefix(prefixes), pattern),
+				closeDepth: afterDepth,
+			})
+		}
+		if method, pattern, ok := kotlinKtorHTTPRouteFromLine(trimmed); ok {
+			afterDepth := depth + strings.Count(raw, "{") - strings.Count(raw, "}")
+			routes = append(routes, kotlinKtorRouteScope{
+				route: frameworkRoute{
+					Framework: "ktor",
+					Method:    method,
+					Pattern:   combineRoutePatterns(kotlinKtorPrefix(prefixes), pattern),
+					Line:      lineNumber,
+					Column:    strings.Index(raw, strings.ToLower(method)),
+				},
+				closeDepth: afterDepth,
+			})
+		}
+		if handler := kotlinKtorHandlerFromLine(trimmed); handler != "" && len(routes) > 0 {
+			current := &routes[len(routes)-1]
+			if !current.added {
+				current.route.HandlerName = handler
+				appendFrameworkRoute(path, result, model.LanguageKotlin, current.route)
+				current.added = true
+			}
+		}
+
+		depth += strings.Count(raw, "{") - strings.Count(raw, "}")
+		popKotlinKtorScopes(&prefixes, &routes, depth)
+	}
+}
+
+func popKotlinKtorScopes(prefixes *[]kotlinKtorPrefixScope, routes *[]kotlinKtorRouteScope, depth int) {
+	for len(*prefixes) > 0 && depth < (*prefixes)[len(*prefixes)-1].closeDepth {
+		*prefixes = (*prefixes)[:len(*prefixes)-1]
+	}
+	for len(*routes) > 0 && depth < (*routes)[len(*routes)-1].closeDepth {
+		*routes = (*routes)[:len(*routes)-1]
+	}
+}
+
+func kotlinKtorPrefix(prefixes []kotlinKtorPrefixScope) string {
+	if len(prefixes) == 0 {
+		return ""
+	}
+	return prefixes[len(prefixes)-1].prefix
+}
+
+func kotlinKtorRoutePatternFromLine(line string) (string, bool) {
+	if !kotlinKtorRoutePattern.MatchString(line) {
+		return "", false
+	}
+	pattern := firstQuotedText(line)
+	return pattern, pattern != ""
+}
+
+func kotlinKtorHTTPRouteFromLine(line string) (string, string, bool) {
+	open := strings.Index(line, "(")
+	if open < 0 {
+		return "", "", false
+	}
+	name := strings.TrimSpace(line[:open])
+	fields := strings.Fields(name)
+	if len(fields) > 0 {
+		name = fields[len(fields)-1]
+	}
+	method, ok := httpMethodFromName(name)
+	if !ok {
+		return "", "", false
+	}
+	pattern := firstQuotedText(line)
+	return method, pattern, pattern != ""
+}
+
+func kotlinKtorHandlerFromLine(line string) string {
+	if strings.HasPrefix(line, "fun ") || strings.HasPrefix(line, "class ") || strings.HasPrefix(line, "object ") {
+		return ""
+	}
+	for _, match := range kotlinKtorHandlerPattern.FindAllStringSubmatch(line, -1) {
+		if len(match) < 2 {
+			continue
+		}
+		name := match[1]
+		switch name {
+		case "routing", "route", "get", "post", "put", "delete", "patch", "head", "options":
+			continue
+		default:
+			return name
+		}
+	}
+	return ""
 }
 
 func pythonFrameworkName(methodName string) string {
@@ -727,8 +1089,8 @@ func csharpAttributeRoutes(source []byte, node *tree_sitter.Node, routePrefix, c
 	return routes
 }
 
-func appendCSharpMinimalAPIRoute(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) bool {
-	_, methodName, ok := routeMemberCall(source, node)
+func appendCSharpMinimalAPIRoute(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, prefixes map[string]string) bool {
+	receiver, methodName, ok := routeMemberCall(source, node)
 	if !ok || !strings.HasPrefix(methodName, "Map") {
 		return false
 	}
@@ -741,6 +1103,7 @@ func appendCSharpMinimalAPIRoute(path string, source []byte, node *tree_sitter.N
 	if !ok {
 		return false
 	}
+	pattern = combineRoutePatterns(prefixes[receiver], pattern)
 	line, column := routeLineColumn(node)
 	appendFrameworkRoute(path, result, model.LanguageCSharp, frameworkRoute{
 		Framework:   "aspnet",
@@ -751,6 +1114,43 @@ func appendCSharpMinimalAPIRoute(path string, source []byte, node *tree_sitter.N
 		Column:      column,
 	})
 	return true
+}
+
+func csharpRouteGroupPrefixes(source []byte) map[string]string {
+	prefixes := map[string]string{}
+	for _, line := range strings.Split(string(source), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.Contains(trimmed, ".MapGroup(") || !strings.Contains(trimmed, "=") {
+			continue
+		}
+		left, right, _ := strings.Cut(trimmed, "=")
+		leftFields := strings.Fields(strings.TrimSpace(left))
+		if len(leftFields) == 0 {
+			continue
+		}
+		name := leftFields[len(leftFields)-1]
+		receiver := csharpMapGroupReceiver(trimmed)
+		pattern := firstQuotedText(right)
+		if name != "" && pattern != "" {
+			prefixes[name] = combineRoutePatterns(prefixes[receiver], pattern)
+		}
+	}
+	return prefixes
+}
+
+func csharpMapGroupReceiver(line string) string {
+	before, _, ok := strings.Cut(line, ".MapGroup(")
+	if !ok {
+		return ""
+	}
+	before = strings.TrimSpace(before)
+	if i := strings.LastIndex(before, "="); i >= 0 {
+		before = strings.TrimSpace(before[i+1:])
+	}
+	if i := strings.LastIndexAny(before, " \t"); i >= 0 {
+		before = strings.TrimSpace(before[i+1:])
+	}
+	return before
 }
 
 func csharpAttributes(node *tree_sitter.Node) []*tree_sitter.Node {
@@ -873,6 +1273,9 @@ func appendRustRouterRoute(path string, source []byte, node *tree_sitter.Node, r
 	}
 	line, column := routeLineColumn(node)
 	if methodName == "nest" {
+		if len(args) > 1 && appendRustNestedRouterRoutes(path, source, args[1], result, pattern) {
+			return true
+		}
 		appendFrameworkRoute(path, result, model.LanguageRust, frameworkRoute{
 			Framework:   "axum",
 			Method:      "ANY",
@@ -884,20 +1287,102 @@ func appendRustRouterRoute(path string, source []byte, node *tree_sitter.Node, r
 		})
 		return true
 	}
-	method := "ANY"
-	handler := ""
+	routes := []frameworkRoute{{Framework: "axum", Method: "ANY", Pattern: pattern, Line: line, Column: column}}
 	if len(args) > 1 {
-		method, handler = rustAxumHandler(source, args[1])
+		routes = rustAxumHandlerRoutes(source, args[1], pattern, line, column)
 	}
-	appendFrameworkRoute(path, result, model.LanguageRust, frameworkRoute{
-		Framework:   "axum",
-		Method:      method,
-		Pattern:     pattern,
-		HandlerName: handler,
-		Line:        line,
-		Column:      column,
-	})
+	for _, route := range routes {
+		appendFrameworkRoute(path, result, model.LanguageRust, route)
+	}
 	return true
+}
+
+func appendRustNestedRouterRoutes(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, prefix string) bool {
+	added := false
+	var walk func(*tree_sitter.Node)
+	walk = func(current *tree_sitter.Node) {
+		if current == nil {
+			return
+		}
+		_, methodName, ok := routeMemberCall(source, current)
+		if ok && methodName == "route" {
+			args := routeArgumentNodes(current)
+			pattern, hasPattern := firstStringArgument(source, args)
+			if hasPattern {
+				line, column := routeLineColumn(current)
+				fullPattern := combineRoutePatterns(prefix, pattern)
+				routes := []frameworkRoute{{
+					Framework: "axum",
+					Method:    "ANY",
+					Pattern:   fullPattern,
+					Line:      line,
+					Column:    column,
+				}}
+				if len(args) > 1 {
+					routes = rustAxumHandlerRoutes(source, args[1], fullPattern, line, column)
+				}
+				for _, route := range routes {
+					appendFrameworkRoute(path, result, model.LanguageRust, route)
+				}
+				added = true
+			}
+		}
+		for i := uint(0); i < current.NamedChildCount(); i++ {
+			walk(current.NamedChild(i))
+		}
+	}
+	walk(node)
+	return added
+}
+
+func rustAxumHandlerRoutes(source []byte, node *tree_sitter.Node, pattern string, line, column int) []frameworkRoute {
+	handlers := rustAxumHandlers(source, node)
+	routes := make([]frameworkRoute, 0, len(handlers))
+	for _, handler := range handlers {
+		routes = append(routes, frameworkRoute{
+			Framework:   "axum",
+			Method:      handler.method,
+			Pattern:     pattern,
+			HandlerName: handler.handler,
+			Line:        line,
+			Column:      column,
+		})
+	}
+	if len(routes) == 0 {
+		method, handler := rustAxumHandler(source, node)
+		routes = append(routes, frameworkRoute{
+			Framework:   "axum",
+			Method:      method,
+			Pattern:     pattern,
+			HandlerName: handler,
+			Line:        line,
+			Column:      column,
+		})
+	}
+	return routes
+}
+
+type rustAxumMethodHandler struct {
+	method  string
+	handler string
+}
+
+var rustAxumMethodCallPattern = regexp.MustCompile(`\b(get|post|put|delete|patch|head|options)\s*\(\s*([A-Za-z_][A-Za-z0-9_:]*)`)
+
+func rustAxumHandlers(source []byte, node *tree_sitter.Node) []rustAxumMethodHandler {
+	text := nodeText(source, node)
+	var handlers []rustAxumMethodHandler
+	for _, match := range rustAxumMethodCallPattern.FindAllStringSubmatch(text, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		method, ok := httpMethodFromName(match[1])
+		if !ok {
+			continue
+		}
+		handlers = append(handlers, rustAxumMethodHandler{method: method, handler: match[2]})
+	}
+	return handlers
 }
 
 func rustAxumHandler(source []byte, node *tree_sitter.Node) (string, string) {

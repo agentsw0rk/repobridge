@@ -655,11 +655,7 @@ func TestExtractFromSourceSkipsKotlinCallsInsideEscapingLambdas(t *testing.T) {
 	assertNoUnresolvedFrom(t, result.Unresolved, "cleanup", makeHandlerID)
 }
 
-// Deferred builders such as launch {} or setOnClickListener {} are trailing
-// lambdas that may run later, yet they are syntactically indistinguishable
-// from synchronous call-argument lambdas. We accept attributing their calls to
-// the enclosing function as mild, intentional over-attribution.
-func TestExtractFromSourceAttributesKotlinCallsInDeferredBuilderLambdas(t *testing.T) {
+func TestExtractFromSourceSkipsKotlinCallsInDeferredBuilderLambdas(t *testing.T) {
 	source := []byte("fun setup() { launch { doWork() } }")
 
 	result, err := ExtractFromSource("Setup.kt", source, model.LanguageKotlin)
@@ -667,7 +663,8 @@ func TestExtractFromSourceAttributesKotlinCallsInDeferredBuilderLambdas(t *testi
 		t.Fatal(err)
 	}
 	setupID := findNodeID(t, result.Nodes, model.NodeKindFunction, "setup")
-	assertUnresolvedFrom(t, result.Unresolved, "doWork", setupID)
+	assertUnresolvedFrom(t, result.Unresolved, "launch", setupID)
+	assertNoUnresolvedFrom(t, result.Unresolved, "doWork", setupID)
 }
 
 func TestExtractFromSourceFindsKotlinClassesAndConstructorCalls(t *testing.T) {

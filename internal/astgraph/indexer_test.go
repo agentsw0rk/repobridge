@@ -74,9 +74,9 @@ func (s Service) Run() { helper() }
 	}
 }
 
-func TestSchemaVersionBumpedForKotlinLambdaCallAttribution(t *testing.T) {
-	if SchemaVersion != 28 {
-		t.Fatalf("SchemaVersion = %d, want 28 for Kotlin lambda call attribution reindex", SchemaVersion)
+func TestSchemaVersionBumpedForPythonFastAPIMultipleRouterFiltering(t *testing.T) {
+	if SchemaVersion != 40 {
+		t.Fatalf("SchemaVersion = %d, want 40 for Python FastAPI multiple router filtering reindex", SchemaVersion)
 	}
 }
 
@@ -184,6 +184,155 @@ function clone(value) {
 	}
 	if hasUnresolved(result.Unresolved, cloneID, "baseClone") {
 		t.Fatalf("Unresolved = %#v, baseClone should have resolved", result.Unresolved)
+	}
+}
+
+func TestIndexerComposesJavaScriptExpressRouterMountsAcrossFiles(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "routes/users.js", `import { Router } from "express"
+const api = Router()
+
+function listUsers(req, res) {}
+
+api.get("/users", listUsers)
+export default api
+`)
+	writeASTGraphFixture(t, root, "app.js", `import api from "./routes/users"
+const app = express()
+app.use("/api", api)
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 2048})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	routeID := nodeIDByName(t, result.Nodes, NodeKindRoute, "GET /api/users")
+	handlerID := nodeIDByName(t, result.Nodes, NodeKindHandler, "listUsers")
+	if !hasEdge(result.Edges, routeID, handlerID, EdgeKindHandles) {
+		t.Fatalf("Edges = %#v, want mounted /api/users route to handle listUsers", result.Edges)
+	}
+}
+
+func TestIndexerComposesJavaScriptExpressRouterMountsThroughNamedReExports(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "routes/users.js", `import { Router } from "express"
+export const api = Router()
+
+function listUsers(req, res) {}
+
+api.get("/users", listUsers)
+`)
+	writeASTGraphFixture(t, root, "routes/index.js", `export { api as usersRouter } from "./users"
+`)
+	writeASTGraphFixture(t, root, "app.js", `import { usersRouter } from "./routes"
+const app = express()
+app.use("/api", usersRouter)
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 2048})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	routeID := nodeIDByName(t, result.Nodes, NodeKindRoute, "GET /api/users")
+	handlerID := nodeIDByName(t, result.Nodes, NodeKindHandler, "listUsers")
+	if !hasEdge(result.Edges, routeID, handlerID, EdgeKindHandles) {
+		t.Fatalf("Edges = %#v, want mounted /api/users route through named re-export to handle listUsers", result.Edges)
+	}
+}
+
+func TestIndexerComposesPythonFastAPIIncludeRouterPrefixesAcrossFiles(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "routes/users.py", `from fastapi import APIRouter
+
+router = APIRouter(prefix="/api")
+
+@router.get("/users")
+def list_users():
+    pass
+`)
+	writeASTGraphFixture(t, root, "main.py", `from routes.users import router
+
+app.include_router(router, prefix="/v1")
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 2048})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	routeID := nodeIDByName(t, result.Nodes, NodeKindRoute, "GET /v1/api/users")
+	handlerID := nodeIDByName(t, result.Nodes, NodeKindHandler, "list_users")
+	if !hasEdge(result.Edges, routeID, handlerID, EdgeKindHandles) {
+		t.Fatalf("Edges = %#v, want included /v1/api/users route to handle list_users", result.Edges)
+	}
+}
+
+func TestIndexerComposesPythonFastAPIIncludeRouterPrefixesForNamedRouterImports(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "routes/users.py", `from fastapi import APIRouter
+
+users_router = APIRouter(prefix="/api")
+
+@users_router.get("/users")
+def list_users():
+    pass
+`)
+	writeASTGraphFixture(t, root, "main.py", `from routes.users import users_router
+
+app.include_router(users_router, prefix="/v1")
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 2048})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	routeID := nodeIDByName(t, result.Nodes, NodeKindRoute, "GET /v1/api/users")
+	handlerID := nodeIDByName(t, result.Nodes, NodeKindHandler, "list_users")
+	if !hasEdge(result.Edges, routeID, handlerID, EdgeKindHandles) {
+		t.Fatalf("Edges = %#v, want included named-router /v1/api/users route to handle list_users", result.Edges)
+	}
+}
+
+func TestIndexerComposesPythonFastAPIIncludeRouterPrefixesForOnlyImportedRouter(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "routes/api.py", `from fastapi import APIRouter
+
+users_router = APIRouter(prefix="/users")
+admin_router = APIRouter(prefix="/admin")
+
+@users_router.get("/")
+def list_users():
+    pass
+
+@admin_router.get("/")
+def list_admins():
+    pass
+`)
+	writeASTGraphFixture(t, root, "main.py", `from routes.api import users_router
+
+app.include_router(users_router, prefix="/v1")
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 2048})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	routeID := nodeIDByName(t, result.Nodes, NodeKindRoute, "GET /v1/users/")
+	handlerID := nodeIDByName(t, result.Nodes, NodeKindHandler, "list_users")
+	if !hasEdge(result.Edges, routeID, handlerID, EdgeKindHandles) {
+		t.Fatalf("Edges = %#v, want included users router route to handle list_users", result.Edges)
+	}
+	if hasNode(result.Nodes, NodeKindRoute, "GET /v1/admin/") {
+		t.Fatalf("Nodes = %#v, admin_router route should not be mounted when only users_router is included", result.Nodes)
 	}
 }
 
