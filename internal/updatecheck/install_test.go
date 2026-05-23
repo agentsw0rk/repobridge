@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -194,6 +195,103 @@ func TestReplaceFileWindowsReplacesExistingDestination(t *testing.T) {
 	}
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
 		t.Fatalf("src stat error = %v, want not exist", err)
+	}
+}
+
+func TestReplaceFileWindowsKeepsDestinationWhenSourceMissing(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "missing.exe")
+	dst := filepath.Join(dir, "repobridge.exe")
+	if err := os.WriteFile(dst, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := replaceFile(src, dst, "windows"); err == nil {
+		t.Fatal("replaceFile() error = nil, want missing source error")
+	}
+	if got, _ := os.ReadFile(dst); string(got) != "old" {
+		t.Fatalf("dst = %q, want old destination preserved", got)
+	}
+}
+
+func TestInstallExtractedReleaseDoesNotOverwriteNativeLibsWhenBinaryReplaceFails(t *testing.T) {
+	dir := t.TempDir()
+	current := filepath.Join(dir, "repobridge")
+	if err := os.WriteFile(current, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existingNative := filepath.Join(dir, "libobjectbox.so")
+	if err := os.WriteFile(existingNative, []byte("old native"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	extracted := filepath.Join(dir, "release")
+	if err := os.MkdirAll(extracted, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extracted, "repobridge"), []byte("new binary"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extracted, "libobjectbox.so"), []byte("new native"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	originalReplace := replaceExtractedBinary
+	replaceExtractedBinary = func(src, dst, goos string) error {
+		return errors.New("replace failed")
+	}
+	t.Cleanup(func() {
+		replaceExtractedBinary = originalReplace
+	})
+
+	if err := InstallExtractedRelease(extracted, current, "linux"); err == nil {
+		t.Fatal("InstallExtractedRelease() error = nil, want binary replacement failure")
+	}
+	if got, _ := os.ReadFile(existingNative); string(got) != "old native" {
+		t.Fatalf("native lib = %q, want old native preserved", got)
+	}
+}
+
+func TestWriteReaderToFileUpdatesExistingFileMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows file permissions do not preserve POSIX modes")
+	}
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeReaderToFile(path, strings.NewReader("new"), 0o644); err != nil {
+		t.Fatalf("writeReaderToFile() error = %v", err)
+	}
+	if info, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	} else if got := info.Mode().Perm(); got != 0o644 {
+		t.Fatalf("mode = %v, want 0644", got)
+	}
+}
+
+func TestCopyFileUpdatesExistingFileMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows file permissions do not preserve POSIX modes")
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+	if err := os.WriteFile(src, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyFile(src, dst, 0o644); err != nil {
+		t.Fatalf("copyFile() error = %v", err)
+	}
+	if info, err := os.Stat(dst); err != nil {
+		t.Fatal(err)
+	} else if got := info.Mode().Perm(); got != 0o644 {
+		t.Fatalf("mode = %v, want 0644", got)
 	}
 }
 
