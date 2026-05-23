@@ -198,6 +198,28 @@ func TestReplaceFileWindowsReplacesExistingDestination(t *testing.T) {
 	}
 }
 
+func TestReplaceFileLinuxReplacesExistingDestination(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "new")
+	dst := filepath.Join(dir, "repobridge")
+	if err := os.WriteFile(src, []byte("new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := replaceFile(src, dst, "linux"); err != nil {
+		t.Fatalf("replaceFile() error = %v", err)
+	}
+	if got, _ := os.ReadFile(dst); string(got) != "new" {
+		t.Fatalf("dst = %q, want new", got)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Fatalf("src stat error = %v, want not exist", err)
+	}
+}
+
 func TestReplaceFileWindowsKeepsDestinationWhenSourceMissing(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "missing.exe")

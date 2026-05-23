@@ -99,6 +99,17 @@ func replaceFile(src, dst, goos string) error {
 		return fmt.Errorf("stage replacement for %s: %w", dst, err)
 	}
 
+	if goos != "windows" {
+		if err := os.Rename(stagedPath, dst); err != nil {
+			_ = os.Remove(stagedPath)
+			return fmt.Errorf("replace %s: %w", dst, err)
+		}
+		if err := os.Remove(src); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove replaced source %s: %w", src, err)
+		}
+		return nil
+	}
+
 	backupPath := ""
 	if _, err := os.Stat(dst); err == nil {
 		backup, err := os.CreateTemp(destDir, filepath.Base(dst)+".old-*")
