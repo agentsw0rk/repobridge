@@ -7,9 +7,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"repobridge/internal/httpx"
 )
 
 const defaultGitHubAPIBaseURL = "https://api.github.com"
+const maxDownloadSize int64 = 128 << 20
 
 type Client struct {
 	HTTPClient *http.Client
@@ -70,14 +73,24 @@ func (c Client) Download(ctx context.Context, url string) ([]byte, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("download returned HTTP %d for %s", resp.StatusCode, url)
 	}
-	return io.ReadAll(resp.Body)
+	if resp.ContentLength > maxDownloadSize {
+		return nil, fmt.Errorf("download for %s is too large: %d bytes exceeds %d bytes", url, resp.ContentLength, maxDownloadSize)
+	}
+	content, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(content)) > maxDownloadSize {
+		return nil, fmt.Errorf("download for %s is too large: exceeds %d bytes", url, maxDownloadSize)
+	}
+	return content, nil
 }
 
 func (c Client) httpClient() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return http.DefaultClient
+	return httpx.NewClient()
 }
 
 func (r Release) SelectAssets(goos, goarch string) (Asset, Asset, error) {

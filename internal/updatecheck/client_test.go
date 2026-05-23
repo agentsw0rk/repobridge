@@ -1,8 +1,10 @@
 package updatecheck
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -92,6 +94,50 @@ func TestClientDownloadRejectsNon2xx(t *testing.T) {
 	}
 }
 
+func TestClientDownloadRejectsContentLengthTooLarge(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.FormatInt(maxDownloadSize+1, 10))
+	}))
+	defer server.Close()
+
+	client := Client{HTTPClient: server.Client()}
+	if _, err := client.Download(t.Context(), server.URL+"/archive"); err == nil {
+		t.Fatal("Download() error = nil, want error")
+	}
+}
+
+func TestClientDownloadRejectsStreamingBodyTooLarge(t *testing.T) {
+	client := Client{HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(io.LimitReader(zeroReader{}, maxDownloadSize+1)),
+		}, nil
+	})}}
+
+	if _, err := client.Download(t.Context(), "https://example.test/archive"); err == nil {
+		t.Fatal("Download() error = nil, want error")
+	}
+}
+
+func TestClientDownloadZeroValueUsesRepoUserAgent(t *testing.T) {
+	gotUserAgent := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUserAgent <- r.Header.Get("User-Agent")
+		_, _ = w.Write([]byte("archive bytes"))
+	}))
+	defer server.Close()
+
+	var client Client
+	if _, err := client.Download(t.Context(), server.URL+"/archive"); err != nil {
+		t.Fatalf("Download() error = %v", err)
+	}
+
+	if got := <-gotUserAgent; got != "repobridge-cli" {
+		t.Fatalf("User-Agent = %q, want %q", got, "repobridge-cli")
+	}
+}
+
 func TestSelectPlatformAsset(t *testing.T) {
 	release := Release{TagName: "v0.10.5", Assets: []Asset{
 		{Name: "checksums.txt", DownloadURL: "https://example.test/checksums.txt"},
@@ -169,4 +215,19 @@ func TestParseChecksumsRejectsNoChecksums(t *testing.T) {
 	if _, err := ParseChecksums([]byte("\n")); err == nil {
 		t.Fatal("ParseChecksums() error = nil, want error")
 	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
