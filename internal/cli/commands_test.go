@@ -268,6 +268,107 @@ func TestRootHelpFlagDoesNotPrintLogo(t *testing.T) {
 	}
 }
 
+func TestUpdateCheckRunsForNormalCommand(t *testing.T) {
+	withHome(t)
+	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
+	checker := &fakeUpdateChecker{}
+
+	_, _, err := executeForTestWithOptions(
+		Options{Version: "v0.10.4", UpdateChecker: checker},
+		"list",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if checker.opportunistic != 1 {
+		t.Fatalf("opportunistic calls = %d, want 1", checker.opportunistic)
+	}
+}
+
+func TestUpdateCheckSkipsVersionCommand(t *testing.T) {
+	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
+	checker := &fakeUpdateChecker{}
+
+	stdout, _, err := executeForTestWithOptions(
+		Options{Version: "v0.10.4", UpdateChecker: checker},
+		"--version",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stdout, "v0.10.4") {
+		t.Fatalf("stdout = %q, want version", stdout)
+	}
+	if checker.opportunistic != 0 {
+		t.Fatalf("opportunistic calls = %d, want 0", checker.opportunistic)
+	}
+}
+
+func TestUpdateCheckSkipsSelfUpdateCommand(t *testing.T) {
+	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
+	checker := &fakeUpdateChecker{
+		result: updatecheck.CheckResult{
+			Available:      false,
+			CurrentVersion: "v0.10.4",
+			LatestVersion:  "v0.10.4",
+		},
+	}
+
+	_, _, err := executeForTestWithOptions(
+		Options{Version: "v0.10.4", UpdateChecker: checker},
+		"self-update",
+		"--check-only",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if checker.opportunistic != 0 {
+		t.Fatalf("opportunistic calls = %d, want 0", checker.opportunistic)
+	}
+}
+
+func TestUpdateCheckSkipsWhenDisabledByEnv(t *testing.T) {
+	withHome(t)
+	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "1")
+	checker := &fakeUpdateChecker{}
+
+	_, _, err := executeForTestWithOptions(
+		Options{Version: "v0.10.4", UpdateChecker: checker},
+		"list",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if checker.opportunistic != 0 {
+		t.Fatalf("opportunistic calls = %d, want 0", checker.opportunistic)
+	}
+}
+
+func TestUpdateCheckHintGoesToStderrForNonInteractiveCalls(t *testing.T) {
+	withHome(t)
+	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
+	checker := &fakeUpdateChecker{
+		result: updatecheck.CheckResult{
+			Available:     true,
+			LatestVersion: "v0.10.5",
+		},
+	}
+
+	stdout, stderr, err := executeForTestWithOptions(
+		Options{Version: "v0.10.4", UpdateChecker: checker},
+		"list",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !strings.Contains(stderr, "RepoBridge v0.10.5 is available; run `repobridge self-update`") {
+		t.Fatalf("stderr = %q, want update hint", stderr)
+	}
+	if strings.Contains(stdout, "RepoBridge v0.10.5 is available") {
+		t.Fatalf("stdout = %q, want update hint only on stderr", stdout)
+	}
+}
+
 func TestSelfUpdateCheckOnlyReportsAvailableUpdate(t *testing.T) {
 	checker := &fakeUpdateChecker{
 		result: updatecheck.CheckResult{

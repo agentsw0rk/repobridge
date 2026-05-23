@@ -163,6 +163,28 @@ func updateCheckerForOptions(opts Options) UpdateChecker {
 	return updatecheck.Service{CurrentVersion: opts.Version}
 }
 
+func maybeRunUpdateCheck(cmd *cobra.Command, opts Options) {
+	if os.Getenv("REPOBRIDGE_NO_UPDATE_CHECK") == "1" {
+		return
+	}
+	if !updatecheck.IsReleaseVersion(opts.Version) {
+		return
+	}
+	if cmd.Name() == "self-update" || strings.HasPrefix(cmd.Name(), "__") {
+		return
+	}
+
+	result, err := updateCheckerForOptions(opts).OpportunisticCheck(cmd.Context())
+	if err != nil || !result.Available {
+		return
+	}
+	latest := selfUpdateLatestVersion(result)
+	if latest == "" {
+		return
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "RepoBridge %s is available; run `repobridge self-update`\n", latest)
+}
+
 func indexOutcome(outcome source.Outcome) error {
 	return indexOutcomePathWithGraphDir(outcome.Path, outcome.GraphPath)
 }
@@ -242,6 +264,10 @@ func NewRootCommand(opts Options) *cobra.Command {
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			maybeRunUpdateCheck(cmd, opts)
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			printRootLogo(cmd.OutOrStdout())
 			return cmd.Help()
