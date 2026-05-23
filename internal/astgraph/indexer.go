@@ -457,7 +457,6 @@ func pythonRouterImports(filePath, source string, sources map[string]indexedSour
 		if !ok {
 			continue
 		}
-		routerNames := pythonAPIRouterNames(sources[targetPath].content)
 		for _, imported := range strings.Split(match[2], ",") {
 			imported = strings.TrimSpace(imported)
 			if imported == "" || imported == "*" {
@@ -472,12 +471,63 @@ func pythonRouterImports(filePath, source string, sources map[string]indexedSour
 			if len(parts) == 3 && parts[1] == "as" {
 				alias = parts[2]
 			}
-			if _, ok := routerNames[name]; ok {
-				imports[alias] = pythonRouterImport{filePath: targetPath, name: name}
+			if routerImport, ok := resolvePythonRouterImport(targetPath, name, sources, nil); ok {
+				imports[alias] = routerImport
 			}
 		}
 	}
 	return imports
+}
+
+func resolvePythonRouterImport(filePath, exportName string, sources map[string]indexedSource, seen map[string]struct{}) (pythonRouterImport, bool) {
+	source, ok := sources[filePath]
+	if !ok || source.language != LanguagePython {
+		return pythonRouterImport{}, false
+	}
+	if seen == nil {
+		seen = make(map[string]struct{})
+	}
+	seenKey := filePath + "\x00" + exportName
+	if _, exists := seen[seenKey]; exists {
+		return pythonRouterImport{}, false
+	}
+	seen[seenKey] = struct{}{}
+
+	if _, ok := pythonAPIRouterNames(source.content)[exportName]; ok {
+		return pythonRouterImport{filePath: filePath, name: exportName}, true
+	}
+
+	for _, match := range pythonFromImportPattern.FindAllStringSubmatch(source.content, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		targetPath, ok := resolvePythonImportPath(filePath, match[1], sources)
+		if !ok {
+			continue
+		}
+		for _, imported := range strings.Split(match[2], ",") {
+			imported = strings.TrimSpace(imported)
+			if imported == "" || imported == "*" {
+				continue
+			}
+			parts := strings.Fields(imported)
+			if len(parts) == 0 {
+				continue
+			}
+			name := parts[0]
+			alias := name
+			if len(parts) == 3 && parts[1] == "as" {
+				alias = parts[2]
+			}
+			if alias != exportName {
+				continue
+			}
+			if routerImport, ok := resolvePythonRouterImport(targetPath, name, sources, seen); ok {
+				return routerImport, true
+			}
+		}
+	}
+	return pythonRouterImport{}, false
 }
 
 func pythonAPIRouterNames(source string) map[string]struct{} {

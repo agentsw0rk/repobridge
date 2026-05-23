@@ -336,6 +336,36 @@ app.include_router(users_router, prefix="/v1")
 	}
 }
 
+func TestIndexerComposesPythonFastAPIIncludeRouterPrefixesThroughPackageReExports(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "routes/users.py", `from fastapi import APIRouter
+
+users_router = APIRouter(prefix="/users")
+
+@users_router.get("/")
+def list_users():
+    pass
+`)
+	writeASTGraphFixture(t, root, "routes/__init__.py", `from .users import users_router
+`)
+	writeASTGraphFixture(t, root, "main.py", `from routes import users_router
+
+app.include_router(users_router, prefix="/v1")
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 2048})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	routeID := nodeIDByName(t, result.Nodes, NodeKindRoute, "GET /v1/users/")
+	handlerID := nodeIDByName(t, result.Nodes, NodeKindHandler, "list_users")
+	if !hasEdge(result.Edges, routeID, handlerID, EdgeKindHandles) {
+		t.Fatalf("Edges = %#v, want package re-exported users router route to handle list_users", result.Edges)
+	}
+}
+
 func TestIndexerResolvesTypeScriptCallsWithOmittedOptionalArguments(t *testing.T) {
 	root := t.TempDir()
 	writeASTGraphFixture(t, root, "parse.ts", `function parseValue(value: unknown, options: object, ctx: object) {

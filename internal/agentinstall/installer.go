@@ -200,14 +200,17 @@ func renderFiles(sourceDir, version string) ([]renderedFile, error) {
 		content: renderSkill(skill, version),
 	}}
 
-	metadataPath := filepath.Join(sourceDir, "agents", "openai.yaml")
-	if metadata, err := os.ReadFile(metadataPath); err == nil {
-		files = append(files, renderedFile{
-			relPath: filepath.Join("agents", "openai.yaml"),
-			content: append([]byte(nil), metadata...),
-		})
-	} else if !os.IsNotExist(err) {
-		return nil, fmt.Errorf("read bundled skill metadata %s: %w", metadataPath, err)
+	for _, metadataName := range []string{"agent.yaml", "openai.yaml"} {
+		metadataPath := filepath.Join(sourceDir, "agents", metadataName)
+		if metadata, err := os.ReadFile(metadataPath); err == nil {
+			files = append(files, renderedFile{
+				relPath: filepath.Join("agents", metadataName),
+				content: append([]byte(nil), metadata...),
+			})
+			break
+		} else if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("read bundled skill metadata %s: %w", metadataPath, err)
+		}
 	}
 	return files, nil
 }
