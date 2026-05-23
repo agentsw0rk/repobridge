@@ -243,6 +243,9 @@ func maybeRunUpdateCheck(cmd *cobra.Command, opts Options) {
 }
 
 func shouldSuppressUpdateNotice(cmd *cobra.Command) bool {
+	if cmd.Name() == "path" {
+		return true
+	}
 	for _, name := range []string{"json", "quiet"} {
 		flag := cmd.Flags().Lookup(name)
 		if flag == nil || !flag.Changed || flag.Value.Type() != "bool" {

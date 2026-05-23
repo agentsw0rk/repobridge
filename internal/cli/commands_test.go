@@ -455,6 +455,38 @@ func TestUpdateCheckHintSkipsQuietOutput(t *testing.T) {
 	}
 }
 
+func TestUpdateCheckHintSkipsPathCommand(t *testing.T) {
+	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
+	checker := &fakeUpdateChecker{
+		result: updatecheck.CheckResult{
+			Available:     true,
+			LatestVersion: "v0.10.5",
+		},
+	}
+	outcome := source.Outcome{Path: filepath.Join(t.TempDir(), "zod")}
+	app := &fakeApp{outcomes: map[string]source.Outcome{
+		"zod@3.22.4": outcome,
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(
+		Options{Version: "v0.10.4", UpdateChecker: checker, App: app},
+		"path",
+		"zod@3.22.4",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stdout != outcome.Path+"\n" {
+		t.Fatalf("stdout = %q, want only path", stdout)
+	}
+	if strings.Contains(stderr, "RepoBridge v0.10.5 is available") {
+		t.Fatalf("stderr = %q, want no update hint for path output", stderr)
+	}
+	if checker.opportunistic != 1 {
+		t.Fatalf("opportunistic calls = %d, want 1", checker.opportunistic)
+	}
+}
+
 func TestInteractiveUpdatePromptInstallsWhenAccepted(t *testing.T) {
 	withHome(t)
 	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
@@ -513,6 +545,50 @@ func TestInteractiveUpdatePromptDeclineContinuesCommand(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
+	}
+	if checker.installCalls != 0 {
+		t.Fatalf("install calls = %d, want 0", checker.installCalls)
+	}
+}
+
+func TestInteractiveUpdatePromptSkipsPathCommand(t *testing.T) {
+	t.Setenv("REPOBRIDGE_NO_UPDATE_CHECK", "")
+	checker := &fakeUpdateChecker{
+		result: updatecheck.CheckResult{
+			Available:     true,
+			LatestVersion: "v0.10.5",
+			Release:       updatecheck.Release{TagName: "v0.10.5"},
+		},
+	}
+	outcome := source.Outcome{Path: filepath.Join(t.TempDir(), "zod")}
+	app := &fakeApp{outcomes: map[string]source.Outcome{
+		"zod@3.22.4": outcome,
+	}}
+
+	stdout, stderr, err := executeForTestWithOptions(
+		Options{
+			Version:       "v0.10.4",
+			UpdateChecker: checker,
+			App:           app,
+			Interactive: func() bool {
+				return true
+			},
+			Prompt: func(string) bool {
+				t.Fatal("Prompt was called for path command")
+				return true
+			},
+		},
+		"path",
+		"zod@3.22.4",
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stdout != outcome.Path+"\n" {
+		t.Fatalf("stdout = %q, want only path", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 	if checker.installCalls != 0 {
 		t.Fatalf("install calls = %d, want 0", checker.installCalls)
