@@ -3,6 +3,8 @@ package updatecheck
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +90,55 @@ func TestServiceOpportunisticCheckUsesFreshState(t *testing.T) {
 	}
 	if result.ReleaseURL != "https://example.test/v0.10.5" {
 		t.Fatalf("ReleaseURL = %q", result.ReleaseURL)
+	}
+}
+
+func TestServiceOpportunisticCheckReturnsResultWhenStateWriteFails(t *testing.T) {
+	badHome := filepath.Join(t.TempDir(), "not-dir")
+	if err := os.WriteFile(badHome, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := releaseServer(t, "v0.10.5")
+	service := Service{
+		CurrentVersion: "v0.10.4",
+		Client:         Client{HTTPClient: server.Client(), BaseURL: server.URL},
+		StateStore:     StateStore{HomeDir: badHome},
+	}
+
+	result, err := service.OpportunisticCheck(t.Context())
+	if err != nil {
+		t.Fatalf("OpportunisticCheck() error = %v", err)
+	}
+	if !result.Available || result.LatestVersion != "v0.10.5" {
+		t.Fatalf("result = %#v, want available v0.10.5", result)
+	}
+}
+
+func TestServiceOpportunisticCheckSkipsCacheForNonReleaseVersion(t *testing.T) {
+	store := StateStore{HomeDir: t.TempDir()}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected release request for %s", r.URL.Path)
+	}))
+	defer server.Close()
+	service := Service{
+		CurrentVersion: "dev",
+		Client:         Client{HTTPClient: server.Client(), BaseURL: server.URL},
+		StateStore:     store,
+	}
+
+	result, err := service.OpportunisticCheck(t.Context())
+	if err != nil {
+		t.Fatalf("OpportunisticCheck() error = %v", err)
+	}
+	if result.Available || result.CurrentVersion != "dev" {
+		t.Fatalf("result = %#v, want no update for dev version", result)
+	}
+	state, err := store.Read()
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if !state.CheckedAt.IsZero() {
+		t.Fatalf("state = %#v, want no cache write", state)
 	}
 }
 

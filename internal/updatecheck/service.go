@@ -52,6 +52,10 @@ func (s Service) Check(ctx context.Context) (CheckResult, error) {
 }
 
 func (s Service) OpportunisticCheck(ctx context.Context) (CheckResult, error) {
+	if !IsReleaseVersion(s.CurrentVersion) {
+		return CheckResult{CurrentVersion: s.CurrentVersion}, nil
+	}
+
 	store := s.StateStore
 	if store.HomeDir == "" {
 		defaultStore, err := DefaultStateStore()
@@ -76,13 +80,11 @@ func (s Service) OpportunisticCheck(ctx context.Context) (CheckResult, error) {
 		_ = store.Write(State{CheckedAt: now})
 		return CheckResult{CurrentVersion: s.CurrentVersion}, nil
 	}
-	if err := store.Write(State{
+	_ = store.Write(State{
 		CheckedAt:  now,
 		Latest:     result.LatestVersion,
 		ReleaseURL: result.ReleaseURL,
-	}); err != nil {
-		return CheckResult{CurrentVersion: s.CurrentVersion}, nil
-	}
+	})
 	return result, nil
 }
 
