@@ -42,6 +42,11 @@ func parseVersion(version string) (semanticVersion, error) {
 	if len(parts) != 3 {
 		return semanticVersion{}, fmt.Errorf("invalid release version %q", version)
 	}
+	for _, part := range parts {
+		if !isDecimalDigits(part) {
+			return semanticVersion{}, fmt.Errorf("invalid release version %q", version)
+		}
+	}
 	major, err := strconv.Atoi(parts[0])
 	if err != nil {
 		return semanticVersion{}, fmt.Errorf("invalid release version %q", version)
@@ -55,6 +60,18 @@ func parseVersion(version string) (semanticVersion, error) {
 		return semanticVersion{}, fmt.Errorf("invalid release version %q", version)
 	}
 	return semanticVersion{major: major, minor: minor, patch: patch}, nil
+}
+
+func isDecimalDigits(component string) bool {
+	if component == "" {
+		return false
+	}
+	for _, r := range component {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func compareInt(a, b int) int {

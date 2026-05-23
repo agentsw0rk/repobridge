@@ -28,11 +28,21 @@ func TestCompareVersions(t *testing.T) {
 	}
 }
 
-func TestCompareVersionsRejectsMalformedVersions(t *testing.T) {
-	for _, version := range []string{"", "dev", "main", "v1", "v1.2", "v1.2.x", "v1.2.3.4"} {
+func TestCompareVersionsRejectsMalformedFirstVersion(t *testing.T) {
+	for _, version := range []string{"", "dev", "main", "v1", "v1.2", "v1.2.x", "v1.2.3.4", "v1.-2.3", "v+1.2.3"} {
 		t.Run(version, func(t *testing.T) {
 			if _, err := CompareVersions(version, "v1.2.3"); err == nil {
 				t.Fatalf("CompareVersions(%q, v1.2.3) error = nil, want error", version)
+			}
+		})
+	}
+}
+
+func TestCompareVersionsRejectsMalformedSecondVersion(t *testing.T) {
+	for _, version := range []string{"", "dev", "main", "v1", "v1.2", "v1.2.x", "v1.2.3.4", "v1.-2.3", "v+1.2.3"} {
+		t.Run(version, func(t *testing.T) {
+			if _, err := CompareVersions("v1.2.3", version); err == nil {
+				t.Fatalf("CompareVersions(v1.2.3, %q) error = nil, want error", version)
 			}
 		})
 	}
