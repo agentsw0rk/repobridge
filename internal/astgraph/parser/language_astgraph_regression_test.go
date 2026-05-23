@@ -278,6 +278,64 @@ class UsersController {
 		assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
 	})
 
+	t.Run("typescript nestjs controller object path and method arrays", func(t *testing.T) {
+		source := []byte(`@Controller({ version: '1', path: 'users' })
+class UsersController {
+  @Get([':id', 'me'])
+  getUser() {}
+}`)
+
+		result, err := ExtractFromSource("users.controller.ts", source, model.LanguageTypeScript)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "getUser")
+		idRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /users/:id")
+		assertEdge(t, result.Edges, idRouteID, handlerID, model.EdgeKindHandles)
+		meRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /users/me")
+		assertEdge(t, result.Edges, meRouteID, handlerID, model.EdgeKindHandles)
+		assertNoNode(t, result.Nodes, model.NodeKindRoute, "GET /1/:id")
+		assertNoNode(t, result.Nodes, model.NodeKindRoute, "GET /1/me")
+	})
+
+	t.Run("typescript nestjs controller object version without path", func(t *testing.T) {
+		source := []byte(`@Controller({ version: '1' })
+class HealthController {
+  @Get('health')
+  health() {}
+}`)
+
+		result, err := ExtractFromSource("health.controller.ts", source, model.LanguageTypeScript)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "health")
+		routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /health")
+		assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+		assertNoNode(t, result.Nodes, model.NodeKindRoute, "GET /1/health")
+	})
+
+	t.Run("typescript nestjs method object path array", func(t *testing.T) {
+		source := []byte(`@Controller('users')
+class UsersController {
+  @Get({ path: [':id', 'me'] })
+  getUser() {}
+}`)
+
+		result, err := ExtractFromSource("users.controller.ts", source, model.LanguageTypeScript)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "getUser")
+		idRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /users/:id")
+		assertEdge(t, result.Edges, idRouteID, handlerID, model.EdgeKindHandles)
+		meRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /users/me")
+		assertEdge(t, result.Edges, meRouteID, handlerID, model.EdgeKindHandles)
+	})
+
 	t.Run("python flask class based view", func(t *testing.T) {
 		source := []byte(`class UserView:
     pass

@@ -122,6 +122,7 @@ this document or a language-specific companion document before adding the test.
 | JS-AST-002 | JavaScript | React Router JSX | `<Route path="/home" element={<Home />} />` | component route to `Home` | Guards JSX route extraction | Medium | Covered |
 | TS-AST-001 | TypeScript | Class property type relationships | `profile: Profile` | `property` node and `type_of Profile` | Guards expanded-kind extraction | Medium | Covered |
 | TS-AST-002 | TypeScript | Class header inheritance | `extends Base implements Sink` | `extends` and `implements` edges | Guards class header parsing | Medium | Covered |
+| TS-AST-003 | TypeScript | NestJS method object-literal path arrays | `@Get({ path: [':id', 'me'] })` | routes `GET /users/:id` and `GET /users/me` | Guards method decorator object-literal extraction | Medium | Covered |
 | PY-AST-001 | Python | Decorated framework routes | `@app.post("/login")` | route and handler with `handles` edge | Guards decorated-definition suppression and route extraction | High | Covered |
 | PY-AST-002 | Python | Django URL patterns | `path("users/", user_view)` | route and handler with `handles` edge | Guards list-contained route calls | Medium | Covered |
 | RS-AST-001 | Rust | Attribute routes | `#[get("/health")] async fn health_check()` | route and handler with `handles` edge | Guards pending attribute-to-function mapping | High | Covered |
@@ -142,6 +143,7 @@ this document or a language-specific companion document before adding the test.
 | TS-AST-OPEN-001 | TypeScript | Decorator-based controllers | `@Controller('/users') class C { @Get(':id') get() {} }` | route and handler graph for NestJS-style controllers | NestJS decorators were not modeled | Medium | Fixed |
 | TS-AST-OPEN-002 | TypeScript | NestJS static constants and path arrays | `const BASE='/users'; @Controller(BASE); @Get([':id','me'])` | routes `GET /users/:id` and `GET /users/me` | Constant controller prefix was dropped and only the first path array element was emitted | Medium | Fixed |
 | TS-AST-OPEN-003 | TypeScript | NestJS guards/interceptors around multiline route decorators | `@UseGuards(...); @Get(\n':id'\n); @UseInterceptors(...)` | route `GET /users/:id` handles `getUser` | Multiline route decorator arguments were read as an empty route path | Medium | Fixed |
+| TS-AST-OPEN-004 | TypeScript | NestJS object-literal controller decorators | `@Controller({ version: '1', path: 'users' }); @Get([':id','me'])` and `@Controller({ version: '1' })` | routes use the named `path` property when present; version-only metadata does not become a path prefix | Object-literal decorators were parsed by first quoted string, producing `/1/...` routes | Medium | Fixed |
 | PY-AST-OPEN-001 | Python | Class-based views | `app.add_url_rule('/x', view_func=View.as_view(...))` | route to class-based handler | Only direct decorator/Django path shapes were modeled | Medium | Fixed |
 | PY-AST-OPEN-002 | Python | FastAPI `APIRouter` prefixes | `router = APIRouter(prefix="/api"); @router.get("/users")` | route `GET /api/users` handles `list_users` | Decorator route was found, but router prefix was dropped | High | Fixed |
 | RS-AST-OPEN-001 | Rust | Deep Axum router nesting | `Router::new().nest("/api", Router::new().route(...))` | combined nested route graph | Nested router expression composition was shallow | Medium | Fixed |
@@ -166,6 +168,7 @@ from the former open-gap list to the tests in
 | PY-IDX-OPEN-001 | Python | Cross-file FastAPI router includes | `routes/users.py` exports `router`; `main.py` imports it and calls `app.include_router(router, prefix="/v1")` | indexer composes application include prefix with router-local prefixes | `GET /v1/api/users` is emitted with a `handles` edge to `list_users` | High | Fixed |
 | PY-IDX-OPEN-002 | Python | FastAPI include_router with noncanonical router variable names | `users_router = APIRouter(...); from routes.users import users_router; app.include_router(users_router, prefix="/v1")` | indexer recognizes imported APIRouter variable names from the target module | `GET /v1/api/users` is emitted with a `handles` edge to `list_users` | Medium | Fixed |
 | PY-IDX-OPEN-003 | Python | FastAPI include_router with multiple routers in one module | `users_router` and `admin_router` in the same file; only `users_router` is imported and included | indexer mounts only routes declared on the imported router variable | `GET /v1/users/` is emitted and `GET /v1/admin/` is not emitted | High | Fixed |
+| PY-IDX-OPEN-004 | Python | FastAPI package-level router re-exports | `routes/__init__.py` re-exports `users_router`; `main.py` imports it with `from routes import users_router` | indexer resolves the package barrel to the source router file | `GET /v1/users/` is emitted with a `handles` edge to `list_users` | Medium | Fixed |
 
 The JavaScript parser still keeps `ExtractFromSource` single-file. Cross-file
 router ownership is now handled by the indexer after all files have been
@@ -844,19 +847,86 @@ Verification:
 - Red check: `go test ./internal/astgraph -run TestIndexerComposesPythonFastAPIIncludeRouterPrefixesForOnlyImportedRouter` failed because `GET /v1/admin/` was incorrectly emitted.
 - Green check: `go test ./internal/astgraph -run 'TestIndexerComposesPythonFastAPIIncludeRouterPrefixesForOnlyImportedRouter|TestSchemaVersionBumpedForPythonFastAPIMultipleRouterFiltering'` passed.
 
+Follow-up coverage:
+
+- FastAPI package-level re-export fixtures are covered by
+  `TestIndexerComposesPythonFastAPIIncludeRouterPrefixesThroughPackageReExports`.
+- Green check: `go test ./internal/astgraph -run TestIndexerComposesPythonFastAPIIncludeRouterPrefixesThroughPackageReExports -count=1` passed.
+
 Next hypothesis:
 
-- Add FastAPI package-level re-export fixtures, such as
-  `from .users import users_router` in `routes/__init__.py`, to verify import
-  resolution through Python package barrels.
+- Add FastAPI wildcard or aliased package-barrel imports if that shape appears
+  in real projects.
+
+### 2026-05-23-typescript-nestjs-object-decorator-pass-1
+
+Languages tested:
+
+- TypeScript
+
+Constructs:
+
+- NestJS controller decorator with an object-literal argument:
+  `@Controller({ version: '1', path: 'users' })`.
+- Version-only controller metadata: `@Controller({ version: '1' })`.
+- NestJS method decorator with a path array: `@Get([':id', 'me'])`.
+- NestJS method decorator with an object-literal path array:
+  `@Get({ path: [':id', 'me'] })`.
+
+Sources:
+
+- Reduced targeted fixture in
+  `TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript nestjs controller object path and method arrays`.
+- Reduced targeted fixture in
+  `TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript nestjs method object path array`.
+- The fixture mirrors NestJS controllers that combine version metadata with a
+  route prefix object.
+
+Expected graph:
+
+- Route node `GET /users/:id` with a `handles` edge to `getUser`.
+- Route node `GET /users/me` with a `handles` edge to `getUser`.
+- Route node `GET /health` for version-only controller metadata.
+- Method object-literal path arrays also emit both method routes under the
+  controller prefix.
+- No route nodes under `/1/...`, because `version` is metadata, not the route
+  prefix.
+
+Actual result before fix:
+
+- The parser emitted `GET /1/:id`, `GET /1/me`, and `GET /1/health`.
+- `typescriptDecoratorPatterns` read all quoted strings and treated the first
+  one as the route path, so `version: '1'` won over `path: 'users'`.
+
+Outcome:
+
+- TypeScript decorator pattern extraction now detects object-literal decorator
+  arguments and reads only named `path` or `value` properties.
+- Object-literal decorators without a path/value property now produce no route
+  prefix instead of falling back to unrelated metadata strings.
+- Method object-literal path arrays are covered by an explicit regression guard.
+- Positional strings, path arrays, and string constants remain supported.
+- `SchemaVersion` was bumped to `41` so existing graph caches are rebuilt.
+
+Verification:
+
+- Red checks:
+  - `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript_nestjs_controller_object_path_and_method_arrays' -count=1` failed because `GET /users/:id` was absent and `/1/...` routes were emitted.
+  - `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript_nestjs_controller_object_version_without_path' -count=1` failed because `GET /health` was absent and `GET /1/health` was emitted.
+- Green check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript_nestjs_controller_object_path_and_method_arrays|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript_nestjs_controller_object_version_without_path|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript_nestjs_method_object_path_array|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript_nestjs_constants_and_path_arrays|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript_nestjs_guards_interceptors_and_multiline_route_decorator' -count=1` passed.
+
+Next hypothesis:
+
+- Add a real NestJS fixture that mixes controller object-literal route prefixes,
+  method object-literal path arrays, guards, and interceptors in one class.
 
 ## Per-Language Recommendations
 
 | Language | Next regression source to add | Why |
 |---|---|---|
 | JavaScript | Real Express project fixture with nested router barrels and multiple mounted routers | Single-level named re-export barrels are covered; denser routing indexes may still create duplicate or ambiguous ownership |
-| TypeScript | NestJS `@Controller({ path: ..., version: ... })` and method arrays | Guards/interceptors and multiline route decorators are covered; object-literal decorator arguments remain untested |
-| Python | FastAPI package-level router re-exports through `__init__.py` | Multiple routers in one module are covered; package barrel imports may still hide router ownership |
+| TypeScript | Real NestJS controller mixing object-literal controller prefixes, method object-literal arrays, guards, and interceptors | Reduced cases are covered independently; dense real controllers may still expose decorator association gaps |
+| Python | FastAPI wildcard or aliased package-barrel imports from real projects | Direct package re-exports are covered; wildcard and alias forms may still hide router ownership |
 | Rust | Real Axum nested router file with state/layers | Nested prefixes and method-router chains are covered; layers and services may still hide handlers |
 | Java | Spring controller combining path arrays and method arrays | Multi-method routes are covered; cross product of path arrays and method arrays needs pressure |
 | Kotlin | Ktor multiple verb blocks and nested `route` chains from real projects | Basic Ktor route DSL graphing is covered; denser routing tables may still expose scope-stack gaps |
@@ -870,10 +940,13 @@ Next hypothesis:
 | H-JS-IDX-002 | JavaScript | Named imports through barrel modules may hide Express router ownership | `export { api as usersRouter } from "./users"` and `import { usersRouter } from "./routes"` | `GET /api/users` route with `handles` edge to `listUsers` | Medium | Fixed |
 | H-TS-001 | TypeScript | NestJS decorators with arrays or constants may not resolve static paths | `@Controller(BASE)`, `@Get([':id', 'me'])` | One or more route nodes with resolved or explicitly unresolved path metadata | Medium | Fixed |
 | H-TS-002 | TypeScript | Guards/interceptors plus multiline route decorators may break handler association or route path extraction | `@UseGuards(...); @Get(\n':id'\n); @UseInterceptors(...)` | `GET /users/:id` handles `getUser` | Medium | Fixed |
+| H-TS-003 | TypeScript | NestJS object-literal controller decorators may confuse metadata strings with route path strings | `@Controller({ version: '1', path: 'users' })`; `@Controller({ version: '1' })` | `GET /users/:id`, `GET /users/me`, and `GET /health`; not `/1/...` routes | Medium | Fixed |
+| H-TS-004 | TypeScript | NestJS object-literal method decorators may hide path arrays behind named object properties | `@Get({ path: [':id', 'me'] })` | `GET /users/:id` and `GET /users/me` handle `getUser` | Medium | Covered |
 | H-PY-001 | Python | FastAPI `APIRouter(prefix="/api")` routes do not compose prefixes yet | `router = APIRouter(prefix="/api"); @router.get("/users")` | `GET /api/users` handles function | High | Fixed |
 | H-PY-IDX-001 | Python | FastAPI application-level include prefixes need indexer-level source integration | `from routes.users import router`; `app.include_router(router, prefix="/v1")` | `GET /v1/api/users` route with `handles` edge to `list_users` | High | Fixed |
 | H-PY-IDX-002 | Python | FastAPI include_router may miss routers whose variable name is not `router` | `users_router = APIRouter(...); from routes.users import users_router` | `GET /v1/api/users` route with `handles` edge to `list_users` | Medium | Fixed |
 | H-PY-IDX-003 | Python | FastAPI include_router may mount unrelated routes when several routers live in one source file | `users_router` and `admin_router` in one file, only `users_router` included | only `GET /v1/users/` is mounted; `GET /v1/admin/` is not mounted | High | Fixed |
+| H-PY-IDX-004 | Python | FastAPI package-level re-export imports may hide router ownership | `routes/__init__.py` uses `from .users import users_router`; `main.py` uses `from routes import users_router` | `GET /v1/users/` route with `handles` edge to `list_users` | Medium | Fixed |
 | H-RS-001 | Rust | Axum route handlers wrapped in layers or method routers may hide the handler | `route("/users", get(list).post(create))` | `GET /users` and `POST /users` route edges | Medium | Fixed |
 | H-JAVA-001 | Java | Spring `@RequestMapping(method={GET,POST})` may collapse multi-method routes | method array in annotation | separate `GET` and `POST` route nodes or documented policy | Medium | Fixed |
 | H-KT-001 | Kotlin | Ktor nested route DSL likely needs scope-stack handling | `routing { route("/api") { get("/users") { list() } } }` | `GET /api/users` route and handler/call relationship | High | Fixed |

@@ -430,19 +430,47 @@ func typescriptHTTPDecorator(text string, constants map[string]string) (string, 
 }
 
 func typescriptDecoratorPatterns(text string, constants map[string]string) []string {
-	if values := quotedTexts(text); len(values) > 0 {
-		return values
-	}
 	open := strings.Index(text, "(")
 	close := strings.LastIndex(text, ")")
 	if open < 0 || close <= open {
 		return []string{""}
 	}
-	name := strings.TrimSpace(text[open+1 : close])
-	if value := constants[name]; value != "" {
+	argument := strings.TrimSpace(text[open+1 : close])
+	if values := typescriptObjectDecoratorPathValues(argument, constants); len(values) > 0 {
+		return values
+	}
+	if value := constants[argument]; value != "" {
 		return []string{value}
 	}
+	if values := quotedTexts(argument); len(values) > 0 {
+		return values
+	}
 	return []string{""}
+}
+
+var typeScriptObjectPathPattern = regexp.MustCompile(`(?s)(?:^|[,{\s])(path|value)\s*:\s*(\[[^\]]*\]|"[^"]*"|'[^']*'|` + "`[^`]*`" + `|[A-Za-z_$][A-Za-z0-9_$]*)`)
+
+func typescriptObjectDecoratorPathValues(argument string, constants map[string]string) []string {
+	argument = strings.TrimSpace(argument)
+	if !strings.HasPrefix(argument, "{") || !strings.HasSuffix(argument, "}") {
+		return nil
+	}
+	var values []string
+	for _, match := range typeScriptObjectPathPattern.FindAllStringSubmatch(argument, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		value := strings.TrimSpace(match[2])
+		if constant := constants[value]; constant != "" {
+			values = append(values, constant)
+			continue
+		}
+		values = append(values, quotedTexts(value)...)
+	}
+	if len(values) == 0 {
+		return []string{""}
+	}
+	return uniqueStrings(values)
 }
 
 func appendSpringHandlerLine(path string, result *ExtractionResult, language model.Language, handlerName string, route springRoute) {

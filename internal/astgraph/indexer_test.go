@@ -74,9 +74,9 @@ func (s Service) Run() { helper() }
 	}
 }
 
-func TestSchemaVersionBumpedForPythonFastAPIMultipleRouterFiltering(t *testing.T) {
-	if SchemaVersion != 40 {
-		t.Fatalf("SchemaVersion = %d, want 40 for Python FastAPI multiple router filtering reindex", SchemaVersion)
+func TestSchemaVersionBumpedForTypeScriptNestJSObjectDecoratorPaths(t *testing.T) {
+	if SchemaVersion != 41 {
+		t.Fatalf("SchemaVersion = %d, want 41 for TypeScript NestJS object decorator path reindex", SchemaVersion)
 	}
 }
 

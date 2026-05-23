@@ -1095,6 +1095,15 @@ func assertNode(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name
 	t.Fatalf("node %s %s not found in %#v", kind, name, nodes)
 }
 
+func assertNoNode(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name string) {
+	t.Helper()
+	for _, node := range nodes {
+		if node.Kind == kind && node.Name == name {
+			t.Fatalf("unexpected node %s %s found in %#v", kind, name, nodes)
+		}
+	}
+}
+
 func assertQualifiedNode(t *testing.T, nodes []model.GraphNode, kind model.NodeKind, name, qualified string) {
 	t.Helper()
 	for _, node := range nodes {
