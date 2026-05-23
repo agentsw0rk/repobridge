@@ -334,7 +334,7 @@ func appendJavaScriptRoute(path string, source []byte, node *tree_sitter.Node, r
 func appendTypeScriptDecoratorRoutes(path string, source []byte, result *ExtractionResult) {
 	lines := strings.Split(string(source), "\n")
 	constants := typeScriptStringConstants(lines)
-	classPrefix := ""
+	classPrefixes := []string{""}
 	var pendingRoutes []springRoute
 	for index := 0; index < len(lines); index++ {
 		raw := lines[index]
@@ -342,7 +342,7 @@ func appendTypeScriptDecoratorRoutes(path string, source []byte, result *Extract
 		trimmed := strings.TrimSpace(raw)
 		if strings.HasPrefix(trimmed, "@Controller") {
 			decoratorText, endIndex := typeScriptDecoratorText(lines, index)
-			classPrefix = typescriptDecoratorPatterns(decoratorText, constants)[0]
+			classPrefixes = typescriptDecoratorPatterns(decoratorText, constants)
 			index = endIndex
 			continue
 		}
@@ -350,13 +350,15 @@ func appendTypeScriptDecoratorRoutes(path string, source []byte, result *Extract
 			decoratorText, endIndex := typeScriptDecoratorText(lines, index)
 			if method, patterns, ok := typescriptHTTPDecorator(decoratorText, constants); ok {
 				pendingRoutes = pendingRoutes[:0]
-				for _, pattern := range patterns {
-					pendingRoutes = append(pendingRoutes, springRoute{
-						Method:  method,
-						Pattern: combineRoutePatterns(normalizeRoutePattern(classPrefix), normalizeRoutePattern(pattern)),
-						Line:    lineNumber,
-						Column:  strings.Index(raw, "@"),
-					})
+				for _, classPrefix := range classPrefixes {
+					for _, pattern := range patterns {
+						pendingRoutes = append(pendingRoutes, springRoute{
+							Method:  method,
+							Pattern: combineRoutePatterns(normalizeRoutePattern(classPrefix), normalizeRoutePattern(pattern)),
+							Line:    lineNumber,
+							Column:  strings.Index(raw, "@"),
+						})
+					}
 				}
 			}
 			index = endIndex
@@ -465,12 +467,33 @@ func typescriptObjectDecoratorPathValues(argument string, constants map[string]s
 			values = append(values, constant)
 			continue
 		}
+		if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+			values = append(values, typescriptArrayDecoratorPathValues(value, constants)...)
+			continue
+		}
 		values = append(values, quotedTexts(value)...)
 	}
 	if len(values) == 0 {
 		return []string{""}
 	}
 	return uniqueStrings(values)
+}
+
+func typescriptArrayDecoratorPathValues(value string, constants map[string]string) []string {
+	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "["), "]"))
+	var values []string
+	for _, item := range strings.Split(inner, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if constant := constants[item]; constant != "" {
+			values = append(values, constant)
+			continue
+		}
+		values = append(values, quotedTexts(item)...)
+	}
+	return values
 }
 
 func appendSpringHandlerLine(path string, result *ExtractionResult, language model.Language, handlerName string, route springRoute) {

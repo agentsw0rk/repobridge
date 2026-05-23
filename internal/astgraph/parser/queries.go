@@ -2329,11 +2329,20 @@ func springComposedRoutePrefixesFromAnnotations(source []byte, annotations []*tr
 	meta := springComposedAnnotationPrefixes(source)
 	var prefixes []string
 	for _, annotation := range annotations {
-		if annotationPrefixes, ok := meta[annotationName(source, annotation)]; ok {
-			prefixes = append(prefixes, annotationPrefixes...)
+		annotationPrefixes, ok := meta[annotationName(source, annotation)]
+		if !ok {
+			continue
 		}
+		if appliedPrefixes := annotationPathValues(source, annotation); len(appliedPrefixes) > 0 && isEmptyRoutePrefixList(annotationPrefixes) {
+			annotationPrefixes = appliedPrefixes
+		}
+		prefixes = append(prefixes, annotationPrefixes...)
 	}
 	return uniqueStrings(prefixes), len(prefixes) > 0
+}
+
+func isEmptyRoutePrefixList(prefixes []string) bool {
+	return len(prefixes) == 1 && prefixes[0] == ""
 }
 
 func springComposedAnnotationPrefixes(source []byte) map[string][]string {

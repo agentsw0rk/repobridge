@@ -144,6 +144,7 @@ this document or a language-specific companion document before adding the test.
 | TS-AST-OPEN-002 | TypeScript | NestJS static constants and path arrays | `const BASE='/users'; @Controller(BASE); @Get([':id','me'])` | routes `GET /users/:id` and `GET /users/me` | Constant controller prefix was dropped and only the first path array element was emitted | Medium | Fixed |
 | TS-AST-OPEN-003 | TypeScript | NestJS guards/interceptors around multiline route decorators | `@UseGuards(...); @Get(\n':id'\n); @UseInterceptors(...)` | route `GET /users/:id` handles `getUser` | Multiline route decorator arguments were read as an empty route path | Medium | Fixed |
 | TS-AST-OPEN-004 | TypeScript | NestJS object-literal controller decorators | `@Controller({ version: '1', path: 'users' }); @Get([':id','me'])` and `@Controller({ version: '1' })` | routes use the named `path` property when present; version-only metadata does not become a path prefix | Object-literal decorators were parsed by first quoted string, producing `/1/...` routes | Medium | Fixed |
+| TS-AST-OPEN-005 | TypeScript | NestJS object-literal controller path arrays with method object arrays | `@Controller({ path: [PUBLIC, INTERNAL] }); @UseGuards(...); @Get({ path: [':id','me'] }); @UseInterceptors(...)` | cross product of controller prefixes and method paths, with route edges to the decorated method | Controller object path arrays with constants were dropped, producing method-local routes only | Medium | Fixed |
 | PY-AST-OPEN-001 | Python | Class-based views | `app.add_url_rule('/x', view_func=View.as_view(...))` | route to class-based handler | Only direct decorator/Django path shapes were modeled | Medium | Fixed |
 | PY-AST-OPEN-002 | Python | FastAPI `APIRouter` prefixes | `router = APIRouter(prefix="/api"); @router.get("/users")` | route `GET /api/users` handles `list_users` | Decorator route was found, but router prefix was dropped | High | Fixed |
 | RS-AST-OPEN-001 | Rust | Deep Axum router nesting | `Router::new().nest("/api", Router::new().route(...))` | combined nested route graph | Nested router expression composition was shallow | Medium | Fixed |
@@ -152,6 +153,7 @@ this document or a language-specific companion document before adding the test.
 | JAVA-AST-OPEN-002 | Java | Spring multi-method `@RequestMapping` | `@RequestMapping(value="/users", method={GET,POST})` | separate `GET /users` and `POST /users` routes | Only the first method in the annotation text was emitted | Medium | Fixed |
 | JAVA-AST-OPEN-003 | Java | Spring class path arrays combined with method path and method arrays | `@RequestMapping({"/api","/internal"})` plus `@RequestMapping(value={"/users","/members"}, method={GET,POST})` | cross product of class prefixes, method paths, and HTTP methods | Only the first class path prefix was used | Medium | Fixed |
 | JAVA-AST-OPEN-004 | Java | Spring composed class-level path annotations | custom annotation wrapping `@RequestMapping({"/api","/internal"})` on a controller class | composed class prefix paths combine with method route annotations | Custom class-prefix annotations were ignored, producing only method-local routes | Medium | Fixed |
+| JAVA-AST-OPEN-005 | Java | Spring composed class-prefix annotations with aliased attributes | `@RequestMapping @interface ApiPrefix { @AliasFor(... path) String[] value(); }` and `@ApiPrefix({"/api","/internal"})` | applied alias values combine with method route annotations | Applied custom annotation values were ignored, producing only method-local routes | Medium | Fixed |
 | KT-AST-OPEN-001 | Kotlin | Coroutine builders as deferred execution | `launch { doWork() }` | nested `doWork` is not attributed to the enclosing setup function | It was intentionally over-attributed before this pass | Low | Fixed |
 | KT-AST-OPEN-002 | Kotlin | Ktor nested route DSL | `routing { route("/api") { get("/users") { listUsers() } } }` | route `GET /api/users` handles `listUsers` | Ktor DSL route scopes were not modeled | High | Fixed |
 | KT-AST-OPEN-003 | Kotlin | Ktor verb blocks inheriting nested route scopes | `route("/api") { route("/users") { get { listUsers() }; post { createUser() } } }` | `GET /api/users` and `POST /api/users` handle their block calls | Ktor verb blocks without explicit path strings were ignored | Medium | Fixed |
@@ -171,23 +173,33 @@ from the former open-gap list to the tests in
 |---|---|---|---|---|---|---|---|
 | JS-IDX-OPEN-001 | JavaScript | Cross-file Express router ownership | `routes/users.js` exports `api`; `app.js` imports it and calls `app.use('/api', api)` | indexer composes mounted prefix into target router routes | `GET /api/users` is emitted with a `handles` edge to `listUsers` | Medium | Fixed |
 | JS-IDX-OPEN-002 | JavaScript | Express router ownership through named re-export barrels | `routes/users.js` exports `api`; `routes/index.js` re-exports it as `usersRouter`; `app.js` imports `{ usersRouter }` and mounts it | indexer follows named import and re-export to the source router file | `GET /api/users` is emitted with a `handles` edge to `listUsers` | Medium | Fixed |
+| JS-IDX-OPEN-003 | JavaScript | Express router ownership through CommonJS barrel destructuring | `routes/index.js` exports `{ usersRouter: require("./users") }`; `app.js` uses `const { usersRouter } = require("./routes")` and mounts it | indexer follows destructured CommonJS imports through the barrel to each source router file | `GET /api/users` and `GET /backoffice/admins` are emitted with `handles` edges to their handlers | Medium | Fixed |
+| JS-IDX-OPEN-004 | JavaScript | Express router ownership through nested CommonJS barrels | `routes/index.js` exports `{ usersRouter: require("./v1") }`; `routes/v1/index.js` exports `{ usersRouter: require("./users") }` | indexer recursively follows CommonJS barrel properties to the source router file | `GET /api/users` is emitted with a `handles` edge to `listUsers` | Medium | Fixed |
 | PY-IDX-OPEN-001 | Python | Cross-file FastAPI router includes | `routes/users.py` exports `router`; `main.py` imports it and calls `app.include_router(router, prefix="/v1")` | indexer composes application include prefix with router-local prefixes | `GET /v1/api/users` is emitted with a `handles` edge to `list_users` | High | Fixed |
 | PY-IDX-OPEN-002 | Python | FastAPI include_router with noncanonical router variable names | `users_router = APIRouter(...); from routes.users import users_router; app.include_router(users_router, prefix="/v1")` | indexer recognizes imported APIRouter variable names from the target module | `GET /v1/api/users` is emitted with a `handles` edge to `list_users` | Medium | Fixed |
 | PY-IDX-OPEN-003 | Python | FastAPI include_router with multiple routers in one module | `users_router` and `admin_router` in the same file; only `users_router` is imported and included | indexer mounts only routes declared on the imported router variable | `GET /v1/users/` is emitted and `GET /v1/admin/` is not emitted | High | Fixed |
 | PY-IDX-OPEN-004 | Python | FastAPI package-level router re-exports | `routes/__init__.py` re-exports `users_router`; `main.py` imports it with `from routes import users_router` | indexer resolves the package barrel to the source router file | `GET /v1/users/` is emitted with a `handles` edge to `list_users` | Medium | Fixed |
 | PY-IDX-OPEN-005 | Python | FastAPI wildcard package-level router re-exports | `routes/__init__.py` re-exports `users_router`; `main.py` imports it with `from routes import *` | indexer expands wildcard router exports through the package barrel | `GET /v1/users/` is emitted with a `handles` edge to `list_users` | Medium | Fixed |
+| PY-IDX-OPEN-006 | Python | FastAPI wildcard package re-exports constrained by `__all__` | `routes/__init__.py` re-exports `users_router` and `admin_router` but sets `__all__ = ["users_router"]`; `main.py` uses `from routes import *` | wildcard router import expansion respects static `__all__` lists | `GET /v1/users/` is emitted and `GET /v1/admin/` is not mounted from the excluded name | Medium | Fixed |
 
 The JavaScript parser still keeps `ExtractFromSource` single-file. Cross-file
 router ownership is now handled by the indexer after all files have been
-parsed, using local default/CommonJS imports and Express `use(prefix, alias)`
-mounts. FastAPI application-level `include_router(..., prefix=...)`
+parsed, using local default/CommonJS imports, destructured CommonJS imports,
+and Express `use(prefix, alias)` mounts. FastAPI application-level
+`include_router(..., prefix=...)`
 composition is also handled after all Python files have been parsed, using
 local `from module import ...` imports whose imported symbol is assigned from
 `APIRouter(...)` in the target module. When a module defines multiple routers,
 the include pass now matches route decorators to the imported router variable
 before cloning mounted route nodes.
+Wildcard Python router export expansion respects static string-list
+`__all__` assignments when present.
 Named JavaScript imports and one or more local re-export barrels are resolved
 before Express router mount composition.
+CommonJS barrel objects that re-export routers with `require(...)` properties
+are also resolved before Express router mount composition.
+Nested CommonJS barrels are followed recursively by export name before the
+mounted route is cloned.
 
 ## Current Open Findings
 
@@ -870,6 +882,123 @@ Next hypothesis:
   mounted routers to verify that unrelated re-exports do not produce duplicate
   mounted route nodes.
 
+### 2026-05-23-javascript-commonjs-barrel-destructuring-pass-1
+
+Languages tested:
+
+- JavaScript
+
+Constructs:
+
+- Express routers declared in separate CommonJS modules:
+  `module.exports = api`.
+- CommonJS barrel object:
+  `module.exports = { usersRouter: require("./users"), ... }`.
+- Destructured CommonJS import:
+  `const { usersRouter, adminRouter } = require("./routes")`.
+- Multiple application-level mounts:
+  `app.use("/api", usersRouter)` and
+  `app.use("/backoffice", adminRouter)`.
+
+Sources:
+
+- Reduced targeted indexer fixture in
+  `TestIndexerComposesJavaScriptExpressRouterMountsThroughCommonJSBarrelDestructuring`.
+- The fixture mirrors Express projects that publish route modules through
+  CommonJS barrel files instead of ES module re-exports.
+
+Expected graph:
+
+- Route node `GET /api/users`.
+- Route node `GET /backoffice/admins`.
+- Each mounted route keeps a `handles` edge to its own source handler.
+
+Actual result before fix:
+
+- The parser emitted the source routes `GET /users` and `GET /admins`.
+- The app module emitted `USE /api -> usersRouter` and
+  `USE /backoffice -> adminRouter`.
+- The indexer did not resolve destructured CommonJS `require(...)` bindings or
+  CommonJS barrel object properties, so no mounted routes were emitted.
+
+Outcome:
+
+- JavaScript router import resolution now parses destructured CommonJS
+  `require(...)` bindings.
+- Local CommonJS barrel objects with `require(...)` properties and
+  `exports.name = require(...)` entries are resolved before composing Express
+  mount prefixes.
+- `SchemaVersion` was bumped to `49` so existing graph caches are rebuilt.
+- A later nested-barrel pass bumped `SchemaVersion` to `50`; both CommonJS
+  barrel fixes share the same cache invalidation line in the current code.
+
+Verification:
+
+- Red check: `go test ./internal/astgraph -run TestIndexerComposesJavaScriptExpressRouterMountsThroughCommonJSBarrelDestructuring -count=1` failed because `GET /api/users` was absent.
+- Green check: `go test ./internal/astgraph -run 'TestIndexerComposesJavaScriptExpressRouterMountsThroughCommonJSBarrelDestructuring|TestIndexerComposesJavaScriptExpressRouterMountsThroughNamedReExports|TestIndexerComposesJavaScriptExpressRouterMountsAcrossFiles|TestSchemaVersion' -count=1` passed.
+
+Next hypothesis:
+
+- Add a JavaScript fixture for nested CommonJS barrels or mixed ES/CommonJS
+  barrels if real Express projects show another ownership layer.
+
+### 2026-05-23-javascript-nested-commonjs-barrel-pass-1
+
+Languages tested:
+
+- JavaScript
+
+Constructs:
+
+- Express router declared in a nested route module:
+  `routes/v1/users.js`.
+- Intermediate CommonJS barrel:
+  `routes/v1/index.js` exports
+  `{ usersRouter: require("./users") }`.
+- Top-level CommonJS barrel:
+  `routes/index.js` exports
+  `{ usersRouter: require("./v1") }`.
+- Application-level destructured import and mount:
+  `const { usersRouter } = require("./routes")` and
+  `app.use("/api", usersRouter)`.
+
+Sources:
+
+- Reduced targeted indexer fixture in
+  `TestIndexerComposesJavaScriptExpressRouterMountsThroughNestedCommonJSBarrels`.
+- The fixture extends the CommonJS barrel case with the extra ownership layer
+  recommended by the JavaScript next hypothesis.
+
+Expected graph:
+
+- Route node `GET /api/users`.
+- The mounted route keeps a `handles` edge to `listUsers`.
+
+Actual result before fix:
+
+- The parser emitted the source route `GET /users` in `routes/v1/users.js`.
+- The app module emitted only `USE /api -> usersRouter`.
+- The CommonJS resolver stopped at `routes/v1/index.js`, which contains no
+  route nodes, so no mounted `GET /api/users` route was emitted.
+
+Outcome:
+
+- CommonJS `exports.name = require(...)` and object-property
+  `module.exports = { name: require(...) }` re-exports now recurse by export
+  name before returning the intermediate target path.
+- The previous single-level CommonJS barrel case remains covered.
+- `SchemaVersion` was bumped to `50` so existing graph caches are rebuilt.
+
+Verification:
+
+- Red check: `go test ./internal/astgraph -run TestIndexerComposesJavaScriptExpressRouterMountsThroughNestedCommonJSBarrels -count=1` failed because `GET /api/users` was absent.
+- Green check: `go test ./internal/astgraph -run 'TestIndexerComposesJavaScriptExpressRouterMountsThroughNestedCommonJSBarrels|TestIndexerComposesJavaScriptExpressRouterMountsThroughCommonJSBarrelDestructuring|TestSchemaVersion' -count=1` passed.
+
+Next hypothesis:
+
+- Add a JavaScript fixture for mixed ES/CommonJS barrels if real Express
+  projects combine module systems across route ownership layers.
+
 ### 2026-05-23-typescript-nestjs-multiline-decorator-pass-1
 
 Languages tested:
@@ -1079,6 +1208,64 @@ Next hypothesis:
 - Add a real NestJS fixture that mixes controller object-literal route prefixes,
   method object-literal path arrays, guards, and interceptors in one class.
 
+### 2026-05-23-typescript-nestjs-dense-controller-pass-1
+
+Languages tested:
+
+- TypeScript
+
+Constructs:
+
+- NestJS controller decorator with object-literal path array:
+  `@Controller({ version: '1', path: [PUBLIC, INTERNAL] })`.
+- Static string constants used inside that array.
+- Guard and interceptor decorators around the route decorator.
+- Method decorator with object-literal path array:
+  `@Get({ path: [':id', 'me'] })`.
+
+Sources:
+
+- Reduced targeted fixture in
+  `TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript nestjs controller object path array with guards and method object array`.
+- The fixture combines the independently covered NestJS shapes into one dense
+  controller, matching the prior TypeScript next hypothesis.
+
+Expected graph:
+
+- Route node `GET /users/:id` with a `handles` edge to `getUser`.
+- Route node `GET /users/me` with a `handles` edge to `getUser`.
+- Route node `GET /members/:id` with a `handles` edge to `getUser`.
+- Route node `GET /members/me` with a `handles` edge to `getUser`.
+- No route nodes under `/1/...`, because `version` is metadata.
+
+Actual result before fix:
+
+- The parser emitted method-local routes `GET /:id` and `GET /me`.
+- `typescriptObjectDecoratorPathValues` did not resolve constants inside path
+  arrays, so the controller object path array produced no class prefix.
+- `appendTypeScriptDecoratorRoutes` stored only one `classPrefix`, so even a
+  resolved controller prefix array could not produce the full cross product.
+
+Outcome:
+
+- TypeScript object-literal decorator arrays now resolve static string
+  constants inside array values.
+- TypeScript decorator route extraction now keeps all controller prefixes and
+  composes them with all method decorator paths.
+- Guards and interceptors between the route decorator and method remain
+  tolerated.
+- `SchemaVersion` was bumped to `52` so existing graph caches are rebuilt.
+
+Verification:
+
+- Red check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript_nestjs_controller_object_path_array_with_guards_and_method_object_array' -count=1` failed because `GET /users/:id` was absent and only method-local routes were emitted.
+- Green check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript_nestjs_controller_object_path_array_with_guards_and_method_object_array|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript_nestjs_controller_object_path_and_method_arrays|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript_nestjs_method_object_path_array|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/typescript_nestjs_guards_interceptors_and_multiline_route_decorator' -count=1` passed.
+
+Next hypothesis:
+
+- Add a TypeScript fixture for imported route path constants if real NestJS
+  controllers depend on cross-file constants.
+
 ### 2026-05-23-python-fastapi-wildcard-router-reexport-pass-1
 
 Languages tested:
@@ -1129,6 +1316,62 @@ Next hypothesis:
 
 - Add FastAPI fixtures that use `__all__` or dynamic import-time router export
   lists if real projects show those patterns.
+
+### 2026-05-23-python-fastapi-wildcard-all-pass-1
+
+Languages tested:
+
+- Python
+
+Constructs:
+
+- FastAPI routers declared in separate modules:
+  `users_router = APIRouter(...)` and `admin_router = APIRouter(...)`.
+- Package barrel re-exports both router names.
+- Static package export list:
+  `__all__ = ["users_router"]`.
+- Application wildcard import:
+  `from routes import *`.
+
+Sources:
+
+- Reduced targeted indexer fixture in
+  `TestIndexerComposesPythonFastAPIWildcardPackageReExportsRespectAll`.
+- The fixture mirrors FastAPI packages that keep internal routers available in
+  the package module but expose only selected router names through `__all__`.
+
+Expected graph:
+
+- Route node `GET /v1/users/`.
+- The included user route keeps a `handles` edge to `list_users`.
+- No mounted route node `GET /v1/admin/`, because `admin_router` is excluded
+  from the wildcard import by `__all__`.
+
+Actual result before fix:
+
+- The parser emitted local route nodes `GET /users/` and `GET /admin/`.
+- The indexer mounted both `users_router` and `admin_router` after
+  `from routes import *`.
+- `pythonRouterExports` expanded every re-exported router and ignored the
+  package module's static `__all__` list.
+
+Outcome:
+
+- Python wildcard router export expansion now filters exports through static
+  string-list `__all__` assignments when present.
+- Explicit `from routes import admin_router` imports remain independent of
+  `__all__`; only wildcard export expansion is constrained.
+- `SchemaVersion` was bumped to `51` so existing graph caches are rebuilt.
+
+Verification:
+
+- Red check: `go test ./internal/astgraph -run TestIndexerComposesPythonFastAPIWildcardPackageReExportsRespectAll -count=1` failed because `GET /v1/admin/` was mounted.
+- Green check: `go test ./internal/astgraph -run 'TestIndexerComposesPythonFastAPIWildcardPackageReExportsRespectAll|TestIndexerComposesPythonFastAPIIncludeRouterPrefixesThroughWildcardPackageReExports|TestSchemaVersion' -count=1` passed.
+
+Next hypothesis:
+
+- Add FastAPI fixtures for dynamic `__all__` construction only if a real
+  project depends on it; static string-list `__all__` is now covered.
 
 ### 2026-05-23-java-spring-class-path-array-pass-1
 
@@ -1242,6 +1485,62 @@ Next hypothesis:
 - Add Spring fixtures for composed class-prefix annotations with aliased
   annotation attributes if real projects show that pattern.
 
+### 2026-05-23-java-spring-composed-alias-prefix-pass-1
+
+Languages tested:
+
+- Java
+
+Constructs:
+
+- Custom class-level Spring prefix annotation with an empty
+  `@RequestMapping` meta-annotation.
+- Alias-style value declaration:
+  `@AliasFor(annotation = RequestMapping.class, attribute = "path")`.
+- Controller annotated with applied prefix values:
+  `@ApiPrefix({"/api", "/internal"})`.
+- Method-level route annotation: `@GetMapping("/users")`.
+
+Sources:
+
+- Reduced targeted fixture in
+  `TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java spring composed class prefix alias attribute`.
+- The fixture extends composed class-prefix coverage to annotations whose
+  route prefixes come from the applied annotation instead of the
+  meta-annotation declaration.
+
+Expected graph:
+
+- Route node `GET /api/users` with a `handles` edge to
+  `UsersController.users`.
+- Route node `GET /internal/users` with a `handles` edge to
+  `UsersController.users`.
+
+Actual result before fix:
+
+- The parser emitted only `GET /users`.
+- `springComposedAnnotationPrefixes` recognized the custom annotation, but the
+  stored meta-prefix was empty and the applied annotation's path values were
+  not used.
+
+Outcome:
+
+- Java Spring composed class-prefix resolution now uses applied annotation
+  path values when the composed annotation is backed by an empty
+  `@RequestMapping`.
+- Static composed prefix declarations still take precedence when present.
+- `SchemaVersion` was bumped to `53` so existing graph caches are rebuilt.
+
+Verification:
+
+- Red check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java_spring_composed_class_prefix_alias_attribute' -count=1` failed because `GET /api/users` was absent.
+- Green check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java_spring_composed_class_prefix_alias_attribute|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java_spring_composed_class_path_array_annotation|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java_spring_class_and_method_path_arrays_with_method_array' -count=1` passed.
+
+Next hypothesis:
+
+- Add Spring fixtures for composed method annotations with aliased path and
+  method attributes if real projects show that pattern.
+
 ### 2026-05-23-kotlin-ktor-inherited-verb-path-pass-1
 
 Languages tested:
@@ -1296,11 +1595,11 @@ Next hypothesis:
 
 | Language | Next regression source to add | Why |
 |---|---|---|
-| JavaScript | Real Express project fixture with nested router barrels and multiple mounted routers | Single-level named re-export barrels are covered; denser routing indexes may still create duplicate or ambiguous ownership |
-| TypeScript | Real NestJS controller mixing object-literal controller prefixes, method object-literal arrays, guards, and interceptors | Reduced cases are covered independently; dense real controllers may still expose decorator association gaps |
-| Python | FastAPI `__all__` or dynamic router export lists from real projects | Direct package re-exports and wildcard imports are covered; explicit export lists may still hide router ownership |
+| JavaScript | Real Express project fixture with mixed ES/CommonJS router barrels | Single-level ES barrels and nested CommonJS barrels are covered; mixed module-system ownership may still hide routes |
+| TypeScript | NestJS controller with imported route path constants from real projects | Dense object-literal controller prefixes, method arrays, guards, and interceptors are covered; cross-file constants may still hide paths |
+| Python | Dynamic FastAPI router export lists from real projects | Direct package re-exports, wildcard imports, and static `__all__` lists are covered; dynamic export construction may still hide router ownership |
 | Rust | Real Axum nested router file with state/layers | Nested prefixes and method-router chains are covered; layers and services may still hide handlers |
-| Java | Spring composed class-prefix annotations with aliased annotation attributes | Direct and composed class prefix arrays are covered; custom attributes may still hide dynamic prefix values |
+| Java | Spring composed method annotations with aliased path and method attributes | Direct and composed class prefix arrays plus class alias values are covered; custom method annotation values may still hide routes |
 | Kotlin | Ktor typed route handlers or nested helper-call blocks from real projects | Nested route scopes and pathless verb blocks are covered; handler detection may still be ambiguous in denser blocks |
 | C# | ASP.NET Minimal API lambdas with several user-defined calls | Expression and block-bodied result-wrapper lambdas are covered; multi-call lambdas may still make handler ownership ambiguous |
 
@@ -1310,20 +1609,25 @@ Next hypothesis:
 |---|---|---|---|---|---|---|
 | H-JS-001 | JavaScript | Cross-file router mount requires indexer-level source integration, not parser-only extraction | `routes/users.js` exports `api`; `app.js` imports it and calls `app.use('/api', api)` | `GET /api/users` route with `handles` edge to `listUsers` | Medium | Fixed |
 | H-JS-IDX-002 | JavaScript | Named imports through barrel modules may hide Express router ownership | `export { api as usersRouter } from "./users"` and `import { usersRouter } from "./routes"` | `GET /api/users` route with `handles` edge to `listUsers` | Medium | Fixed |
+| H-JS-IDX-003 | JavaScript | CommonJS barrel destructuring may hide Express router ownership for multiple mounts | `module.exports = { usersRouter: require("./users") }` and `const { usersRouter } = require("./routes")` | mounted routes preserve their own source handlers without cross-mount duplication | Medium | Fixed |
+| H-JS-IDX-004 | JavaScript | Nested CommonJS barrels may stop route ownership at an intermediate index file | `module.exports = { usersRouter: require("./v1") }` where `./v1` re-exports the same name from `./users` | mounted route is cloned from the leaf router file, not the intermediate barrel | Medium | Fixed |
 | H-TS-001 | TypeScript | NestJS decorators with arrays or constants may not resolve static paths | `@Controller(BASE)`, `@Get([':id', 'me'])` | One or more route nodes with resolved or explicitly unresolved path metadata | Medium | Fixed |
 | H-TS-002 | TypeScript | Guards/interceptors plus multiline route decorators may break handler association or route path extraction | `@UseGuards(...); @Get(\n':id'\n); @UseInterceptors(...)` | `GET /users/:id` handles `getUser` | Medium | Fixed |
 | H-TS-003 | TypeScript | NestJS object-literal controller decorators may confuse metadata strings with route path strings | `@Controller({ version: '1', path: 'users' })`; `@Controller({ version: '1' })` | `GET /users/:id`, `GET /users/me`, and `GET /health`; not `/1/...` routes | Medium | Fixed |
 | H-TS-004 | TypeScript | NestJS object-literal method decorators may hide path arrays behind named object properties | `@Get({ path: [':id', 'me'] })` | `GET /users/:id` and `GET /users/me` handle `getUser` | Medium | Covered |
+| H-TS-005 | TypeScript | Dense NestJS controllers may need controller prefix arrays crossed with method object arrays despite guards/interceptors | `@Controller({ path: [PUBLIC, INTERNAL] }); @UseGuards(...); @Get({ path: [':id','me'] }); @UseInterceptors(...)` | all controller-prefix and method-path combinations handle the method | Medium | Fixed |
 | H-PY-001 | Python | FastAPI `APIRouter(prefix="/api")` routes do not compose prefixes yet | `router = APIRouter(prefix="/api"); @router.get("/users")` | `GET /api/users` handles function | High | Fixed |
 | H-PY-IDX-001 | Python | FastAPI application-level include prefixes need indexer-level source integration | `from routes.users import router`; `app.include_router(router, prefix="/v1")` | `GET /v1/api/users` route with `handles` edge to `list_users` | High | Fixed |
 | H-PY-IDX-002 | Python | FastAPI include_router may miss routers whose variable name is not `router` | `users_router = APIRouter(...); from routes.users import users_router` | `GET /v1/api/users` route with `handles` edge to `list_users` | Medium | Fixed |
 | H-PY-IDX-003 | Python | FastAPI include_router may mount unrelated routes when several routers live in one source file | `users_router` and `admin_router` in one file, only `users_router` included | only `GET /v1/users/` is mounted; `GET /v1/admin/` is not mounted | High | Fixed |
 | H-PY-IDX-004 | Python | FastAPI package-level re-export imports may hide router ownership | `routes/__init__.py` uses `from .users import users_router`; `main.py` uses `from routes import users_router` | `GET /v1/users/` route with `handles` edge to `list_users` | Medium | Fixed |
 | H-PY-IDX-005 | Python | FastAPI wildcard package-barrel imports may hide router ownership | `routes/__init__.py` uses `from .users import users_router`; `main.py` uses `from routes import *` | `GET /v1/users/` route with `handles` edge to `list_users` | Medium | Fixed |
+| H-PY-IDX-006 | Python | Static `__all__` lists should constrain FastAPI wildcard router ownership | `__all__ = ["users_router"]` while `admin_router` is also imported into the package | wildcard imports mount exported routers only; excluded routers are not treated as imported | Medium | Fixed |
 | H-RS-001 | Rust | Axum route handlers wrapped in layers or method routers may hide the handler | `route("/users", get(list).post(create))` | `GET /users` and `POST /users` route edges | Medium | Fixed |
 | H-JAVA-001 | Java | Spring `@RequestMapping(method={GET,POST})` may collapse multi-method routes | method array in annotation | separate `GET` and `POST` route nodes or documented policy | Medium | Fixed |
 | H-JAVA-002 | Java | Spring class path arrays may collapse before method path and method arrays are crossed | class `@RequestMapping({"/api","/internal"})` plus method `@RequestMapping(value={"/users","/members"}, method={GET,POST})` | all class-prefix, method-path, and HTTP-method route combinations handle the method | Medium | Fixed |
 | H-JAVA-003 | Java | Spring composed class-level prefix annotations may hide controller path prefixes | `@RequestMapping({"/api","/internal"}) @interface ApiPrefix {}` applied to a controller class | composed class prefixes combine with method route annotations | Medium | Fixed |
+| H-JAVA-004 | Java | Spring composed class-level prefix annotations may take path values from aliased annotation attributes | `@RequestMapping @interface ApiPrefix { @AliasFor(... path) String[] value(); }` and `@ApiPrefix({"/api","/internal"})` | applied alias values combine with method route annotations | Medium | Fixed |
 | H-KT-001 | Kotlin | Ktor nested route DSL likely needs scope-stack handling | `routing { route("/api") { get("/users") { list() } } }` | `GET /api/users` route and handler/call relationship | High | Fixed |
 | H-KT-002 | Kotlin | Ktor verb blocks without path strings may fail to inherit nested route paths | `route("/api") { route("/users") { get { listUsers() }; post { createUser() } } }` | `GET /api/users` and `POST /api/users` route edges | Medium | Fixed |
 | H-CS-001 | C# | Nested `MapGroup` chains may only use the first group prefix | `api.MapGroup("/v1").MapGet("/users", Handler)` | `GET /api/v1/users` handles `Handler` | Medium | Fixed |

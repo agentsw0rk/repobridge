@@ -336,6 +336,40 @@ class UsersController {
 		assertEdge(t, result.Edges, meRouteID, handlerID, model.EdgeKindHandles)
 	})
 
+	t.Run("typescript nestjs controller object path array with guards and method object array", func(t *testing.T) {
+		source := []byte(`const PUBLIC = 'users'
+const INTERNAL = 'members'
+
+@Controller({ version: '1', path: [PUBLIC, INTERNAL] })
+@UseGuards(AuthGuard)
+class UsersController {
+  @UseGuards(AuthGuard)
+  @Get({
+    path: [':id', 'me'],
+  })
+  @UseInterceptors(ClassSerializerInterceptor)
+  async getUser(@Param('id') id: string) {}
+}`)
+
+		result, err := ExtractFromSource("users.controller.ts", source, model.LanguageTypeScript)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "getUser")
+		for _, route := range []string{
+			"GET /users/:id",
+			"GET /users/me",
+			"GET /members/:id",
+			"GET /members/me",
+		} {
+			routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, route)
+			assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+		}
+		assertNoNode(t, result.Nodes, model.NodeKindRoute, "GET /1/:id")
+		assertNoNode(t, result.Nodes, model.NodeKindRoute, "GET /1/me")
+	})
+
 	t.Run("python flask class based view", func(t *testing.T) {
 		source := []byte(`class UserView:
     pass
@@ -475,6 +509,34 @@ class UsersController {
 @interface ApiPrefix {}
 
 @ApiPrefix
+class UsersController {
+  @GetMapping("/users")
+  public void users() {}
+}`)
+
+		result, err := ExtractFromSource("UsersController.java", source, model.LanguageJava)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "users")
+		for _, routeName := range []string{
+			"GET /api/users",
+			"GET /internal/users",
+		} {
+			routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, routeName)
+			assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+		}
+	})
+
+	t.Run("java spring composed class prefix alias attribute", func(t *testing.T) {
+		source := []byte(`@RequestMapping
+@interface ApiPrefix {
+  @AliasFor(annotation = RequestMapping.class, attribute = "path")
+  String[] value() default {};
+}
+
+@ApiPrefix({"/api", "/internal"})
 class UsersController {
   @GetMapping("/users")
   public void users() {}

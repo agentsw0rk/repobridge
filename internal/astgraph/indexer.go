@@ -15,7 +15,7 @@ import (
 	"repobridge/internal/astgraph/parser"
 )
 
-const SchemaVersion = 48
+const SchemaVersion = 53
 
 type IndexOptions struct {
 	MaxFileSize int64
@@ -112,15 +112,21 @@ type pythonRouterImport struct {
 }
 
 var (
-	javascriptDefaultImportPattern = regexp.MustCompile(`(?m)^\s*import\s+([A-Za-z_$][\w$]*)\s+from\s+['"]([^'"]+)['"]`)
-	javascriptNamedImportPattern   = regexp.MustCompile(`(?m)^\s*import\s*\{([^}]+)\}\s*from\s+['"]([^'"]+)['"]`)
-	javascriptReExportPattern      = regexp.MustCompile(`(?m)^\s*export\s*\{([^}]+)\}\s*from\s+['"]([^'"]+)['"]`)
-	javascriptRequirePattern       = regexp.MustCompile(`(?m)^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)`)
-	javascriptExpressMountPattern  = regexp.MustCompile("(?m)\\.use\\s*\\(\\s*(?:\"([^\"]+)\"|'([^']+)'|`([^`]+)`)\\s*,\\s*([A-Za-z_$][\\w$]*)")
-	pythonFromImportPattern        = regexp.MustCompile(`(?m)^\s*from\s+([A-Za-z_][\w.]*|\.+[A-Za-z_][\w.]*)\s+import\s+([^\n#]+)`)
-	pythonIncludeRouterPattern     = regexp.MustCompile(`(?m)\.include_router\s*\(\s*([A-Za-z_][\w]*)[^)]*prefix\s*=\s*(?:"([^"]+)"|'([^']+)')`)
-	pythonAPIRouterAssignPattern   = regexp.MustCompile(`(?m)^\s*([A-Za-z_][\w]*)\s*=\s*APIRouter\s*\(`)
-	pythonFastAPIDecoratorPattern  = regexp.MustCompile(`(?m)^\s*@([A-Za-z_][\w]*)\.(?:get|post|put|patch|delete|options|head|route|api_route)\s*\(`)
+	javascriptDefaultImportPattern               = regexp.MustCompile(`(?m)^\s*import\s+([A-Za-z_$][\w$]*)\s+from\s+['"]([^'"]+)['"]`)
+	javascriptNamedImportPattern                 = regexp.MustCompile(`(?m)^\s*import\s*\{([^}]+)\}\s*from\s+['"]([^'"]+)['"]`)
+	javascriptReExportPattern                    = regexp.MustCompile(`(?m)^\s*export\s*\{([^}]+)\}\s*from\s+['"]([^'"]+)['"]`)
+	javascriptRequirePattern                     = regexp.MustCompile(`(?m)^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)`)
+	javascriptDestructuredRequirePattern         = regexp.MustCompile(`(?m)^\s*(?:const|let|var)\s*\{([^}]+)\}\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)`)
+	javascriptCommonJSExportsRequirePattern      = regexp.MustCompile(`(?m)^\s*exports\.([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)`)
+	javascriptCommonJSModuleExportsObjectPattern = regexp.MustCompile(`(?s)\bmodule\.exports\s*=\s*\{(.*?)\}`)
+	javascriptObjectRequirePropertyPattern       = regexp.MustCompile(`(?m)(?:^|,)\s*([A-Za-z_$][\w$]*)\s*:\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)`)
+	javascriptExpressMountPattern                = regexp.MustCompile("(?m)\\.use\\s*\\(\\s*(?:\"([^\"]+)\"|'([^']+)'|`([^`]+)`)\\s*,\\s*([A-Za-z_$][\\w$]*)")
+	pythonFromImportPattern                      = regexp.MustCompile(`(?m)^\s*from\s+([A-Za-z_][\w.]*|\.+[A-Za-z_][\w.]*)\s+import\s+([^\n#]+)`)
+	pythonIncludeRouterPattern                   = regexp.MustCompile(`(?m)\.include_router\s*\(\s*([A-Za-z_][\w]*)[^)]*prefix\s*=\s*(?:"([^"]+)"|'([^']+)')`)
+	pythonAPIRouterAssignPattern                 = regexp.MustCompile(`(?m)^\s*([A-Za-z_][\w]*)\s*=\s*APIRouter\s*\(`)
+	pythonFastAPIDecoratorPattern                = regexp.MustCompile(`(?m)^\s*@([A-Za-z_][\w]*)\.(?:get|post|put|patch|delete|options|head|route|api_route)\s*\(`)
+	pythonAllAssignPattern                       = regexp.MustCompile(`(?s)__all__\s*=\s*\[(.*?)\]`)
+	pythonStringLiteralPattern                   = regexp.MustCompile(`["']([^"']+)["']`)
 )
 
 func composeJavaScriptExpressRouterMounts(result *IndexResult, sources map[string]indexedSource) {
@@ -232,6 +238,22 @@ func javascriptRouterImports(filePath, source string, sources map[string]indexed
 			imports[localName] = targetPath
 		}
 	}
+	for _, match := range javascriptDestructuredRequirePattern.FindAllStringSubmatch(source, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		targetPath, ok := resolveJavaScriptImportPath(filePath, match[2], sources)
+		if !ok {
+			continue
+		}
+		for localName, exportedName := range javascriptObjectSpecifiers(match[1]) {
+			if exportedPath, ok := resolveJavaScriptReExportPath(targetPath, exportedName, sources, nil); ok {
+				imports[localName] = exportedPath
+				continue
+			}
+			imports[localName] = targetPath
+		}
+	}
 	for _, match := range javascriptRequirePattern.FindAllStringSubmatch(source, -1) {
 		if len(match) < 3 {
 			continue
@@ -261,6 +283,50 @@ func javascriptNamedSpecifiers(specifiers string) map[string]string {
 		}
 	}
 	return names
+}
+
+func javascriptObjectSpecifiers(specifiers string) map[string]string {
+	names := make(map[string]string)
+	for _, specifier := range strings.Split(specifiers, ",") {
+		specifier = strings.TrimSpace(specifier)
+		if specifier == "" {
+			continue
+		}
+		parts := strings.Split(specifier, ":")
+		switch len(parts) {
+		case 1:
+			name := strings.TrimSpace(parts[0])
+			if isJavaScriptIdentifier(name) {
+				names[name] = name
+			}
+		case 2:
+			exportedName := strings.TrimSpace(parts[0])
+			localName := strings.TrimSpace(parts[1])
+			if isJavaScriptIdentifier(localName) && isJavaScriptIdentifier(exportedName) {
+				names[localName] = exportedName
+			}
+		}
+	}
+	return names
+}
+
+func isJavaScriptIdentifier(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		if i == 0 {
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '_' || r == '$' {
+				continue
+			}
+			return false
+		}
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '$' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func javascriptExpressRouterMounts(filePath, source string) []javascriptRouterMount {
@@ -354,6 +420,33 @@ func resolveJavaScriptReExportPath(filePath, exportName string, sources map[stri
 				return nestedPath, true
 			}
 			return targetPath, true
+		}
+	}
+	for _, match := range javascriptCommonJSExportsRequirePattern.FindAllStringSubmatch(source.content, -1) {
+		if len(match) < 3 || match[1] != exportName {
+			continue
+		}
+		if targetPath, ok := resolveJavaScriptImportPath(filePath, match[2], sources); ok {
+			if nestedPath, ok := resolveJavaScriptReExportPath(targetPath, exportName, sources, seen); ok {
+				return nestedPath, true
+			}
+			return targetPath, true
+		}
+	}
+	for _, match := range javascriptCommonJSModuleExportsObjectPattern.FindAllStringSubmatch(source.content, -1) {
+		if len(match) < 2 {
+			continue
+		}
+		for _, propertyMatch := range javascriptObjectRequirePropertyPattern.FindAllStringSubmatch(match[1], -1) {
+			if len(propertyMatch) < 3 || propertyMatch[1] != exportName {
+				continue
+			}
+			if targetPath, ok := resolveJavaScriptImportPath(filePath, propertyMatch[2], sources); ok {
+				if nestedPath, ok := resolveJavaScriptReExportPath(targetPath, exportName, sources, seen); ok {
+					return nestedPath, true
+				}
+				return targetPath, true
+			}
 		}
 	}
 	return "", false
@@ -593,7 +686,28 @@ func pythonRouterExports(filePath string, sources map[string]indexedSource, seen
 			}
 		}
 	}
+	if allowed, ok := pythonAllNames(source.content); ok {
+		for alias := range exports {
+			if _, exists := allowed[alias]; !exists {
+				delete(exports, alias)
+			}
+		}
+	}
 	return exports
+}
+
+func pythonAllNames(source string) (map[string]struct{}, bool) {
+	match := pythonAllAssignPattern.FindStringSubmatch(source)
+	if len(match) < 2 {
+		return nil, false
+	}
+	names := make(map[string]struct{})
+	for _, stringMatch := range pythonStringLiteralPattern.FindAllStringSubmatch(match[1], -1) {
+		if len(stringMatch) >= 2 && stringMatch[1] != "" {
+			names[stringMatch[1]] = struct{}{}
+		}
+	}
+	return names, true
 }
 
 func pythonAPIRouterNames(source string) map[string]struct{} {
