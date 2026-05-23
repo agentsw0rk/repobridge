@@ -147,6 +147,56 @@ func TestInstallExtractedReleaseReplacesExecutable(t *testing.T) {
 	}
 }
 
+func TestInstallExtractedReleaseReplacesWindowsExecutable(t *testing.T) {
+	dir := t.TempDir()
+	current := filepath.Join(dir, "repobridge.exe")
+	if err := os.WriteFile(current, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	extracted := filepath.Join(dir, "release")
+	if err := os.MkdirAll(extracted, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extracted, "repobridge.exe"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extracted, "objectbox.dll"), []byte("native"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := InstallExtractedRelease(extracted, current, "windows"); err != nil {
+		t.Fatalf("InstallExtractedRelease() error = %v", err)
+	}
+	if got, _ := os.ReadFile(current); string(got) != "new" {
+		t.Fatalf("binary = %q, want new", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "objectbox.dll")); string(got) != "native" {
+		t.Fatalf("native lib = %q, want native", got)
+	}
+}
+
+func TestReplaceFileWindowsReplacesExistingDestination(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "new.exe")
+	dst := filepath.Join(dir, "repobridge.exe")
+	if err := os.WriteFile(src, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := replaceFile(src, dst, "windows"); err != nil {
+		t.Fatalf("replaceFile() error = %v", err)
+	}
+	if got, _ := os.ReadFile(dst); string(got) != "new" {
+		t.Fatalf("dst = %q, want new", got)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Fatalf("src stat error = %v, want not exist", err)
+	}
+}
+
 func TestInstallExtractedReleaseRequiresBinary(t *testing.T) {
 	extracted := t.TempDir()
 	current := filepath.Join(t.TempDir(), "repobridge")

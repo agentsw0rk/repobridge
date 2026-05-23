@@ -68,7 +68,24 @@ func InstallExtractedRelease(extractedDir, currentExecutable, goos string) error
 		}
 	}
 
-	return os.Rename(sourceBinary, currentExecutable)
+	return replaceFile(sourceBinary, currentExecutable, goos)
+}
+
+func replaceFile(src, dst, goos string) error {
+	if goos != "windows" {
+		if err := os.Rename(src, dst); err != nil {
+			return fmt.Errorf("replace %s: %w", dst, err)
+		}
+		return nil
+	}
+
+	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove existing Windows executable %s before replacement; it may be locked or still running: %w", dst, err)
+	}
+	if err := os.Rename(src, dst); err != nil {
+		return fmt.Errorf("replace Windows executable %s: %w", dst, err)
+	}
+	return nil
 }
 
 func extractTarGz(content []byte, targetDir string) (string, error) {
