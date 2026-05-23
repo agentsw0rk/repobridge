@@ -15,7 +15,7 @@ import (
 	"repobridge/internal/astgraph/parser"
 )
 
-const SchemaVersion = 41
+const SchemaVersion = 48
 
 type IndexOptions struct {
 	MaxFileSize int64
@@ -459,7 +459,13 @@ func pythonRouterImports(filePath, source string, sources map[string]indexedSour
 		}
 		for _, imported := range strings.Split(match[2], ",") {
 			imported = strings.TrimSpace(imported)
-			if imported == "" || imported == "*" {
+			if imported == "" {
+				continue
+			}
+			if imported == "*" {
+				for alias, routerImport := range pythonRouterExports(targetPath, sources, nil) {
+					imports[alias] = routerImport
+				}
 				continue
 			}
 			parts := strings.Fields(imported)
@@ -507,7 +513,13 @@ func resolvePythonRouterImport(filePath, exportName string, sources map[string]i
 		}
 		for _, imported := range strings.Split(match[2], ",") {
 			imported = strings.TrimSpace(imported)
-			if imported == "" || imported == "*" {
+			if imported == "" {
+				continue
+			}
+			if imported == "*" {
+				if routerImport, ok := pythonRouterExports(targetPath, sources, seen)[exportName]; ok {
+					return routerImport, true
+				}
 				continue
 			}
 			parts := strings.Fields(imported)
@@ -528,6 +540,60 @@ func resolvePythonRouterImport(filePath, exportName string, sources map[string]i
 		}
 	}
 	return pythonRouterImport{}, false
+}
+
+func pythonRouterExports(filePath string, sources map[string]indexedSource, seen map[string]struct{}) map[string]pythonRouterImport {
+	exports := make(map[string]pythonRouterImport)
+	source, ok := sources[filePath]
+	if !ok || source.language != LanguagePython {
+		return exports
+	}
+	if seen == nil {
+		seen = make(map[string]struct{})
+	}
+	seenKey := filePath + "\x00*"
+	if _, exists := seen[seenKey]; exists {
+		return exports
+	}
+	seen[seenKey] = struct{}{}
+
+	for name := range pythonAPIRouterNames(source.content) {
+		exports[name] = pythonRouterImport{filePath: filePath, name: name}
+	}
+	for _, match := range pythonFromImportPattern.FindAllStringSubmatch(source.content, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		targetPath, ok := resolvePythonImportPath(filePath, match[1], sources)
+		if !ok {
+			continue
+		}
+		for _, imported := range strings.Split(match[2], ",") {
+			imported = strings.TrimSpace(imported)
+			if imported == "" {
+				continue
+			}
+			if imported == "*" {
+				for alias, routerImport := range pythonRouterExports(targetPath, sources, seen) {
+					exports[alias] = routerImport
+				}
+				continue
+			}
+			parts := strings.Fields(imported)
+			if len(parts) == 0 {
+				continue
+			}
+			name := parts[0]
+			alias := name
+			if len(parts) == 3 && parts[1] == "as" {
+				alias = parts[2]
+			}
+			if routerImport, ok := resolvePythonRouterImport(targetPath, name, sources, seen); ok {
+				exports[alias] = routerImport
+			}
+		}
+	}
+	return exports
 }
 
 func pythonAPIRouterNames(source string) map[string]struct{} {

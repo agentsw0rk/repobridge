@@ -150,10 +150,16 @@ this document or a language-specific companion document before adding the test.
 | RS-AST-OPEN-002 | Rust | Axum method router chains | `route("/users", get(list_users).post(create_user))` | separate `GET /users` and `POST /users` routes | Only the outer `post(create_user)` route was emitted | Medium | Fixed |
 | JAVA-AST-OPEN-001 | Java | Meta-annotations and composed Spring annotations | custom annotation wrapping `@GetMapping` | route resolved through meta-annotation | Annotation definitions were not resolved locally | Low | Fixed |
 | JAVA-AST-OPEN-002 | Java | Spring multi-method `@RequestMapping` | `@RequestMapping(value="/users", method={GET,POST})` | separate `GET /users` and `POST /users` routes | Only the first method in the annotation text was emitted | Medium | Fixed |
+| JAVA-AST-OPEN-003 | Java | Spring class path arrays combined with method path and method arrays | `@RequestMapping({"/api","/internal"})` plus `@RequestMapping(value={"/users","/members"}, method={GET,POST})` | cross product of class prefixes, method paths, and HTTP methods | Only the first class path prefix was used | Medium | Fixed |
+| JAVA-AST-OPEN-004 | Java | Spring composed class-level path annotations | custom annotation wrapping `@RequestMapping({"/api","/internal"})` on a controller class | composed class prefix paths combine with method route annotations | Custom class-prefix annotations were ignored, producing only method-local routes | Medium | Fixed |
 | KT-AST-OPEN-001 | Kotlin | Coroutine builders as deferred execution | `launch { doWork() }` | nested `doWork` is not attributed to the enclosing setup function | It was intentionally over-attributed before this pass | Low | Fixed |
 | KT-AST-OPEN-002 | Kotlin | Ktor nested route DSL | `routing { route("/api") { get("/users") { listUsers() } } }` | route `GET /api/users` handles `listUsers` | Ktor DSL route scopes were not modeled | High | Fixed |
+| KT-AST-OPEN-003 | Kotlin | Ktor verb blocks inheriting nested route scopes | `route("/api") { route("/users") { get { listUsers() }; post { createUser() } } }` | `GET /api/users` and `POST /api/users` handle their block calls | Ktor verb blocks without explicit path strings were ignored | Medium | Fixed |
 | CS-AST-OPEN-001 | C# | Endpoint route groups | `app.MapGroup("/api").MapGet("/users", Handler)` | combined minimal API route | Minimal API group chaining was not modeled | Medium | Fixed |
 | CS-AST-OPEN-002 | C# | Nested endpoint route groups | `api.MapGroup("/v1"); v1.MapGet("/users", Handler)` | route `GET /api/v1/users` handles `Handler` | Child group prefix lost the parent group prefix | Medium | Fixed |
+| CS-AST-OPEN-003 | C# | Inline endpoint route groups with endpoint filters | `app.MapGroup("/api").MapGet("/users", Handler).AddEndpointFilter<T>()` | route `GET /api/users` handles `Handler` | Inline `MapGroup` prefixes were lost when `MapGet` was chained through endpoint filters | Medium | Fixed |
+| CS-AST-OPEN-004 | C# | Minimal API lambda delegates calling named handlers | `app.MapGroup("/api").MapGet("/users", () => ListUsers())` | route `GET /api/users` handles `ListUsers` | The route was emitted, but the lambda delegate hid the named handler call | Medium | Fixed |
+| CS-AST-OPEN-005 | C# | Minimal API block lambdas wrapping named handlers in result helpers | `app.MapGet("/users", ctx => { return Results.Ok(ListUsers(ctx)); })` | route `GET /users` handles `ListUsers`, not `Ok` | The first call in the lambda body, `Ok`, was recorded as the handler | Medium | Fixed |
 
 The entries above are kept under their original IDs to preserve traceability
 from the former open-gap list to the tests in
@@ -169,6 +175,7 @@ from the former open-gap list to the tests in
 | PY-IDX-OPEN-002 | Python | FastAPI include_router with noncanonical router variable names | `users_router = APIRouter(...); from routes.users import users_router; app.include_router(users_router, prefix="/v1")` | indexer recognizes imported APIRouter variable names from the target module | `GET /v1/api/users` is emitted with a `handles` edge to `list_users` | Medium | Fixed |
 | PY-IDX-OPEN-003 | Python | FastAPI include_router with multiple routers in one module | `users_router` and `admin_router` in the same file; only `users_router` is imported and included | indexer mounts only routes declared on the imported router variable | `GET /v1/users/` is emitted and `GET /v1/admin/` is not emitted | High | Fixed |
 | PY-IDX-OPEN-004 | Python | FastAPI package-level router re-exports | `routes/__init__.py` re-exports `users_router`; `main.py` imports it with `from routes import users_router` | indexer resolves the package barrel to the source router file | `GET /v1/users/` is emitted with a `handles` edge to `list_users` | Medium | Fixed |
+| PY-IDX-OPEN-005 | Python | FastAPI wildcard package-level router re-exports | `routes/__init__.py` re-exports `users_router`; `main.py` imports it with `from routes import *` | indexer expands wildcard router exports through the package barrel | `GET /v1/users/` is emitted with a `handles` edge to `list_users` | Medium | Fixed |
 
 The JavaScript parser still keeps `ExtractFromSource` single-file. Cross-file
 router ownership is now handled by the indexer after all files have been
@@ -518,6 +525,158 @@ Next hypothesis:
   multi-method arrays.
 - Add a future C# pressure test for endpoint filters chained after grouped
   endpoints.
+
+### 2026-05-23-csharp-inline-mapgroup-filter-pass-1
+
+Languages tested:
+
+- C#
+
+Constructs:
+
+- ASP.NET Minimal API inline route group:
+  `app.MapGroup("/api").MapGet("/users", ListUsers)`.
+- Endpoint filter chained after the endpoint:
+  `.AddEndpointFilter<AuthFilter>()`.
+
+Sources:
+
+- Reduced targeted fixture in
+  `TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp inline minimal api route group with endpoint filter`.
+- The fixture mirrors Minimal API endpoint declarations where route groups are
+  not assigned to local variables before the endpoint is declared.
+
+Expected graph:
+
+- Route node `GET /api/users`.
+- Handler node `ListUsers`.
+- `GET /api/users` has a `handles` edge to `ListUsers`.
+
+Actual result before fix:
+
+- Route node `GET /users` was emitted.
+- The `MapGet` call was detected through the filter chain, but the inline
+  `MapGroup("/api")` prefix was not available in `csharpRouteGroupPrefixes`,
+  which only tracked assigned group variables.
+
+Outcome:
+
+- C# Minimal API route extraction now reads inline `MapGroup(...)` prefixes
+  from the receiver chain before the `MapGet`/`MapPost` call.
+- Assigned and nested group variables remain covered by existing tests.
+- `SchemaVersion` was bumped to `46` so existing graph caches are rebuilt.
+
+Verification:
+
+- Red check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp_inline_minimal_api_route_group_with_endpoint_filter' -count=1` failed because `GET /api/users` was absent and `GET /users` was emitted.
+- Green check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp_inline_minimal_api_route_group_with_endpoint_filter|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp_minimal_api_route_group|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp_nested_minimal_api_route_groups' -count=1` passed.
+
+Next hypothesis:
+
+- Add C# Minimal API fixtures for inline nested `MapGroup(...).MapGroup(...)`
+  chains if real projects show them.
+
+### 2026-05-23-csharp-minimal-api-lambda-handler-pass-1
+
+Languages tested:
+
+- C#
+
+Constructs:
+
+- ASP.NET Minimal API inline nested route groups:
+  `app.MapGroup("/api").MapGroup("/v1")`.
+- Endpoint filter chained after the endpoint:
+  `.AddEndpointFilter<AuthFilter>()`.
+- Lambda endpoint delegate that calls a named handler:
+  `.MapGet("/users", () => ListUsers())`.
+
+Sources:
+
+- Reduced targeted fixture in
+  `TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp inline nested minimal api route group lambda handler`.
+- The fixture mirrors Minimal API declarations that wrap handler calls in small
+  inline delegates to bind parameters, services, or filters.
+
+Expected graph:
+
+- Route node `GET /api/v1/users`.
+- Handler node `ListUsers`.
+- `GET /api/v1/users` has a `handles` edge to `ListUsers`.
+
+Actual result before fix:
+
+- Route node `GET /api/v1/users` was emitted.
+- No `ListUsers` handler node or `handles` edge was emitted because the route
+  handler argument was a lambda expression instead of a direct method group.
+
+Outcome:
+
+- C# Minimal API handler extraction now recognizes simple lambda delegates
+  whose expression body calls a named handler.
+- Inline nested `MapGroup(...)` prefixes and endpoint filters remain covered.
+- `SchemaVersion` was bumped to `47` so existing graph caches are rebuilt.
+
+Verification:
+
+- Red check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp_inline_nested_minimal_api_route_group_lambda_handler' -count=1` failed because handler `ListUsers` was absent.
+- Green check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp_inline_nested_minimal_api_route_group_lambda_handler|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp_inline_minimal_api_route_group_with_endpoint_filter|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp_nested_minimal_api_route_groups' -count=1` passed.
+
+Next hypothesis:
+
+- Add C# Minimal API fixtures for block-bodied lambdas or typed lambda
+  parameters if real projects show named handlers hidden behind those shapes.
+
+### 2026-05-23-csharp-minimal-api-wrapped-lambda-handler-pass-1
+
+Languages tested:
+
+- C#
+
+Constructs:
+
+- ASP.NET Minimal API block-bodied lambda delegate:
+  `(HttpContext ctx) => { return Results.Ok(ListUsers(ctx)); }`.
+- Result helper wrapping the real named handler call: `Results.Ok(...)`.
+
+Sources:
+
+- Reduced targeted fixture in
+  `TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp minimal api block lambda wrapped handler`.
+- The fixture mirrors Minimal API handlers that wrap domain handler results in
+  `Results.*` response helpers.
+
+Expected graph:
+
+- Route node `GET /users`.
+- Handler node `ListUsers`.
+- `GET /users` has a `handles` edge to `ListUsers`.
+- No handler node `Ok` should be emitted for the result helper.
+
+Actual result before fix:
+
+- Route node `GET /users` was emitted.
+- Handler node `Ok` was emitted and connected to the route.
+- Handler node `ListUsers` was absent because lambda handler extraction picked
+  the first call expression in the lambda body.
+
+Outcome:
+
+- C# Minimal API lambda handler extraction now scans call expressions after the
+  lambda arrow and skips common `Results.*` wrapper helpers.
+- Expression-bodied named handler lambdas and inline grouped endpoints remain
+  covered.
+- `SchemaVersion` was bumped to `48` so existing graph caches are rebuilt.
+
+Verification:
+
+- Red check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp_minimal_api_block_lambda_wrapped_handler' -count=1` failed because handler `ListUsers` was absent and handler `Ok` was emitted.
+- Green check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp_minimal_api_block_lambda_wrapped_handler|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp_inline_nested_minimal_api_route_group_lambda_handler|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/csharp_inline_minimal_api_route_group_with_endpoint_filter' -count=1` passed.
+
+Next hypothesis:
+
+- Add C# Minimal API fixtures for lambdas with multiple user-defined calls if
+  real projects show ambiguous handler ownership.
 
 ### 2026-05-23-java-spring-multi-method-pass-1
 
@@ -920,17 +1079,230 @@ Next hypothesis:
 - Add a real NestJS fixture that mixes controller object-literal route prefixes,
   method object-literal path arrays, guards, and interceptors in one class.
 
+### 2026-05-23-python-fastapi-wildcard-router-reexport-pass-1
+
+Languages tested:
+
+- Python
+
+Constructs:
+
+- FastAPI router declared in a source module:
+  `users_router = APIRouter(prefix="/users")`.
+- Package barrel re-export: `routes/__init__.py` uses
+  `from .users import users_router`.
+- Application wildcard import: `from routes import *`.
+- Application-level include: `app.include_router(users_router, prefix="/v1")`.
+
+Sources:
+
+- Reduced targeted indexer fixture in
+  `TestIndexerComposesPythonFastAPIIncludeRouterPrefixesThroughWildcardPackageReExports`.
+- The fixture mirrors FastAPI packages that expose routers through a package
+  barrel and consume them with wildcard imports in an application module.
+
+Expected graph:
+
+- Route node `GET /v1/users/`.
+- The included route keeps a `handles` edge to `list_users`.
+
+Actual result before fix:
+
+- The parser emitted the router-local route `GET /users/`.
+- The indexer did not compose the application-level prefix because
+  `pythonRouterImports` skipped `from routes import *`.
+
+Outcome:
+
+- Python router import resolution now expands wildcard imports into exported
+  FastAPI router symbols.
+- Export expansion follows package-barrel re-exports and nested wildcard
+  re-exports while preserving the original router file and router variable.
+- `SchemaVersion` was bumped to `42` so existing graph caches are rebuilt.
+
+Verification:
+
+- Red check: `go test ./internal/astgraph -run TestIndexerComposesPythonFastAPIIncludeRouterPrefixesThroughWildcardPackageReExports -count=1` failed because `GET /v1/users/` was absent.
+- Green check: `go test ./internal/astgraph -run 'TestIndexerComposesPythonFastAPIIncludeRouterPrefixesThroughWildcardPackageReExports|TestIndexerComposesPythonFastAPIIncludeRouterPrefixesThroughPackageReExports|TestSchemaVersion' -count=1` passed.
+
+Next hypothesis:
+
+- Add FastAPI fixtures that use `__all__` or dynamic import-time router export
+  lists if real projects show those patterns.
+
+### 2026-05-23-java-spring-class-path-array-pass-1
+
+Languages tested:
+
+- Java
+
+Constructs:
+
+- Spring class-level path arrays:
+  `@RequestMapping({"/api", "/internal"})`.
+- Method-level path arrays:
+  `@RequestMapping(value={"/users", "/members"}, ...)`.
+- Method arrays:
+  `method={RequestMethod.GET, RequestMethod.POST}`.
+
+Sources:
+
+- Reduced targeted fixture in
+  `TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java spring class and method path arrays with method array`.
+- The fixture mirrors Spring controllers that expose the same handler under
+  multiple API base paths and resource aliases.
+
+Expected graph:
+
+- Route nodes for every class-prefix, method-path, and HTTP-method
+  combination:
+  `GET /api/users`, `POST /api/users`, `GET /api/members`,
+  `POST /api/members`, `GET /internal/users`, `POST /internal/users`,
+  `GET /internal/members`, and `POST /internal/members`.
+- Each route has a `handles` edge to `UsersController.users`.
+
+Actual result before fix:
+
+- The parser emitted the four `/api/...` routes.
+- The parser did not emit any `/internal/...` routes because
+  `springClassRoutePrefix` returned only the first class annotation path.
+
+Outcome:
+
+- Java Spring class route prefixes are now tracked as a path list.
+- Method route extraction composes all active class prefixes with method path
+  arrays and HTTP method arrays.
+- Existing single-prefix Java Spring and Kotlin Spring paths keep using the
+  same route extraction behavior.
+- `SchemaVersion` was bumped to `43` so existing graph caches are rebuilt.
+
+Verification:
+
+- Red check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java_spring_class_and_method_path_arrays_with_method_array' -count=1` failed because `GET /internal/users` was absent.
+- Green check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java_spring_class_and_method_path_arrays_with_method_array|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java_spring_request_mapping_method_array|TestExtractFromSourceFindsSpringJavaRouteAndHandler|TestExtractFromSourceFindsSpringJavaRequestMappingMethod' -count=1` passed.
+
+Next hypothesis:
+
+- Add Spring fixtures for class-level path arrays on composed annotations if
+  real projects show custom controller-prefix annotations.
+
+### 2026-05-23-java-spring-composed-class-prefix-pass-1
+
+Languages tested:
+
+- Java
+
+Constructs:
+
+- Custom class-level Spring prefix annotation:
+  `@interface ApiPrefix {}`.
+- Meta-annotation on the custom annotation:
+  `@RequestMapping({"/api", "/internal"})`.
+- Controller annotated with `@ApiPrefix`.
+- Method-level route annotation: `@GetMapping("/users")`.
+
+Sources:
+
+- Reduced targeted fixture in
+  `TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java spring composed class path array annotation`.
+- The fixture mirrors Spring projects that define controller-prefix annotations
+  for API versions, tenant areas, or internal/public split routing.
+
+Expected graph:
+
+- Route node `GET /api/users` with a `handles` edge to
+  `UsersController.users`.
+- Route node `GET /internal/users` with a `handles` edge to
+  `UsersController.users`.
+
+Actual result before fix:
+
+- The parser emitted only `GET /users`.
+- Existing composed-annotation extraction handled custom method route
+  annotations, but class route prefix extraction only recognized direct
+  `@RequestMapping` annotations.
+
+Outcome:
+
+- Java Spring class prefix extraction now resolves custom annotations whose
+  declarations are meta-annotated with `@RequestMapping(...)`.
+- Composed class-prefix annotations may expose multiple path values, and those
+  values compose with method-level Spring routes.
+- Existing composed method-route annotations and direct class path arrays remain
+  covered.
+- `SchemaVersion` was bumped to `44` so existing graph caches are rebuilt.
+
+Verification:
+
+- Red check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java_spring_composed_class_path_array_annotation' -count=1` failed because `GET /api/users` was absent.
+- Green check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java_spring_composed_class_path_array_annotation|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java_spring_class_and_method_path_arrays_with_method_array|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/java_spring_composed_annotation' -count=1` passed.
+
+Next hypothesis:
+
+- Add Spring fixtures for composed class-prefix annotations with aliased
+  annotation attributes if real projects show that pattern.
+
+### 2026-05-23-kotlin-ktor-inherited-verb-path-pass-1
+
+Languages tested:
+
+- Kotlin
+
+Constructs:
+
+- Ktor nested `route` scopes:
+  `route("/api") { route("/users") { ... } }`.
+- HTTP verb blocks without explicit path strings:
+  `get { listUsers() }` and `post { createUser() }`.
+
+Sources:
+
+- Reduced targeted fixture in
+  `TestExtractFromSourceFixesDocumentedOpenLanguageGaps/kotlin ktor multiple verbs inherit nested route path`.
+- The fixture mirrors Ktor routing tables where a nested `route(...)` scope
+  owns the path and individual verb blocks inherit it.
+
+Expected graph:
+
+- Route node `GET /api/users` with a `handles` edge to `listUsers`.
+- Route node `POST /api/users` with a `handles` edge to `createUser`.
+
+Actual result before fix:
+
+- No Ktor route nodes were emitted for `get { ... }` or `post { ... }`.
+- `kotlinKtorHTTPRouteFromLine` required each verb call to contain a quoted
+  path argument.
+
+Outcome:
+
+- Ktor verb block extraction now accepts pathless verb calls when they open a
+  block.
+- Pathless verb blocks inherit the current nested `route(...)` scope exactly,
+  without adding a trailing slash.
+- Existing explicit-path Ktor route extraction remains covered.
+- `SchemaVersion` was bumped to `45` so existing graph caches are rebuilt.
+
+Verification:
+
+- Red check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/kotlin_ktor_multiple_verbs_inherit_nested_route_path' -count=1` failed because `GET /api/users` was absent.
+- Green check: `go test ./internal/astgraph/parser -run 'TestExtractFromSourceFixesDocumentedOpenLanguageGaps/kotlin_ktor_multiple_verbs_inherit_nested_route_path|TestExtractFromSourceFixesDocumentedOpenLanguageGaps/kotlin_ktor_nested_route_dsl' -count=1` passed.
+
+Next hypothesis:
+
+- Add Ktor fixtures for route handlers declared with typed parameters or nested
+  helper calls if real projects show ambiguous first-call handler detection.
+
 ## Per-Language Recommendations
 
 | Language | Next regression source to add | Why |
 |---|---|---|
 | JavaScript | Real Express project fixture with nested router barrels and multiple mounted routers | Single-level named re-export barrels are covered; denser routing indexes may still create duplicate or ambiguous ownership |
 | TypeScript | Real NestJS controller mixing object-literal controller prefixes, method object-literal arrays, guards, and interceptors | Reduced cases are covered independently; dense real controllers may still expose decorator association gaps |
-| Python | FastAPI wildcard or aliased package-barrel imports from real projects | Direct package re-exports are covered; wildcard and alias forms may still hide router ownership |
+| Python | FastAPI `__all__` or dynamic router export lists from real projects | Direct package re-exports and wildcard imports are covered; explicit export lists may still hide router ownership |
 | Rust | Real Axum nested router file with state/layers | Nested prefixes and method-router chains are covered; layers and services may still hide handlers |
-| Java | Spring controller combining path arrays and method arrays | Multi-method routes are covered; cross product of path arrays and method arrays needs pressure |
-| Kotlin | Ktor multiple verb blocks and nested `route` chains from real projects | Basic Ktor route DSL graphing is covered; denser routing tables may still expose scope-stack gaps |
-| C# | ASP.NET Minimal API endpoint filters on grouped endpoints | Nested MapGroup prefix composition is covered; filters may still hide endpoint declarations |
+| Java | Spring composed class-prefix annotations with aliased annotation attributes | Direct and composed class prefix arrays are covered; custom attributes may still hide dynamic prefix values |
+| Kotlin | Ktor typed route handlers or nested helper-call blocks from real projects | Nested route scopes and pathless verb blocks are covered; handler detection may still be ambiguous in denser blocks |
+| C# | ASP.NET Minimal API lambdas with several user-defined calls | Expression and block-bodied result-wrapper lambdas are covered; multi-call lambdas may still make handler ownership ambiguous |
 
 ## Next Test Hypotheses
 
@@ -947,10 +1319,17 @@ Next hypothesis:
 | H-PY-IDX-002 | Python | FastAPI include_router may miss routers whose variable name is not `router` | `users_router = APIRouter(...); from routes.users import users_router` | `GET /v1/api/users` route with `handles` edge to `list_users` | Medium | Fixed |
 | H-PY-IDX-003 | Python | FastAPI include_router may mount unrelated routes when several routers live in one source file | `users_router` and `admin_router` in one file, only `users_router` included | only `GET /v1/users/` is mounted; `GET /v1/admin/` is not mounted | High | Fixed |
 | H-PY-IDX-004 | Python | FastAPI package-level re-export imports may hide router ownership | `routes/__init__.py` uses `from .users import users_router`; `main.py` uses `from routes import users_router` | `GET /v1/users/` route with `handles` edge to `list_users` | Medium | Fixed |
+| H-PY-IDX-005 | Python | FastAPI wildcard package-barrel imports may hide router ownership | `routes/__init__.py` uses `from .users import users_router`; `main.py` uses `from routes import *` | `GET /v1/users/` route with `handles` edge to `list_users` | Medium | Fixed |
 | H-RS-001 | Rust | Axum route handlers wrapped in layers or method routers may hide the handler | `route("/users", get(list).post(create))` | `GET /users` and `POST /users` route edges | Medium | Fixed |
 | H-JAVA-001 | Java | Spring `@RequestMapping(method={GET,POST})` may collapse multi-method routes | method array in annotation | separate `GET` and `POST` route nodes or documented policy | Medium | Fixed |
+| H-JAVA-002 | Java | Spring class path arrays may collapse before method path and method arrays are crossed | class `@RequestMapping({"/api","/internal"})` plus method `@RequestMapping(value={"/users","/members"}, method={GET,POST})` | all class-prefix, method-path, and HTTP-method route combinations handle the method | Medium | Fixed |
+| H-JAVA-003 | Java | Spring composed class-level prefix annotations may hide controller path prefixes | `@RequestMapping({"/api","/internal"}) @interface ApiPrefix {}` applied to a controller class | composed class prefixes combine with method route annotations | Medium | Fixed |
 | H-KT-001 | Kotlin | Ktor nested route DSL likely needs scope-stack handling | `routing { route("/api") { get("/users") { list() } } }` | `GET /api/users` route and handler/call relationship | High | Fixed |
+| H-KT-002 | Kotlin | Ktor verb blocks without path strings may fail to inherit nested route paths | `route("/api") { route("/users") { get { listUsers() }; post { createUser() } } }` | `GET /api/users` and `POST /api/users` route edges | Medium | Fixed |
 | H-CS-001 | C# | Nested `MapGroup` chains may only use the first group prefix | `api.MapGroup("/v1").MapGet("/users", Handler)` | `GET /api/v1/users` handles `Handler` | Medium | Fixed |
+| H-CS-002 | C# | Inline `MapGroup` chains with endpoint filters may lose group prefixes | `app.MapGroup("/api").MapGet("/users", Handler).AddEndpointFilter<T>()` | `GET /api/users` handles `Handler` | Medium | Fixed |
+| H-CS-003 | C# | Minimal API lambda delegates may hide named handler calls | `app.MapGroup("/api").MapGet("/users", () => ListUsers())` | route handles `ListUsers` | Medium | Fixed |
+| H-CS-004 | C# | Minimal API result-helper wrappers may be mistaken for named handlers | `app.MapGet("/users", ctx => Results.Ok(ListUsers(ctx)))` | route handles `ListUsers`, not `Ok` | Medium | Fixed |
 
 ## Maintenance Rules
 

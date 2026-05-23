@@ -74,9 +74,9 @@ func (s Service) Run() { helper() }
 	}
 }
 
-func TestSchemaVersionBumpedForTypeScriptNestJSObjectDecoratorPaths(t *testing.T) {
-	if SchemaVersion != 41 {
-		t.Fatalf("SchemaVersion = %d, want 41 for TypeScript NestJS object decorator path reindex", SchemaVersion)
+func TestSchemaVersionBumpedForCSharpMinimalAPIWrappedLambdaHandlers(t *testing.T) {
+	if SchemaVersion != 48 {
+		t.Fatalf("SchemaVersion = %d, want 48 for C# Minimal API wrapped lambda handler reindex", SchemaVersion)
 	}
 }
 
@@ -363,6 +363,36 @@ app.include_router(users_router, prefix="/v1")
 	handlerID := nodeIDByName(t, result.Nodes, NodeKindHandler, "list_users")
 	if !hasEdge(result.Edges, routeID, handlerID, EdgeKindHandles) {
 		t.Fatalf("Edges = %#v, want package re-exported users router route to handle list_users", result.Edges)
+	}
+}
+
+func TestIndexerComposesPythonFastAPIIncludeRouterPrefixesThroughWildcardPackageReExports(t *testing.T) {
+	root := t.TempDir()
+	writeASTGraphFixture(t, root, "routes/users.py", `from fastapi import APIRouter
+
+users_router = APIRouter(prefix="/users")
+
+@users_router.get("/")
+def list_users():
+    pass
+`)
+	writeASTGraphFixture(t, root, "routes/__init__.py", `from .users import users_router
+`)
+	writeASTGraphFixture(t, root, "main.py", `from routes import *
+
+app.include_router(users_router, prefix="/v1")
+`)
+
+	indexer := NewIndexer(IndexOptions{MaxFileSize: 2048})
+	result, err := indexer.Index(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	routeID := nodeIDByName(t, result.Nodes, NodeKindRoute, "GET /v1/users/")
+	handlerID := nodeIDByName(t, result.Nodes, NodeKindHandler, "list_users")
+	if !hasEdge(result.Edges, routeID, handlerID, EdgeKindHandles) {
+		t.Fatalf("Edges = %#v, want wildcard package re-exported users router route to handle list_users", result.Edges)
 	}
 }
 

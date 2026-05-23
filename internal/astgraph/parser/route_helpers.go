@@ -787,11 +787,18 @@ func appendKotlinKtorRoutes(path string, source []byte, result *ExtractionResult
 		}
 		if method, pattern, ok := kotlinKtorHTTPRouteFromLine(trimmed); ok {
 			afterDepth := depth + strings.Count(raw, "{") - strings.Count(raw, "}")
+			routePattern := kotlinKtorPrefix(prefixes)
+			if pattern != "" {
+				routePattern = combineRoutePatterns(routePattern, pattern)
+			}
+			if routePattern == "" {
+				routePattern = "/"
+			}
 			routes = append(routes, kotlinKtorRouteScope{
 				route: frameworkRoute{
 					Framework: "ktor",
 					Method:    method,
-					Pattern:   combineRoutePatterns(kotlinKtorPrefix(prefixes), pattern),
+					Pattern:   routePattern,
 					Line:      lineNumber,
 					Column:    strings.Index(raw, strings.ToLower(method)),
 				},
@@ -838,10 +845,15 @@ func kotlinKtorRoutePatternFromLine(line string) (string, bool) {
 
 func kotlinKtorHTTPRouteFromLine(line string) (string, string, bool) {
 	open := strings.Index(line, "(")
-	if open < 0 {
+	brace := strings.Index(line, "{")
+	if open < 0 && brace < 0 {
 		return "", "", false
 	}
-	name := strings.TrimSpace(line[:open])
+	nameEnd := open
+	if nameEnd < 0 || (brace >= 0 && brace < nameEnd) {
+		nameEnd = brace
+	}
+	name := strings.TrimSpace(line[:nameEnd])
 	fields := strings.Fields(name)
 	if len(fields) > 0 {
 		name = fields[len(fields)-1]
@@ -851,7 +863,7 @@ func kotlinKtorHTTPRouteFromLine(line string) (string, string, bool) {
 		return "", "", false
 	}
 	pattern := firstQuotedText(line)
-	return method, pattern, pattern != ""
+	return method, pattern, pattern != "" || brace >= 0
 }
 
 func kotlinKtorHandlerFromLine(line string) string {
@@ -1131,17 +1143,65 @@ func appendCSharpMinimalAPIRoute(path string, source []byte, node *tree_sitter.N
 	if !ok {
 		return false
 	}
-	pattern = combineRoutePatterns(prefixes[receiver], pattern)
+	prefix := prefixes[receiver]
+	if prefix == "" {
+		prefix = csharpInlineMapGroupPrefix(source, node, methodName)
+	}
+	pattern = combineRoutePatterns(prefix, pattern)
 	line, column := routeLineColumn(node)
 	appendFrameworkRoute(path, result, model.LanguageCSharp, frameworkRoute{
 		Framework:   "aspnet",
 		Method:      method,
 		Pattern:     pattern,
-		HandlerName: referenceArgumentName(source, args, 1),
+		HandlerName: csharpMinimalAPIHandlerName(source, args, 1),
 		Line:        line,
 		Column:      column,
 	})
 	return true
+}
+
+func csharpMinimalAPIHandlerName(source []byte, args []*tree_sitter.Node, index int) string {
+	handler := referenceArgumentName(source, args, index)
+	if handler != "" {
+		return handler
+	}
+	if index < 0 || index >= len(args) {
+		return ""
+	}
+	text := nodeText(source, args[index])
+	if arrow := strings.Index(text, "=>"); arrow >= 0 {
+		afterArrow := text[arrow+len("=>"):]
+		for _, matches := range regexp.MustCompile(`\b([A-Za-z_][A-Za-z0-9_]*)\s*\(`).FindAllStringSubmatch(afterArrow, -1) {
+			if len(matches) < 2 || isCSharpMinimalAPIWrapperCall(matches[1]) {
+				continue
+			}
+			return matches[1]
+		}
+	}
+	return ""
+}
+
+func isCSharpMinimalAPIWrapperCall(name string) bool {
+	switch name {
+	case "Ok", "Created", "CreatedAtRoute", "NoContent", "NotFound", "BadRequest", "Problem", "ValidationProblem", "Json", "Text", "File", "Stream":
+		return true
+	default:
+		return false
+	}
+}
+
+func csharpInlineMapGroupPrefix(source []byte, node *tree_sitter.Node, methodName string) string {
+	text := nodeText(source, node)
+	methodIndex := strings.LastIndex(text, "."+methodName+"(")
+	if methodIndex < 0 {
+		return ""
+	}
+	beforeMethod := text[:methodIndex]
+	var prefix string
+	for _, value := range quotedTexts(beforeMethod) {
+		prefix = combineRoutePatterns(prefix, value)
+	}
+	return prefix
 }
 
 func csharpRouteGroupPrefixes(source []byte) map[string]string {

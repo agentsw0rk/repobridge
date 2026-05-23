@@ -63,7 +63,7 @@ func walkRust(path string, source []byte, node *tree_sitter.Node, result *Extrac
 }
 
 func walkJava(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
-	walkJavaNode(path, source, node, result, "", "", "")
+	walkJavaNode(path, source, node, result, "", []string{""}, "")
 }
 
 func walkKotlin(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult) {
@@ -206,9 +206,12 @@ func walkRustNode(path string, source []byte, node *tree_sitter.Node, result *Ex
 	}
 }
 
-func walkJavaNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID, routePrefix, className string) {
+func walkJavaNode(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, currentNodeID string, routePrefixes []string, className string) {
 	if node == nil {
 		return
+	}
+	if len(routePrefixes) == 0 {
+		routePrefixes = []string{""}
 	}
 
 	switch node.Kind() {
@@ -217,15 +220,17 @@ func walkJavaNode(path string, source []byte, node *tree_sitter.Node, result *Ex
 			className = name
 		}
 		appendScopedLanguageNode(path, source, node, model.NodeKindClass, model.LanguageJava, result, "")
-		if prefix, ok := springClassRoutePrefix(source, node); ok {
-			routePrefix = combineRoutePatterns(routePrefix, prefix)
+		if prefixes, ok := springClassRoutePrefixes(source, node); ok {
+			routePrefixes = combineRoutePatternLists(routePrefixes, prefixes)
+		} else if prefixes, ok := springComposedRoutePrefixesFromAnnotations(source, directAnnotations(node)); ok {
+			routePrefixes = combineRoutePatternLists(routePrefixes, prefixes)
 		}
 	case "interface_declaration":
 		appendScopedLanguageNode(path, source, node, model.NodeKindInterface, model.LanguageJava, result, "")
 	case "enum_declaration":
 		appendScopedLanguageNode(path, source, node, model.NodeKindEnum, model.LanguageJava, result, "")
 	case "method_declaration":
-		if id := appendSpringHandlerOrJavaMethod(path, source, node, result, routePrefix, className); id != "" {
+		if id := appendSpringHandlerOrJavaMethod(path, source, node, result, routePrefixes, className); id != "" {
 			currentNodeID = id
 		}
 	case "lambda_expression":
@@ -237,7 +242,7 @@ func walkJavaNode(path string, source []byte, node *tree_sitter.Node, result *Ex
 	}
 
 	for i := uint(0); i < node.NamedChildCount(); i++ {
-		walkJavaNode(path, source, node.NamedChild(i), result, currentNodeID, routePrefix, className)
+		walkJavaNode(path, source, node.NamedChild(i), result, currentNodeID, routePrefixes, className)
 	}
 }
 
@@ -1389,10 +1394,15 @@ func appendKotlinImportNode(path string, source []byte, node *tree_sitter.Node, 
 	return id
 }
 
-func appendSpringHandlerOrJavaMethod(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, routePrefix, className string) string {
-	routes := springRoutesFromAnnotations(source, directAnnotations(node), routePrefix)
+func appendSpringHandlerOrJavaMethod(path string, source []byte, node *tree_sitter.Node, result *ExtractionResult, routePrefixes []string, className string) string {
+	var routes []springRoute
+	for _, routePrefix := range routePrefixes {
+		routes = append(routes, springRoutesFromAnnotations(source, directAnnotations(node), routePrefix)...)
+	}
 	if len(routes) == 0 {
-		routes = springComposedRoutesFromAnnotations(source, directAnnotations(node), routePrefix)
+		for _, routePrefix := range routePrefixes {
+			routes = append(routes, springComposedRoutesFromAnnotations(source, directAnnotations(node), routePrefix)...)
+		}
 	}
 	if len(routes) == 0 {
 		return appendScopedLanguageNode(path, source, node, model.NodeKindMethod, model.LanguageJava, result, className)
@@ -2228,10 +2238,26 @@ type springRoute struct {
 }
 
 func springClassRoutePrefix(source []byte, node *tree_sitter.Node) (string, bool) {
-	return springRoutePrefixFromAnnotations(source, directAnnotations(node))
+	prefixes, ok := springClassRoutePrefixes(source, node)
+	if !ok || len(prefixes) == 0 {
+		return "", ok
+	}
+	return prefixes[0], true
+}
+
+func springClassRoutePrefixes(source []byte, node *tree_sitter.Node) ([]string, bool) {
+	return springRoutePrefixesFromAnnotations(source, directAnnotations(node))
 }
 
 func springRoutePrefixFromAnnotations(source []byte, annotations []*tree_sitter.Node) (string, bool) {
+	prefixes, ok := springRoutePrefixesFromAnnotations(source, annotations)
+	if !ok || len(prefixes) == 0 {
+		return "", ok
+	}
+	return prefixes[0], true
+}
+
+func springRoutePrefixesFromAnnotations(source []byte, annotations []*tree_sitter.Node) ([]string, bool) {
 	for _, annotation := range annotations {
 		name := annotationName(source, annotation)
 		if name != "RequestMapping" {
@@ -2239,11 +2265,21 @@ func springRoutePrefixFromAnnotations(source []byte, annotations []*tree_sitter.
 		}
 		patterns := annotationPathValues(source, annotation)
 		if len(patterns) == 0 {
-			return "", true
+			return []string{""}, true
 		}
-		return patterns[0], true
+		return patterns, true
 	}
-	return "", false
+	return nil, false
+}
+
+func combineRoutePatternLists(prefixes, patterns []string) []string {
+	var combined []string
+	for _, prefix := range prefixes {
+		for _, pattern := range patterns {
+			combined = append(combined, combineRoutePatterns(prefix, pattern))
+		}
+	}
+	return uniqueStrings(combined)
 }
 
 func springRoutesFromAnnotations(source []byte, annotations []*tree_sitter.Node, routePrefix string) []springRoute {
@@ -2287,6 +2323,48 @@ func springComposedRoutesFromAnnotations(source []byte, annotations []*tree_sitt
 		routes = append(routes, route)
 	}
 	return routes
+}
+
+func springComposedRoutePrefixesFromAnnotations(source []byte, annotations []*tree_sitter.Node) ([]string, bool) {
+	meta := springComposedAnnotationPrefixes(source)
+	var prefixes []string
+	for _, annotation := range annotations {
+		if annotationPrefixes, ok := meta[annotationName(source, annotation)]; ok {
+			prefixes = append(prefixes, annotationPrefixes...)
+		}
+	}
+	return uniqueStrings(prefixes), len(prefixes) > 0
+}
+
+func springComposedAnnotationPrefixes(source []byte) map[string][]string {
+	prefixes := map[string][]string{}
+	var pending []string
+	for _, raw := range strings.Split(string(source), "\n") {
+		trimmed := strings.TrimSpace(raw)
+		if len(pending) > 0 && strings.Contains(trimmed, "@interface ") {
+			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "@interface "))
+			if idx := strings.IndexAny(name, " {("); idx >= 0 {
+				name = strings.TrimSpace(name[:idx])
+			}
+			if name != "" {
+				prefixes[name] = pending
+			}
+			pending = nil
+			continue
+		}
+		if strings.HasPrefix(trimmed, "@RequestMapping") {
+			values := quotedTexts(trimmed)
+			if len(values) == 0 {
+				values = []string{""}
+			}
+			pending = values
+			continue
+		}
+		if strings.HasPrefix(trimmed, "@") {
+			pending = nil
+		}
+	}
+	return prefixes
 }
 
 func springComposedAnnotationRoutes(source []byte) map[string]springRoute {

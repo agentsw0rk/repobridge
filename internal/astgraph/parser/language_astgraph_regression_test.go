@@ -442,6 +442,59 @@ class HealthController {
 		assertEdge(t, result.Edges, postRouteID, handlerID, model.EdgeKindHandles)
 	})
 
+	t.Run("java spring class and method path arrays with method array", func(t *testing.T) {
+		source := []byte(`@RequestMapping({"/api", "/internal"})
+class UsersController {
+  @RequestMapping(value={"/users", "/members"}, method={RequestMethod.GET, RequestMethod.POST})
+  public void users() {}
+}`)
+
+		result, err := ExtractFromSource("UsersController.java", source, model.LanguageJava)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "users")
+		for _, routeName := range []string{
+			"GET /api/users",
+			"POST /api/users",
+			"GET /api/members",
+			"POST /api/members",
+			"GET /internal/users",
+			"POST /internal/users",
+			"GET /internal/members",
+			"POST /internal/members",
+		} {
+			routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, routeName)
+			assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+		}
+	})
+
+	t.Run("java spring composed class path array annotation", func(t *testing.T) {
+		source := []byte(`@RequestMapping({"/api", "/internal"})
+@interface ApiPrefix {}
+
+@ApiPrefix
+class UsersController {
+  @GetMapping("/users")
+  public void users() {}
+}`)
+
+		result, err := ExtractFromSource("UsersController.java", source, model.LanguageJava)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "users")
+		for _, routeName := range []string{
+			"GET /api/users",
+			"GET /internal/users",
+		} {
+			routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, routeName)
+			assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+		}
+	})
+
 	t.Run("kotlin deferred coroutine builder does not attribute call", func(t *testing.T) {
 		source := []byte("fun setup() { launch { doWork() } }")
 
@@ -478,6 +531,39 @@ fun listUsers() {}
 		assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
 	})
 
+	t.Run("kotlin ktor multiple verbs inherit nested route path", func(t *testing.T) {
+		source := []byte(`fun Application.module() {
+    routing {
+        route("/api") {
+            route("/users") {
+                get {
+                    listUsers()
+                }
+                post {
+                    createUser()
+                }
+            }
+        }
+    }
+}
+
+fun listUsers() {}
+fun createUser() {}
+`)
+
+		result, err := ExtractFromSource("Routes.kt", source, model.LanguageKotlin)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		getRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /api/users")
+		listHandlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "listUsers")
+		assertEdge(t, result.Edges, getRouteID, listHandlerID, model.EdgeKindHandles)
+		postRouteID := findNodeID(t, result.Nodes, model.NodeKindRoute, "POST /api/users")
+		createHandlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "createUser")
+		assertEdge(t, result.Edges, postRouteID, createHandlerID, model.EdgeKindHandles)
+	})
+
 	t.Run("csharp minimal api route group", func(t *testing.T) {
 		source := []byte(`var api = app.MapGroup("/api");
 api.MapGet("/users", ListUsers);`)
@@ -505,5 +591,52 @@ v1.MapGet("/users", ListUsers);`)
 		routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /api/v1/users")
 		handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "ListUsers")
 		assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+	})
+
+	t.Run("csharp inline minimal api route group with endpoint filter", func(t *testing.T) {
+		source := []byte(`app.MapGroup("/api")
+    .MapGet("/users", ListUsers)
+    .AddEndpointFilter<AuthFilter>();`)
+
+		result, err := ExtractFromSource("Program.cs", source, model.LanguageCSharp)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /api/users")
+		handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "ListUsers")
+		assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+	})
+
+	t.Run("csharp inline nested minimal api route group lambda handler", func(t *testing.T) {
+		source := []byte(`app.MapGroup("/api")
+    .MapGroup("/v1")
+    .MapGet("/users", () => ListUsers())
+    .AddEndpointFilter<AuthFilter>();`)
+
+		result, err := ExtractFromSource("Program.cs", source, model.LanguageCSharp)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /api/v1/users")
+		handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "ListUsers")
+		assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+	})
+
+	t.Run("csharp minimal api block lambda wrapped handler", func(t *testing.T) {
+		source := []byte(`app.MapGet("/users", (HttpContext ctx) => {
+    return Results.Ok(ListUsers(ctx));
+});`)
+
+		result, err := ExtractFromSource("Program.cs", source, model.LanguageCSharp)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		routeID := findNodeID(t, result.Nodes, model.NodeKindRoute, "GET /users")
+		handlerID := findNodeID(t, result.Nodes, model.NodeKindHandler, "ListUsers")
+		assertEdge(t, result.Edges, routeID, handlerID, model.EdgeKindHandles)
+		assertNoNode(t, result.Nodes, model.NodeKindHandler, "Ok")
 	})
 }
